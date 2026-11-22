@@ -17,7 +17,7 @@ import { Textarea } from '../ui/textarea'
 import { Progress } from '../ui/progress'
 import { IconButton } from '../ui/icon-button'
 import { RadioCard, RadioGroup } from '../ui/radio-group'
-import { EMPTY_DRAFT, MARKET_NAME_MAX, addParticipant, canAdvance, createSteps, parseUsdWhole, type CreateStep, type MarketDraft } from '../../lib/createMarket'
+import { EMPTY_DRAFT, MARKET_NAME_MAX, addParticipant, canAdvance, createSteps, entryPolicyValid, parseUsdWhole, type CreateStep, type MarketDraft } from '../../lib/createMarket'
 import { safeHttpsUrl } from '../../lib/marketSpaces'
 import type { KycMode, MarketCategory, MarketProfile, SocialLogin } from '../../lib/marketContract'
 import type { MarketInfrastructure, MarketVisibility, ParticipationPreset } from '../../lib/myMarkets'
@@ -43,6 +43,11 @@ export interface CreateMarketCopy {
   images: { icon: ImagePickerCopy; banner: ImagePickerCopy; cover: ImagePickerCopy; coverToggle: string; note: string }
   /** "Opções avançadas" (KYC and social login, collapsed). */
   advanced: string
+  /** "Onde o mercado roda" (the one hosting choice in simple mode) and its note for private markets. */
+  hostingLegend: string
+  privateHostingNote: string
+  /** Shown under a disabled Continuar / final action. */
+  requiredHint: string
   entry: {
     lead: string
     kycLegend: string
@@ -159,51 +164,8 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   const moved = useRef(false)
   useEffect(() => { if (moved.current) headingRef.current?.focus(); moved.current = true }, [index])
 
-  let body: ReactNode
-  switch (step) {
-    case 'identity':
-      body = (
-        <div className="space-y-4">
-          <div>
-            <label htmlFor={`${id}-name`} className="text-sm font-medium text-brand-text">{copy.name}</label>
-            <Input id={`${id}-name`} name="market-name" className="mt-1" value={draft.name} maxLength={MARKET_NAME_MAX} autoComplete="off" onChange={(e) => set('name', e.target.value)} aria-describedby={`${id}-name-help`} />
-            <p id={`${id}-name-help`} className="mt-1 text-caption text-brand-text-muted">{copy.nameHelp(MARKET_NAME_MAX)}</p>
-          </div>
-          <div>
-            <label htmlFor={`${id}-desc`} className="text-sm font-medium text-brand-text">
-              {copy.description} <span className="font-normal text-brand-text-secondary">{copy.descriptionOptional}</span>
-            </label>
-            <Textarea id={`${id}-desc`} name="market-description" className="mt-1" value={draft.description} onChange={(e) => set('description', e.target.value)} />
-          </div>
-          <Choice legend={copy.category.legend} legendVisible columns name={`${id}-category`} options={copy.category.options} value={draft.category} onChange={(v) => set('category', v)} />
-          <Choice legend={copy.profile.legend} legendVisible columns name={`${id}-profile`} options={copy.profile.options} value={draft.profile} onChange={(v) => set('profile', v)} note={copy.profile.note} />
-          <div className="space-y-4">
-            <ImagePicker kind="icon" url={draft.iconUrl} copy={copy.images.icon} onPick={pick('iconUrl')} />
-            <ImagePicker kind="banner" url={draft.bannerUrl} copy={copy.images.banner} onPick={pick('bannerUrl')} />
-            {cover || draft.coverUrl ? (
-              <ImagePicker kind="cover" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} />
-            ) : (
-              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="touch:min-h-11">{copy.images.coverToggle}</Button>
-            )}
-            <p className="text-caption text-brand-text-muted">{copy.images.note}</p>
-          </div>
-          {brandingSlot}
-        </div>
-      )
-      break
-    case 'visibility':
-      body = (
-        <div className="space-y-4">
-          <Choice legend={copy.steps.visibility} name={`${id}-visibility`} options={copy.visibility} value={draft.visibility} onChange={(v) => set('visibility', v)} note={copy.visibilityNote} />
-          {draft.visibility === 'private' && privateHostingSlot}
-        </div>
-      )
-      break
-    case 'participation':
-      // Progressive disclosure (PO): KYC and social login stay under "Opções avançadas", default "Sem KYC".
-      body = (
-        <div className="space-y-4">
-          <Choice legend={copy.steps.participation} name={`${id}-preset`} options={copy.participation} value={draft.preset} onChange={(v) => set('preset', v)} note={copy.participationNote} />
+  const presetChoice = <Choice legend={copy.steps.participation} legendVisible={simple} name={`${id}-preset`} options={copy.participation} value={draft.preset} onChange={(v) => set('preset', v)} note={copy.participationNote} />
+  const advancedPanel = (
           <div>
             <button
               type="button" aria-expanded={advanced} aria-controls={`${id}-advanced`} onClick={() => setAdvanced((o) => !o)}
@@ -217,12 +179,10 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
             </button>
             <div id={`${id}-advanced`} hidden={!advanced} className="pt-3">
         <div className="space-y-5">
-              {simple && (
-                <>
-                  <Choice legend={copy.steps.infrastructure} legendVisible name={`${id}-infra`} options={copy.infrastructure} value={draft.infrastructure} onChange={(v) => set('infrastructure', v)} note={copy.infrastructureNote} />
-                  {draft.visibility === 'private' && privateHostingSlot}
-                </>
-              )}
+              {/* Simple mode: the participation preset (communities only; private markets are invite-only) and the one
+                  hosting choice, "Onde o mercado roda", live here too, so Configurar is one screen. */}
+              {simple && draft.visibility !== 'private' && presetChoice}
+              {simple && <Choice legend={copy.hostingLegend} legendVisible name={`${id}-infra`} options={copy.infrastructure} value={draft.infrastructure} onChange={(v) => set('infrastructure', v)} note={draft.visibility === 'private' ? copy.privateHostingNote : copy.infrastructureNote} />}
               <p className="text-body-sm text-brand-text-secondary">{copy.entry.lead}</p>
               <Choice legend={copy.entry.kycLegend} legendVisible name={`${id}-kyc`} options={copy.entry.kyc} value={draft.kyc} onChange={(v) => set('kyc', v)} />
               {draft.kyc === 'above_threshold' && (
@@ -264,6 +224,57 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
             </div>
             </div>
           </div>
+  )
+  // Simple mode finishes on Configurar: name and valid entry rules are required, and the hint says so.
+  const simpleReady = canAdvance('identity', draft) && entryPolicyValid(draft)
+
+  let body: ReactNode
+  switch (step) {
+    case 'identity':
+      body = (
+        <div className="space-y-4">
+          <div>
+            <label htmlFor={`${id}-name`} className="text-sm font-medium text-brand-text">{copy.name}</label>
+            <Input id={`${id}-name`} name="market-name" className="mt-1" value={draft.name} maxLength={MARKET_NAME_MAX} autoComplete="off" onChange={(e) => set('name', e.target.value)} aria-describedby={`${id}-name-help`} />
+            <p id={`${id}-name-help`} className="mt-1 text-caption text-brand-text-muted">{copy.nameHelp(MARKET_NAME_MAX)}</p>
+          </div>
+          <div>
+            <label htmlFor={`${id}-desc`} className="text-sm font-medium text-brand-text">
+              {copy.description} <span className="font-normal text-brand-text-secondary">{copy.descriptionOptional}</span>
+            </label>
+            <Textarea id={`${id}-desc`} name="market-description" className="mt-1" value={draft.description} onChange={(e) => set('description', e.target.value)} />
+          </div>
+          <Choice legend={copy.category.legend} legendVisible columns name={`${id}-category`} options={copy.category.options} value={draft.category} onChange={(v) => set('category', v)} />
+          <Choice legend={copy.profile.legend} legendVisible columns name={`${id}-profile`} options={copy.profile.options} value={draft.profile} onChange={(v) => set('profile', v)} note={copy.profile.note} />
+          <div className="space-y-4">
+            <ImagePicker kind="icon" url={draft.iconUrl} copy={copy.images.icon} onPick={pick('iconUrl')} />
+            <ImagePicker kind="banner" url={draft.bannerUrl} copy={copy.images.banner} onPick={pick('bannerUrl')} />
+            {cover || draft.coverUrl ? (
+              <ImagePicker kind="cover" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} />
+            ) : (
+              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="touch:min-h-11">{copy.images.coverToggle}</Button>
+            )}
+            <p className="text-caption text-brand-text-muted">{copy.images.note}</p>
+          </div>
+          {brandingSlot}
+          {simple && advancedPanel}
+        </div>
+      )
+      break
+    case 'visibility':
+      body = (
+        <div className="space-y-4">
+          <Choice legend={copy.steps.visibility} name={`${id}-visibility`} options={copy.visibility} value={draft.visibility} onChange={(v) => set('visibility', v)} note={copy.visibilityNote} />
+          {draft.visibility === 'private' && privateHostingSlot}
+        </div>
+      )
+      break
+    case 'participation':
+      // Progressive disclosure (PO): KYC and social login stay under "Opções avançadas", default "Sem KYC".
+      body = (
+        <div className="space-y-4">
+          {presetChoice}
+          {advancedPanel}
         </div>
       )
       break
@@ -337,7 +348,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   }
 
   // One counter for the whole flow when the caller has one (e.g. "Passo 2 de 4: Configurar · Nome…").
-  const heading = flow ? `${copy.progress(flow.at, flow.total, flow.title)} · ${copy.steps[step]}` : copy.progress(index + 1, steps.length, copy.steps[step])
+  const heading = flow ? (steps.length > 1 ? `${copy.progress(flow.at, flow.total, flow.title)} · ${copy.steps[step]}` : copy.progress(flow.at, flow.total, flow.title)) : copy.progress(index + 1, steps.length, copy.steps[step])
   const finalAction = simple ? last : (step === 'review' && draft.visibility !== 'private') || step === 'invites'
   return (
     <div className="space-y-4">
@@ -353,15 +364,17 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
           <ArrowLeft aria-hidden="true" />{copy.back}
         </Button>
         {finalAction ? (
-          <Button type="button" variant={primarySolid ? 'default' : 'secondary'} aria-describedby={!createAvailable && unavailableNote ? `${id}-unavailable` : undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
+          <Button type="button" variant={primarySolid ? 'default' : 'secondary'} disabled={simple && !simpleReady} aria-describedby={[!createAvailable && unavailableNote ? `${id}-unavailable` : '', simple && !simpleReady ? `${id}-required` : ''].filter(Boolean).join(' ') || undefined} onClick={() => onCreate?.(draft)} className="touch:min-h-11">
             {createLabel ?? copy.create}
           </Button>
         ) : (
-          <Button type="button" variant="secondary" disabled={last || !canAdvance(step, draft)} onClick={() => setIndex((i) => i + 1)} className="touch:min-h-11">
+          <Button type="button" variant="secondary" disabled={last || !canAdvance(step, draft)} aria-describedby={!canAdvance(step, draft) ? `${id}-required` : undefined} onClick={() => setIndex((i) => i + 1)} className="touch:min-h-11">
             {copy.next}<ArrowRight aria-hidden="true" />
           </Button>
         )}
       </div>
+      {/* Never a disabled action without a visible reason. */}
+      {((finalAction && simple && !simpleReady) || (!finalAction && !canAdvance(step, draft))) && <p id={`${id}-required`} className="text-right text-caption text-brand-text-muted">{copy.requiredHint}</p>}
       {finalAction && !createAvailable && unavailableNote && <div id={`${id}-unavailable`}>{unavailableNote}</div>}
     </div>
   )

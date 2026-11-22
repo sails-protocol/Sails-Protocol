@@ -71,7 +71,7 @@ const fixtureView = (f: DemoMarketFixture, extra?: Partial<MarketView>): MarketV
   DEMO_MY_MARKETS.find((e) => e.marketId === f.market.id),
   {
     preset: f.preset, infrastructure: f.infrastructure ?? 'network', illustrative: true,
-    entryType: f.market.visibility === 'PRIVATE' ? 'invite' : f.entry ?? 'open', activity30d: f.activity30d, assets: f.assets, ...extra,
+    entryType: f.market.visibility === 'PRIVATE' ? 'invite' : f.entry ?? 'open', activity30d: f.activity30d, ...extra,
   },
 )
 // Listed demo markets: public ones (discoverable) plus the private ones the demo user belongs to.
@@ -129,7 +129,9 @@ export function demoJoin(id: string, action: 'join' | 'request' | 'cancel' | 'ap
 // Admin side (the market the demo user administers): fictional requests and removed members, in memory.
 let requests: readonly string[] = DEMO_JOIN_REQUEST_KEYS
 let members: readonly string[] = DEMO_MEMBER_KEYS
-export const demoJoinRequests = () => requests
+/** Requests exist only on a "Com aprovação" community the demo user administers (never on a new private market). */
+export const demoJoinRequests = (id: string) => (id === 'demo-market-meu' ? requests : NO_KEYS)
+const NO_KEYS: readonly string[] = []
 export function demoDecideRequest(key: string, approve: boolean): void {
   requests = requests.filter((k) => k !== key)
   if (approve) members = [...members, key]
@@ -179,6 +181,8 @@ export function demoMarketPage(id: string, snapshot: readonly MarketView[] = dem
     hasOffers: true,
     verified: meetsDemoVerifiedCriteria(fixture.stats),
     memberKeys: market.relation === 'admin' ? members : [],
+    // The administered community counts its (demo) members, so approve and remove change the number.
+    ...(id === 'demo-market-meu' ? { market: { ...market, participants: members.length } } : {}),
   }
 }
 

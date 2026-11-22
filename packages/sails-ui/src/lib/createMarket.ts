@@ -65,7 +65,8 @@ export const MARKET_NAME_MAX = 60
 export function createSteps(visibility: MarketVisibility | null, simple = false): CreateStep[] {
   // Simple (demo, the space type already chosen, PO 2026-11-22): visibility comes from the type; hosting and entry
   // rules sit under "Opções avançadas" in the participation step; review happens in "Revisar e pagar".
-  if (simple) return visibility === 'private' ? ['identity', 'participation', 'invites'] : ['identity', 'participation']
+  // One Configurar screen: the rest (preset, entry rules, hosting) sits under "Opções avançadas"; invites move to the market page.
+  if (simple) return ['identity']
   const base: CreateStep[] = ['identity', 'visibility', 'participation', 'infrastructure', 'review']
   return visibility === 'private' ? [...base, 'invites'] : base
 }

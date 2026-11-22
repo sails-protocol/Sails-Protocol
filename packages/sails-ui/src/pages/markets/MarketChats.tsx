@@ -9,7 +9,8 @@
  * Payment details never appear here: they exist only inside the trade. Everything lives in memory and every send says
  * "Simulado: nada foi enviado ao nó Sails" (LOOSE_WIRES.marketGroupChat, marketDirectMessage, marketIntentPost).
  */
-import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../../components/ui/dialog'
 import { Link } from 'react-router'
 import { AlertTriangle, ArrowLeft, MessageCircle, Pin, ShieldAlert } from 'lucide-react'
 import { Tabs, tabPanelProps } from '../../components/ui/tabs'
@@ -46,17 +47,17 @@ const INTENT_ASSET: Record<IntentType, string> = { payBill: 'USDT_TRC20', buyUsd
  * "Propor negociação": from an offer, that offer's trade start (/offer/:id); otherwise the new-offer flow prefilled from
  * the intent card (side, asset, amount, method) with a link back to this conversation.
  */
-function proposeLink(th: { offerId?: string; side?: 'BUY' | 'SELL'; intent?: Intent }, backTo?: string): string {
+function proposeLink(th: { offerId?: string; side?: 'BUY' | 'SELL'; intent?: Intent; peer: Peer }, backTo?: string): string {
   if (th.offerId) return `/offer/${encodeURIComponent(th.offerId)}`
   const q = new URLSearchParams({ side: th.side ?? (th.intent ? ANSWER_SIDE[th.intent.type] : 'SELL') })
   if (th.intent) {
+    // Never a USD amount in the crypto quantity fields: the amount goes as context text only.
     q.set('asset', INTENT_ASSET[th.intent.type])
     q.set('method', METHOD_CODE[th.intent.method] ?? 'PIX')
-    const max = th.intent.max ?? th.intent.min
-    if (th.intent.min) q.set('min', String(th.intent.min))
-    if (max) q.set('max', String(max))
+    q.set('ctx', t('spaces.propose.context', { name: th.peer.author, type: t(`spaces.intent.type.${th.intent.type}`), amount: intentAmount(th.intent), method: th.intent.method }))
   }
-  if (backTo) q.set('back', backTo)
+  // Back to Conversas › Privadas with this thread open.
+  if (backTo) q.set('back', `${backTo}?tab=chat&peer=${encodeURIComponent(th.peer.seed)}&name=${encodeURIComponent(th.peer.author)}`)
   return `${TRADES_ROUTES.newOffer}?${q.toString()}`
 }
 
@@ -138,7 +139,7 @@ function IntentForm({ onPost, onCancel }: { onPost: (i: Intent) => void; onCance
   const valid = minN !== null && (max.trim() === '' || (maxN !== null && maxN >= minN))
   const [method, setMethod] = useState<string>('Pix')
   return (
-    <form className="space-y-3 rounded-lg bg-brand-elevated p-3" onSubmit={(e) => { e.preventDefault(); if (valid && minN !== null) onPost({ type, min: minN, max: maxN ?? undefined, method }) }}>
+    <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (valid && minN !== null) onPost({ type, min: minN, max: maxN ?? undefined, method }) }}>
       <RadioGroup legend={t('spaces.intent.typeLegend')} listClassName="grid gap-2 sm:grid-cols-2">
         {INTENT_TYPES.map((v) => <RadioCard key={v} name={`${id}-type`} value={v} checked={type === v} onChange={() => setType(v)}>{t(`spaces.intent.type.${v}`)}</RadioCard>)}
       </RadioGroup>
@@ -181,6 +182,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   const [group, setGroup] = useState<readonly Msg[]>(SEED_GROUP)
   const [posting, setPosting] = useState(false)
   const [pinned, setPinned] = useState<string | null>(null)
+  const listRef = useRef<HTMLUListElement>(null)
   const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
   const [open, setOpen] = useState<string | null>(null)
 
@@ -192,7 +194,13 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (openWith) openPrivate(openWith.peer, undefined, openWith.context, openWith.side, openWith.offerId) }, [openWith?.key])
   const sendGroup = (text: string) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }]); simulatedToast() }
-  const postIntent = (intent: Intent) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }]); setPosting(false); simulatedToast() }
+  const postIntent = (intent: Intent) => {
+    setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }])
+    setPosting(false)
+    simulatedToast()
+    // The posted card scrolls into view once rendered.
+    requestAnimationFrame(() => listRef.current?.lastElementChild?.scrollIntoView({ block: 'nearest' }))
+  }
   const sendPrivate = (seed: string, text: string) => {
     setThreads((th) => ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, ...ME, text, own: true, risky: looksOffTrade(text) }] } }))
     simulatedToast()
@@ -224,15 +232,17 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
               </div>
             ) : null
           })()}
-          <ul className="space-y-2" aria-label={t('spaces.chat.title')}>
+          <ul ref={listRef} className="space-y-2" aria-label={t('spaces.chat.title')}>
             {group.map((m) => <Bubble key={m.id} m={m} onPrivate={(x) => openPrivate({ author: x.author, seed: x.seed }, x.intent)} onPin={canPin ? (x) => { setPinned(x.id); simulatedToast() } : undefined} />)}
           </ul>
-          {posting ? <IntentForm onPost={postIntent} onCancel={() => setPosting(false)} /> : (
-            <>
-              <Composer label={t('spaces.chat.groupPlaceholder')} onSend={sendGroup} />
-              <Button type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
-            </>
-          )}
+          <Composer label={t('spaces.chat.groupPlaceholder')} onSend={sendGroup} />
+          <Button type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
+          <Dialog open={posting} onOpenChange={setPosting}>
+            <DialogContent className="max-w-lg">
+              <DialogHeader className="pr-10 text-left"><DialogTitle>{t('spaces.intent.open')}</DialogTitle></DialogHeader>
+              <IntentForm onPost={postIntent} onCancel={() => setPosting(false)} />
+            </DialogContent>
+          </Dialog>
           {membersSlot?.((p) => openPrivate(p))}
         </div>
       ) : (

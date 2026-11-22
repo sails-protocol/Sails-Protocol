@@ -8,8 +8,8 @@ describe('Criar mercado steps', () => {
     expect(createSteps(null)).toEqual(createSteps('public'))
     expect(createSteps('private').slice(-1)).toEqual(['invites'])
     // Demo with the space type chosen: visibility comes from the type, review happens in Revisar e pagar.
-    expect(createSteps('public', true)).toEqual(['identity', 'participation'])
-    expect(createSteps('private', true)).toEqual(['identity', 'participation', 'invites'])
+    expect(createSteps('public', true)).toEqual(['identity'])
+    expect(createSteps('private', true)).toEqual(['identity'])
   })
 
   it('infrastructure defaults to Rede Sails and never blocks', () => {

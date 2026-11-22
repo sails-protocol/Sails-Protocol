@@ -41,8 +41,6 @@ export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: 
   return (
     <div className="text-caption text-brand-text-secondary">
       <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{label}</Badge>
-      {/* Plain words on screen; which contracts are missing lives in the wiring map (/dev/wiring), not here. */}
-      {t('spaces.wireNotePlain')}
     </div>
   )
 }
@@ -173,7 +171,8 @@ export function guarantees(): readonly Fact[] {
   return [
     { icon: KeyRound, title: t('markets.guarantees.keys') },
     { icon: Server, title: t('markets.guarantees.host') },
-    { icon: UserMinus, title: t('markets.guarantees.admin') },
+    // Demo simulates removal now, so the "Em breve" promise is not shown there.
+    ...(isDemoMode() ? [] : [{ icon: UserMinus, title: t('markets.guarantees.admin') }]),
     { icon: Scale, title: t('markets.guarantees.permissions') },
   ]
 }

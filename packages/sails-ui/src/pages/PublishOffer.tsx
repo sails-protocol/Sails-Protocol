@@ -83,7 +83,9 @@ export function PublishOffer() {
   // Optional starting side from a link (e.g. "Criar negociação a partir desta conversa"); the person can change it.
   const [searchParams] = useSearchParams()
   // Only an in-app markets path is a valid way back (never an external URL).
-  const backTo = /^\/markets\/[\w%-]+$/.test(searchParams.get('back') ?? '') ? searchParams.get('back')! : null
+  const backTo = /^\/markets\/[\w%-]+(\?[\w=&%.-]*)?$/.test(searchParams.get('back') ?? '') ? searchParams.get('back')! : null
+  // Context from a market conversation, as plain text (escaped by React), short.
+  const context = (searchParams.get('ctx') ?? '').slice(0, 140)
   const [side, setSide] = useState<TradeSide>(() => (searchParams.get('side') === 'BUY' ? 'BUY' : 'SELL'))
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
@@ -98,8 +100,8 @@ export function PublishOffer() {
   const [price, setPrice] = useState('')
 
   // Step 2
-  const [minAmount, setMinAmount] = useState(() => (/^\d+$/.test(searchParams.get('min') ?? '') ? searchParams.get('min')! : ''))
-  const [maxAmount, setMaxAmount] = useState(() => (/^\d+$/.test(searchParams.get('max') ?? '') ? searchParams.get('max')! : ''))
+  const [minAmount, setMinAmount] = useState('')
+  const [maxAmount, setMaxAmount] = useState('')
   // Narrower than the UI's own `PaymentMethod` type on purpose: this
   // page submits straight to the real `liquidity.publish()` call
   // (@satsails/p2p-trading-sdk's real, backend-matching `PaymentMethod`), which has
@@ -241,6 +243,12 @@ export function PublishOffer() {
         title={t('trades.offers.publish')}
       />
 
+      {context && (
+        <div className="mb-3 rounded-lg bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">
+          <p className="font-medium">{context}</p>
+          <p className="text-caption text-brand-text-secondary">{side === 'SELL' ? t('spaces.propose.sellReason') : t('spaces.propose.buyReason')}</p>
+        </div>
+      )}
       <Card>
         {/* One-line stepper in the card header. */}
         <ol aria-label={t('publish.stepsLabel')} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 border-b border-brand-border-subtle">

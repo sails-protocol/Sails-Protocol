@@ -11,7 +11,7 @@ describe('Comunidades: category filter and pages', () => {
   const list = [{ id: 'a', category: 'GENERAL' as const }, { id: 'b', category: 'REGIONAL' as const }, { id: 'c', category: 'GENERAL' as const }]
   it('filters by category, "all" keeps everything and never mutates', () => {
     expect(filterByCategory(list, 'GENERAL').map((m) => m.id)).toEqual(['a', 'c'])
-    expect(filterByCategory(list, 'BUSINESS_OTC')).toEqual([])
+    expect(filterByCategory(list, 'COMMERCE')).toEqual([])
     const all = filterByCategory(list, 'all')
     expect(all).toEqual(list)
     expect(all).not.toBe(list)

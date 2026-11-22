@@ -6,14 +6,16 @@
  * (404): "não encontrado ou sem acesso", never confirming that it exists. The group chat is demonstration/roadmap,
  * apart from the per-trade chat (the only real chat).
  */
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Link, Navigate, useParams } from 'react-router'
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router'
 import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { buttonVariants } from '../components/ui/button'
 import { StateBlock } from '../components/ui/StateBlock'
+import { IdentityAvatar } from '../components/ui/IdentityAvatar'
+import { Input } from '../components/ui/input'
 import { MarketBanner } from '../components/markets/MarketBanner'
 import { MarketIcon } from '../components/markets/MarketIcon'
 import { AdminImage } from '../components/markets/AdminImage'
@@ -53,7 +55,7 @@ const viewerSide = (offerSide: 'BUY' | 'SELL'): 'BUY' | 'SELL' => (offerSide ===
 function MonoKey({ value }: { value: string }) {
   return (
     <span translate="no" className="font-mono text-caption text-brand-text">
-      {value.length <= 20 ? value : <><span aria-hidden="true">{value.slice(0, 10)}…{value.slice(-8)}</span><span className="sr-only">{value}</span></>}
+      {value.length <= 12 ? value : <><span aria-hidden="true">{value.slice(0, 4)}…{value.slice(-4)}</span><span className="sr-only">{value}</span></>}
     </span>
   )
 }
@@ -96,14 +98,26 @@ export function MarketPage() {
   const { id = '' } = useParams()
   const snapshot = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
   const idBase = useId()
-  const [tab, setTab] = useState<'offers' | 'chat' | 'about'>('offers')
+  // ?tab=chat&peer=…&name=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread.
+  const [params] = useSearchParams()
+  const [tab, setTab] = useState<'offers' | 'chat' | 'about'>(() => (params.get('tab') === 'chat' ? 'chat' : 'offers'))
   const [side, setSide] = useState<'all' | 'BUY' | 'SELL'>('all')
   const [asset, setAsset] = useState<string | null>(null)
-  const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(null)
+  const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(() => {
+    const peer = params.get('peer')
+    return peer ? { peer: { author: (params.get('name') ?? '').slice(0, 60), seed: peer }, key: 1 } : null
+  })
   const { user } = useAuth()
   const [rulesOpen, setRulesOpen] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [removeRule, setRemoveRule] = useState<string | null>(null)
+  // These dialogs open without a Radix trigger: remember who opened them and give focus back on close.
+  const opener = useRef<HTMLElement | null>(null)
+  const remember = () => { opener.current = document.activeElement as HTMLElement | null }
+  const returnFocus = (e: Event) => { e.preventDefault(); opener.current?.focus() }
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [invites, setInvites] = useState<readonly string[]>([])
+  const [inviteKey, setInviteKey] = useState('')
   // Demo: the demo backend's offers, a share of them per market (lib/marketSpaces.ts offersForMarket).
   const [demoOffers, setDemoOffers] = useState<Offer[] | null>(null)
   const [offersError, setOffersError] = useState(false)
@@ -145,7 +159,7 @@ export function MarketPage() {
   }
 
   const m = page.market
-  const requests = m.relation === 'admin' ? demoJoinRequests() : []
+  const requests = m.relation === 'admin' ? demoJoinRequests(m.id) : []
   const list = marketListCopy()
   const kyc = kycSummary(m.entryPolicy)
   const social = m.entryPolicy?.social ?? []
@@ -155,7 +169,7 @@ export function MarketPage() {
     ? { publishes: t('markets.preview.rules.vitrinePublishes'), trades: t('markets.preview.rules.vitrineTrades') }
     : { publishes: t('markets.preview.rules.members'), trades: t('markets.preview.rules.members') }
   // Keeps 3:1 in the detail column; capped on wide screens so it never pushes the content below the fold.
-  const banner = <MarketBanner market={m} image={m.bannerImage} className="md:max-h-64" />
+  const banner = <MarketBanner market={m} image={m.bannerImage} className="md:max-h-40" />
 
   const all = page.hasOffers ? offersForMarket(demoOffers ?? [], m.id) : []
   const offers = all.filter((o) => (side === 'all' || viewerSide(o.side) === side) && (!asset || o.asset === asset))
@@ -198,7 +212,7 @@ export function MarketPage() {
                       <Button type="button" size="sm" variant="secondary" onClick={() => { demoJoin(m.id, 'approved'); simulatedToast(t('spaces.join.approvedToast')) }} className="touch:min-h-11">{t('spaces.join.simulateApprove')}</Button>
                     </>
                   ) : (
-                    <Button type="button" size="sm" variant="secondary" onClick={() => setRulesOpen(true)} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { remember(); setRulesOpen(true) }} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
                   )}
                 </div>
               )}
@@ -282,13 +296,26 @@ export function MarketPage() {
             <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
           </section>
 
+          {m.relation === 'admin' && m.visibility === 'private' && (
+            <section aria-labelledby="market-invites" className={SECTION}>
+              <h2 id="market-invites" className="text-section-title">{t('spaces.invite.title')}</h2>
+              <p className="mt-1 text-caption text-brand-text-secondary">{t('markets.create.invites.identifierHelp')}</p>
+              <Button type="button" variant="secondary" onClick={() => { remember(); setInviteOpen(true) }} className="mt-2 touch:min-h-11">{t('spaces.invite.open')}</Button>
+              {invites.length > 0 && (
+                <ul className="mt-2 divide-y divide-brand-border-subtle">
+                  {invites.map((k) => <li key={k} className="flex items-center gap-2 py-1.5"><span translate="no" className="min-w-0 flex-1 break-all font-mono text-caption text-brand-text">{k}</span><Badge variant="outline" className={TAG}>{t('markets.create.invites.pending')}</Badge></li>)}
+                </ul>
+              )}
+            </section>
+          )}
           {m.relation === 'admin' && requests.length > 0 && (
             <section aria-labelledby="market-requests" className={SECTION}>
               <h2 id="market-requests" className="text-section-title">{t('spaces.admin.requests', { count: requests.length })}</h2>
               <ul className="mt-2 divide-y divide-brand-border-subtle">
                 {requests.map((k) => (
                   <li key={k} className="flex flex-wrap items-center gap-2 py-1.5">
-                    <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
+                    <IdentityAvatar seed={k} size={28} />
+                    <span className="min-w-0 flex-1 text-caption text-brand-text-secondary">{t('spaces.admin.requestRow')} · <MonoKey value={k} /></span>
                     <Button type="button" size="sm" variant="ghost" onClick={() => { demoDecideRequest(k, false); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.reject')}</Button>
                     <Button type="button" size="sm" variant="secondary" onClick={() => { demoDecideRequest(k, true); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.approve')}</Button>
                   </li>
@@ -306,7 +333,8 @@ export function MarketPage() {
                 <ul aria-label={t('spaces.page.membersTitle')} className="mt-2 divide-y divide-brand-border-subtle">
                   {page.memberKeys.map((k) => (
                     <li key={k} className="flex items-center gap-2 py-1">
-                      <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
+                      <IdentityAvatar seed={k} size={28} />
+                      <span className="min-w-0 flex-1 text-caption text-brand-text-secondary">{t('spaces.admin.memberRow')} · <MonoKey value={k} /></span>
                       <IconButton
                         label={t('spaces.chat.privateWith', { name: `${k.slice(0, 10)}…` })}
                         size="sm"
@@ -314,7 +342,7 @@ export function MarketPage() {
                       >
                         <MessageCircle aria-hidden="true" />
                       </IconButton>
-                      <IconButton label={t('spaces.admin.removeWho', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => setRemoving(k)}>
+                      <IconButton label={t('spaces.admin.removeWho', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => { remember(); setRemoving(k) }}>
                         <UserMinus aria-hidden="true" />
                       </IconButton>
                     </li>
@@ -327,14 +355,14 @@ export function MarketPage() {
       </div>
       {/* "Regras da comunidade": one decision, one button. */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
           <DialogHeader className="pr-10 text-left">
             <DialogTitle>{t('spaces.join.rulesTitle')}</DialogTitle>
             <DialogDescription>{m.entryType === 'approval' ? t('spaces.join.rulesLeadApproval') : t('spaces.join.rulesLead')}</DialogDescription>
           </DialogHeader>
           <ul className="space-y-1.5 text-body-sm text-brand-text">
             <li>{presetRules.publishes}</li>
-            <li>{t('spaces.page.kyc')}: {kycText(kyc)}</li>
+            <li>{kycText(kyc)}</li>
             {RULES.map((r) => <li key={r}>{t(r)}</li>)}
           </ul>
           <p className="text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
@@ -343,8 +371,21 @@ export function MarketPage() {
           </Button>
         </DialogContent>
       </Dialog>
+      <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
+        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.invite.open')}</DialogTitle>
+            <DialogDescription>{t('markets.create.invites.identifierHelp')}</DialogDescription>
+          </DialogHeader>
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const v = inviteKey.trim(); if (!v) return; setInvites((l) => (l.includes(v) ? l : [...l, v])); setInviteKey(''); setInviteOpen(false); simulatedToast() }}>
+            <label htmlFor="invite-identifier" className="text-sm font-medium text-brand-text">{t('markets.create.invites.identifier')}</label>
+            <Input id="invite-identifier" name="invite-identifier" autoComplete="off" spellCheck={false} value={inviteKey} onChange={(e) => setInviteKey(e.target.value)} />
+            <div className="flex justify-end"><Button type="submit" variant="secondary" disabled={!inviteKey.trim()} className="touch:min-h-11">{t('markets.create.invites.generate')}</Button></div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={removing !== null} onOpenChange={(o) => { if (!o) setRemoving(null) }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
           <DialogHeader className="pr-10 text-left">
             <DialogTitle>{t('spaces.admin.removeTitle')}</DialogTitle>
             <DialogDescription>{t('spaces.admin.removeLead')}</DialogDescription>
@@ -354,7 +395,7 @@ export function MarketPage() {
           </RadioGroup>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={() => setRemoving(null)} className="touch:min-h-11">{t('common.cancel')}</Button>
-            <Button type="button" variant="destructive" disabled={!removeRule} onClick={() => { if (removing) demoRemoveMember(removing); setRemoving(null); setRemoveRule(null); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.remove')}</Button>
+            <Button type="button" variant="destructive" disabled={!removeRule} onClick={() => { if (removing) demoRemoveMember(removing); setRemoving(null); setRemoveRule(null); simulatedToast(t('spaces.admin.removedToast')) }} className="touch:min-h-11">{t('spaces.admin.remove')}</Button>
           </div>
         </DialogContent>
       </Dialog>

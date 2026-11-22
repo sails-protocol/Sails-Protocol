@@ -69,9 +69,11 @@ function Facts({ rows }: { rows: readonly (readonly [string, string])[] }) {
 }
 
 /** `rows` = the market summary (name, type, rules…) shown above the payment. */
-export function SpaceCheckout({ product, rows, primary, stepLabel, onBack, onPaid }: {
+export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBack, onPaid }: {
   product: SpaceProduct
   rows: readonly (readonly [string, string])[]
+  /** The person's own local previews (icon, banner), shown as thumbnails on the review. */
+  images?: { icon: string | null; banner: string | null }
   /** Solid orange only with a session (the topbar holds it otherwise). */
   primary: 'default' | 'secondary'
   /** The outer flow's counter ("Passo 3 de 4: Pagar"). */
@@ -85,7 +87,8 @@ export function SpaceCheckout({ product, rows, primary, stepLabel, onBack, onPai
   const [step, dispatch] = useReducer(nextCheckoutStep, 'payment' as CheckoutStep)
   const headingRef = useRef<HTMLHeadingElement>(null)
   useEffect(() => { headingRef.current?.focus() }, [step === 'payment'])
-  useEffect(() => { if (step === 'catalog') onBack(); else if (step === 'acquired') onPaid() }, [step, onBack, onPaid])
+  // After the simulated payment, straight to "Mercado criado" (no confirmed screen next to an address placeholder).
+  useEffect(() => { if (step === 'catalog') onBack(); else if (step === 'confirmed') dispatch({ type: 'next' }); else if (step === 'acquired') onPaid() }, [step, onBack, onPaid])
   // "Confirmando (simulado)" lasts about a second, or none when the system asks for less motion.
   useEffect(() => {
     if (step !== 'confirming') return
@@ -112,6 +115,12 @@ export function SpaceCheckout({ product, rows, primary, stepLabel, onBack, onPai
       <Alert tone="warning" title={t('shop.demoNotice')} />
       {step === 'payment' ? (
         <div className="space-y-5">
+          {images && (images.icon || images.banner) && (
+            <div className="flex items-center gap-3">
+              {images.icon && <img src={images.icon} alt="" width={48} height={48} className="size-12 rounded-lg object-cover" />}
+              {images.banner && <img src={images.banner} alt="" width={144} height={48} className="aspect-[3/1] h-12 rounded-lg object-cover" />}
+            </div>
+          )}
           <Facts rows={[...rows, [t('shop.receiptProduct'), spaceName(product.id)], [t('shop.priceLabel'), formatUsd(product.demoPriceUsd)]]} />
           <RadioGroup legend={t('shop.pay.assetLegend')} listClassName="grid gap-2 sm:grid-cols-3">
             {FUTURE_PAYMENT_ASSETS.map((a) => (

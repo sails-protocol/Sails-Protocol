@@ -22,10 +22,9 @@ import { MarketCard } from '../components/markets/MarketCard'
 import { MarketList } from '../components/markets/MarketList'
 import { FactList } from '../components/markets/FactList'
 import { CreateMarketWizard, type CreateMarketCopy } from '../components/markets/CreateMarketWizard'
-import { MarketPreview, type MarketPreviewCopy } from '../components/markets/MarketPreview'
 import { marketPreview, parseUsdWhole, type MarketDraft, type MarketPreviewModel } from '../lib/createMarket'
 import { addDemoCreatedMarket, demoMarketPage, isDemoMode, isRetainedPreview } from '../lib/demoMarkers'
-import { MARKET_CATEGORIES, filterByCategory, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
+import { MARKET_CATEGORIES, filterByCategory, offersForMarket, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
 import { spaceProduct, type SpaceProductId } from '../lib/spaceCatalog'
 import { SpaceCheckout, SpaceTypePicker, spaceName } from './spaces/SpaceCheckout'
 import { formatUsd } from '../lib/format'
@@ -33,6 +32,9 @@ import { IMAGE_MAX_BYTES, IMAGE_SPECS, formatPx, type ImageKind } from '../lib/i
 import { getLocale } from '../lib/locale'
 import type { ImagePickerCopy } from '../components/markets/ImagePicker'
 import type { MarketView } from '../lib/myMarkets'
+import type { Offer } from '../types'
+import { fetchOffers } from '../lib/realOffers'
+import { pairForAssetType } from '../lib/assetCatalog'
 import { cn } from '../lib/utils'
 import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
@@ -119,6 +121,9 @@ function createCopy(): CreateMarketCopy {
       note: t('spaces.create.imagesNote'),
     },
     advanced: t('spaces.create.advanced'),
+    hostingLegend: t('spaces.create.hostingLegend'),
+    privateHostingNote: t('spaces.page.singleNode'),
+    requiredHint: t('spaces.create.requiredHint'),
     entry: {
       lead: t('spaces.create.entryLead'),
       kycLegend: t('spaces.create.kycLegend'),
@@ -155,53 +160,6 @@ function createCopy(): CreateMarketCopy {
   }
 }
 
-const SHOWN_INVITE_STATES = ['pending', 'granted', 'failed'] as const
-
-function previewCopy(): MarketPreviewCopy {
-  const list = marketListCopy()
-  const members = t('markets.preview.rules.members')
-  return {
-    title: t('markets.preview.title'),
-    visibility: list.visibility,
-    noDescription: t('markets.preview.noDescription'),
-    facts: {
-      marketId: 'Sails Market ID', marketIdPending: t('markets.formatPending'),
-      brand: t('markets.preview.brand'), brandPending: t('markets.preview.brandPending'),
-      participation: t('markets.create.review.participation'),
-      publishes: t('markets.preview.publishes'), trades: t('markets.preview.trades'),
-      infrastructure: t('markets.create.step.infrastructure'),
-    },
-    preset: {
-      vitrine: { label: list.preset.vitrine, publishes: t('markets.preview.rules.vitrinePublishes'), trades: t('markets.preview.rules.vitrineTrades') },
-      comunidade: { label: list.preset.comunidade, publishes: members, trades: members },
-    },
-    infrastructure: { network: 'Rede Sails', own: t('markets.create.infrastructure.ownLabel') },
-    offersTitle: t('markets.preview.offersTitle'),
-    offersEmptyTitle: t('markets.preview.offersEmptyTitle'),
-    offersEmptyBody: t('markets.preview.offersEmptyBody'),
-    invitesTitle: t('markets.preview.invitesTitle'),
-    invitesLead: t('markets.preview.invitesLead'),
-    invitesEmpty: t('markets.create.invites.empty'),
-    pending: t('markets.create.invites.pending'),
-    statesTitle: t('markets.preview.statesTitle'),
-    states: SHOWN_INVITE_STATES.map((s) => ({ key: s, title: t(`markets.invite.${s}.title`), description: t(`markets.invite.${s}.description`) })),
-    edit: t('markets.preview.edit'),
-    discard: t('markets.preview.discard'),
-  }
-}
-
-/** The preview's persistent label: real mode names the contracts it waits for; demo mode marks the market fictional. */
-function PreviewBanner({ preview, demo }: { preview: MarketPreviewModel; demo: boolean }) {
-  return demo ? (
-    <Alert tone="info" title={t('spaces.create.demoPreviewTitle')}>{t('spaces.create.demoPreviewBody', { name: preview.name })}</Alert>
-  ) : (
-    <Alert tone="info" title={t('markets.preview.bannerTitle')}>
-      <p>{t('markets.preview.bannerBody')}</p>
-      <div className="mt-2"><WireNote ids={preview.dependsOn} /></div>
-    </Alert>
-  )
-}
-
 // The 2×2 of visibility × infrastructure (CTO final correction): one example each, all independent choices.
 function examples(): readonly { key: string; visibility: string; infrastructure: string; example: string }[] {
   const pub = t('markets.list.visibility.public')
@@ -236,10 +194,19 @@ function ExploreView() {
   const [category, setCategory] = useState<CategoryFilter>('all')
   // "Mais ativas" first (demo: negociações em 30 dias); members as the other order.
   const [sort, setSort] = useState<'active' | 'members'>('active')
+  // Demo: the asset chips come from the same offers the market page lists, so they always match.
+  const [demoOffers, setDemoOffers] = useState<Offer[]>([])
+  useEffect(() => {
+    if (!isDemoMode()) return
+    let cancelled = false
+    fetchOffers('Todos', 'Todos').then(({ offers }) => { if (!cancelled) setDemoOffers(offers) })
+    return () => { cancelled = true }
+  }, [])
+  const withAssets = (m: MarketView): MarketView => ({ ...m, assets: [...new Set(offersForMarket(demoOffers, m.id).map((o) => pairForAssetType(o.asset)?.label ?? o.asset))] })
   const [limit, setLimit] = useState(PAGE_SIZE)
   // Shaped like sails.markets.discover({ limit, offset }) so the swap keeps the paging.
   const sorted = [...filterByCategory(communities, category)].sort((a, b) => (sort === 'active' ? (b.activity30d ?? 0) - (a.activity30d ?? 0) : (b.participants ?? 0) - (a.participants ?? 0)))
-  const page = pageOf(sorted, limit)
+  const page = pageOf(sorted.map(withAssets), limit)
   const cardCopy = marketCardCopy()
   return (
     <div className="space-y-4">
@@ -346,7 +313,8 @@ function MineView() {
             markets={markets}
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
-              <div className="flex flex-wrap justify-end gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-1">
+                {yours(m) && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge>}
                 {yours(m) && transferButton(m)}
                 <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
                   {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>
@@ -372,9 +340,10 @@ function MineView() {
 function spaceDraft(product: SpaceProductId | null, node: string | null): Partial<MarketDraft> | undefined {
   if (!product) return undefined
   const infra = node === 'own' ? { infrastructure: 'own' as const } : {}
-  return product === 'private' ? { visibility: 'private', ...infra }
-    : product === 'business' ? { visibility: 'public', profile: 'EMPRESA_OTC', category: 'BUSINESS_OTC', ...infra }
-      : { visibility: 'public', ...infra }
+  // Communities start on "Todos publicam"; private markets are invite-only, so their preset is never asked.
+  return product === 'private' ? { visibility: 'private', preset: 'comunidade', ...infra }
+    : product === 'business' ? { visibility: 'public', preset: 'comunidade', profile: 'EMPRESA_OTC', category: 'COMMERCE', ...infra }
+      : { visibility: 'public', preset: 'comunidade', ...infra }
 }
 
 /**
@@ -425,7 +394,7 @@ function CreateView() {
     [t('spaces.create.review.category'), categoryLabel(p) ?? ''],
     [t('spaces.create.review.profile'), profileLabel(p) ?? ''],
     [t('spaces.create.review.entry'), entryText({ kyc: p.entry.kyc, thresholdUsd: p.entry.thresholdUsd ?? undefined, providerUrl: p.entry.providerUrl ?? undefined, social: p.entry.social })],
-    [t('markets.create.review.participation'), marketListCopy().preset[p.preset]],
+    ...(p.visibility === 'private' ? [] : [[t('markets.create.review.participation'), marketListCopy().preset[p.preset]] as [string, string]]),
     [t('markets.create.step.infrastructure'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
   ]
   const primary = user ? 'default' : 'secondary'
@@ -492,30 +461,18 @@ function CreateView() {
           ) : (
             <>
               {wizard(true)}
-              {paying && <SpaceCheckout product={space} rows={facts(paying)} primary={primary} stepLabel={flowStep(3)} onBack={backToWizard} onPaid={createDemo} />}
+              {paying && <SpaceCheckout product={space} rows={facts(paying)} images={{ icon: paying.iconUrl, banner: paying.bannerUrl }} primary={primary} stepLabel={flowStep(3)} onBack={backToWizard} onPaid={createDemo} />}
             </>
           )
         ) : (
           <>
-            <div className="mb-6 space-y-3">
+            {/* Real mode (PM 2026-11-22, refining the PO decision of 2026-11-21): the kinds as "Em breve" and one honest
+                note, never the step form underneath, so the screen does not offer and deny creation at once. */}
+            <div className="space-y-3">
               <h2 className="text-section-title">{t('spaces.create.chooseType')}</h2>
               <SpaceTypePicker value={null} onPick={() => undefined} disabled />
-              <WireNote ids={['spacePurchase']} />
+              <Alert tone="info" title={t('common.soon')}>{t('spaces.create.realNote')}</Alert>
             </div>
-            {wizard(false)}
-            {preview && (
-              <MarketPreview
-                preview={preview}
-                copy={previewCopy()}
-                banner={<PreviewBanner preview={preview} demo={demo} />}
-                extraFacts={[
-                  ...facts(preview).slice(1),
-                  ...(preview.visibility === 'private' ? [[t('markets.list.visibility.private'), t('spaces.page.singleNode')] as [string, string]] : []),
-                ]}
-                onEdit={backToWizard}
-                onDiscard={() => setConfirmDiscard(true)}
-              />
-            )}
           </>
         )}
         {/* The draft lives only in memory: discarding it cannot be undone, so it is confirmed first. */}

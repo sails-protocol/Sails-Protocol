@@ -6,7 +6,7 @@
 import type { EntryPolicy, MarketCategory } from './marketContract'
 import type { MarketView } from './myMarkets'
 
-export const MARKET_CATEGORIES: readonly MarketCategory[] = ['GENERAL', 'P2P_TRADER', 'BUSINESS_OTC', 'REGIONAL']
+export const MARKET_CATEGORIES: readonly MarketCategory[] = ['GENERAL', 'REGIONAL', 'BILL_PAY', 'COMMERCE']
 export type CategoryFilter = MarketCategory | 'all'
 
 export function filterByCategory<T extends Pick<MarketView, 'category'>>(markets: readonly T[], filter: CategoryFilter): T[] {
