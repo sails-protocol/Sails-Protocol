@@ -304,6 +304,8 @@ finalized transaction need a live network target and throw
 `SailsNotImplementedError`, the same boundary `MultisigProvider`'s own
 `fetchUtxos()`/`broadcast()` already has against testnet.
 
+> Note: Gen-2 Taproot/MuSig2 is a candidate, not homologated; Gen-1 P2WSH is the only real Bitcoin rail. See RFC-024 and `docs/architecture/SAILS_SIGNING_FEDERATION/`.
+
 Full detail, including the Solidity `Guard` these hashes and signatures
 feed into and the Threat Matrix, is in
 `rfcs/RFC-020-non-custodial-evm-settlement.md`.

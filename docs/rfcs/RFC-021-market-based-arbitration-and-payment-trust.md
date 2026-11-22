@@ -124,7 +124,7 @@ going forward must preserve this framing.
 > derived from `MULTISIG_SEED`). The "attestor, not fund mover" framing must not be read as describing the script.
 > **Not claimed by this note:** that the arbiter is independent (proof of possession of a key does not prove exclusive control; a server-held
 > `MULTISIG_SEED` is not independent custody), nor any liveness or appeal-reassignment guarantee for the current MULTISIG script. No code, ADR or
-> policy is changed.
+> policy is changed. See #237, #619 and the README of `docs/architecture/SAILS_SIGNING_FEDERATION/`.
 
 ### D2 — Permissionless arbiter registration
 

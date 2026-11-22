@@ -1,8 +1,8 @@
 # CTO 28 — Sails Signing Federation: governança e diagramas (proposta Day 0)
 
-> **Status:** registro de direção do proprietário e **proposta para revisão Principal/GK**; **não** é homologação de arquitetura criptográfica, GO de merge ou ativação econômica. 2026-11-21.
+> **Status:** registro de direção do proprietário e **proposta para revisão Principal/GK**; **não** é homologação de arquitetura criptográfica, GO de merge ou ativação econômica. 2026-11-21. **Entrega A: aprovada condicionalmente como direção/proposta (CTO 28); Entrega B NÃO autorizada; ativação Gen-2 NO-GO.** Três classificações, sempre separadas: (1) *decisão aprovada* = só a direção da Entrega A, condicionada, com parâmetros pendentes; (2) *implementação comprovada* = só o Gen-1; (3) *homologação operacional* = nenhuma.
 >
-> **Legenda única:** *Implementado* = existe em código e prova (hoje: Gen-1 P2WSH 2-de-3, único rail Bitcoin real). *Proposto* = desenho da Entrega A (recomendação conjunta Principal + GK, **pendente de decisão do CTO**; texto integral em [`ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md`](ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md), resumo em [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-7070868210)). *Aprovado* = **nada**. Nenhuma frase deste documento deve ser lida acima do seu rótulo.
+> **Legenda única:** *Implementado* = existe em código e prova (hoje: Gen-1 P2WSH 2-de-3, único rail Bitcoin real). *Proposto* = desenho da Entrega A (recomendação conjunta Principal + GK, **aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes**; texto integral em [`ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md`](ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md), resumo em [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-7070868210)). *Aprovado* = apenas a **direção** da Entrega A (aprovação condicionada, CTO 28); **nada** está implementado ou homologado além do Gen-1, e nenhum parâmetro foi decidido. Nenhuma frase deste documento deve ser lida acima do seu rótulo.
 >
 > **Rastreabilidade:** [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619) (DDR, proposta), [#121](https://github.com/sails-protocol/Sails-Protocol/issues/121) (Taproot), [#438](https://github.com/sails-protocol/Sails-Protocol/issues/438), [#237](https://github.com/sails-protocol/Sails-Protocol/issues/237) (indisponibilidade do árbitro), [#293](https://github.com/sails-protocol/Sails-Protocol/issues/293) (timers), RFC-021 (Proposed; D2/D3 fora do caminho Day 0, CTO 25, [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-6831637336)), RFC-024 (Proposed; **mantida candidata**: a diretriz do CTO mudou a *prioridade*, não o status; a árvore da RFC-024 não é afirmada equivalente à da Entrega A). #121: análise regulatória por jurisdição é **lacuna aberta**. #438: pesquisa, **sem bond/slashing no Day 0**. E26 (#105): homologação documental em HOLD; o compromisso Gen-2 (versão, F, R, T_rec, Δ, `latestDisputeOpenAt`) é proposta da Entrega A.
 
@@ -18,10 +18,10 @@ Uma entidade de **resolução** (= a Resolution Layer da #619; decisões registr
 flowchart TD
   G["Sails Federation Governance<br/>constituição, credenciamento, mandatos e destituição"]
   I["Integradores + usuários<br/>política e consentimento vinculados ao trade"]
-  R["Resolution Entity<br/>profissionais habilitados, evidências, decisão assinada"]
-  V["Signing Entity / Federation<br/>verificação independente de autorização"]
-  RS["Recovery Set (disjunto)<br/>executa decisão existente após T_rec"]
-  S["Bitcoin settlement<br/>Gen-1 P2WSH / Gen-2 P2TR"]
+  R["Resolution Entity (proposto)<br/>profissionais habilitados, evidências, decisão assinada"]
+  V["Signing Entity / Federation (proposto)<br/>verificação independente de autorização"]
+  RS["Recovery Set (disjunto; proposto)<br/>executa decisão existente após T_rec"]
+  S["Bitcoin settlement<br/>Gen-1 P2WSH (implementado) / Gen-2 P2TR (candidata, não implementada)"]
   P["Sails Nodes + SDK<br/>coordenação econômica aberta"]
   G -->|"nomeia, audita, substitui"| R
   G -->|"credencia, audita, substitui"| V
@@ -75,11 +75,11 @@ flowchart LR
 
 **Estado atual:** Gen-1 P2WSH 2-de-3 por escrow; o nó detém o `MULTISIG_SEED` que deriva a terceira chave. O árbitro é derivado do seed (`multisig.provider.ts:462-512`, `688-698`) e a decisão Ed25519 (`arbitration-authority.ts:107-125`) roda no mesmo processo: **não protege contra o operador**. Separação de decisão: **parcial** em lógica — guardas de assinatura no fluxo de disputa da Gen-1 estão **em correção** — e **não** há separação operacional/criptográfica do signatário. A federação ainda **não está implementada**.
 
-**P1 (Tier 3):** fronteira `SettlementSigner` sem alteração econômica, compatível com Gen-1. **P2 (Tier 3):** signatário externo que nunca compartilha segredo com o nó, reconstrói independentemente a transação e recusa destino/valor/outpoint adulterados. **Federação distribuída:** desenho **proposto** na Entrega A (recomendação conjunta Principal + GK, **pendente de decisão do CTO**; não homologada, não implementada); exige testes, recuperação e independência; signatário externo único não é federação.
+**P1 (Tier 3):** fronteira `SettlementSigner` sem alteração econômica, compatível com Gen-1. **P2 (Tier 3):** signatário externo que nunca compartilha segredo com o nó, reconstrói independentemente a transação e recusa destino/valor/outpoint adulterados. **Federação distribuída:** desenho **proposto** na Entrega A (recomendação conjunta Principal + GK, **aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes**; não homologada, não implementada); exige testes, recuperação e independência; signatário externo único não é federação.
 
-**Gen-2 Day 0 — nova prioridade do proprietário:** arquitetura P2TR com caminhos de gasto e recuperação especificados, testados e homologados **antes da ativação econômica pública**. RFC-024 permanece candidata até revisão e decisão expressa CTO; nenhum código econômico irreversível autorizado por este registro. **Proposto:** MuSig2 **só** no key path comprador+vendedor; folhas de disputa e de recuperação com k-de-n nativo (`OP_CHECKSIGADD`), chaves independentes, sem DKG; FROST adiado (otimização futura, exige auditoria). Gen-1 (ECDSA) e Gen-2 (Schnorr) exigem análise separada; não presumir que o mesmo esquema serve aos dois.
+**Gen-2 Day 0 — nova prioridade do proprietário:** arquitetura P2TR com caminhos de gasto e recuperação especificados, testados e homologados **antes da ativação econômica pública**. RFC-024 permanece candidata até revisão e decisão expressa CTO; nenhum código econômico irreversível autorizado por este registro. Ativação Gen-2: **NO-GO** até homologação; não implementada. **Proposto:** MuSig2 **só** no key path comprador+vendedor; folhas de disputa e de recuperação com k-de-n nativo (`OP_CHECKSIGADD`), chaves independentes, sem DKG; FROST adiado (otimização futura, exige auditoria). Gen-1 (ECDSA) e Gen-2 (Schnorr) exigem análise separada; não presumir que o mesmo esquema serve aos dois.
 
-### Diagrama C — Árvore candidata da Entrega A (recomendação conjunta, PENDENTE do CTO, NÃO homologada)
+### Diagrama C — Árvore candidata da Entrega A (recomendação conjunta, aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes; NÃO homologada, NÃO implementada)
 
 ```mermaid
 flowchart TD
@@ -100,7 +100,7 @@ flowchart TD
   K --> Z
 ```
 
-**Nenhuma folha de uma parte só nem só da federação; o nó não detém chave; k, n, m, r, T_rec e Δ são referências pendentes de decisão do CTO.** Resíduos declarados da Entrega A (5, §13.5) permanecem abertos, inclusive reshare/FROST futuro e perda da chave do vencedor.
+**Nenhuma folha de uma parte só nem só da federação; o nó não detém chave; k, n, m, r, T_rec e Δ são referências; parâmetros pendentes (aprovação condicionada, CTO 28).** Resíduos declarados da Entrega A (5, §13.5) permanecem abertos, inclusive reshare/FROST futuro e perda da chave do vencedor.
 
 **Proibição de inferência:** um timelock unilateral para o vendedor pode violar a proteção do comprador após pagamento fiat; não é mecanismo aprovado. Um novo quorum ou nova chave não consegue gastar escrows cujos scripts antigos não o autorizam. Escrows Gen-1 existentes não migram automaticamente.
 
@@ -127,4 +127,4 @@ flowchart TD
 4. **Principal + GK (função de auditoria documental):** localizar decisões históricas e distinguir registro de intenção, proposta, homologação e implementação.
 5. **CTO:** homologar separadamente governança, parâmetros de quórum, caminhos de gasto, política de recuperação, rollout e merges Tier 3/4.
 
-**Estado:** registro documental e diagramas explicativos **em revisão**. **NO-GO** para ativação pública, migração e implementação econômica sem aprovação específica.
+**Estado:** registro documental e diagramas explicativos **em revisão**. **NO-GO** para ativação pública, migração e implementação econômica sem aprovação específica. Entrega A: aprovada condicionalmente como direção/proposta (CTO 28); Entrega B NÃO autorizada; ativação Gen-2 NO-GO.

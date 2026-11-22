@@ -1,4 +1,4 @@
-> **Status: PROPOSTA / PENDING_CTO_APPROVAL.** Recomendação conjunta Principal + GK. Nada aprovado, nada homologado, nada implementado. Todos os valores (n/k, r/m, T_rec, Δ, D_max) são referências. E26 permanece HOLD documental. Texto em inglês, como produzido; a revisão 2 (§13) prevalece.
+> **Status: Superado pela Revisão 3: aprovação condicionada (CTO 28).** Aprovação condicionada da Entrega A (CTO 28); Entrega B não autorizada; nada implementado; nada homologado. (Texto original: PROPOSTA / PENDING_CTO_APPROVAL, recomendação conjunta Principal + GK.) Todos os valores (n/k, r/m, T_rec, Δ, D_max) são referências. E26 permanece HOLD documental. Texto em inglês, como produzido; a revisão 2 (§13) prevalece.
 
 # DELIVERY A: Gen-2 Bitcoin (Taproot) + Sails Signing Federation. Decision document (Principal draft for the GK and the Documentary Auditor; for the CTO's decision)
 
@@ -116,6 +116,7 @@ Notes:
 | T13 | A false federation (common controller) | the GK's 6 proofs before the label; independent ceremony logs | an evidence review, not a code test |
 
 ## 10. Acceptance criteria to approve Delivery A (for the CTO and the GK)
+> Note (Revision 3, CTO 28): these criteria remain the conditions of the conditioned approval; the approval does not by itself satisfy them. Parameters stay pending and Delivery B is not authorized.
 1. The tree and the powers table (§1-§2) are accepted as the target, with **no leaf that is single-party or federation-only**.
 2. The named conflict (§6) and its residual are accepted explicitly by the CTO.
 3. The mechanisms: MuSig2 for K and native k-of-n for the leaves; FROST deferred.
@@ -224,6 +225,7 @@ A compromise of the GC cannot touch funded escrows: it can only publish a malici
 Existing records keep their formal status.
 
 ### 12.10 Exit criterion (CTO): Gen-2 is NOT ready for implementation until these are decided
+> Gen-2 activation is NO-GO until these are decided and the design is homologated; see Revision 3 below and the README of this folder.
 1. Participants (the GC seats, n/k for the SF, r/m for the RS, the resolvers).
 2. Powers (§12.1).
 3. Quorums (§12.1, decision ≠ cryptographic).
@@ -327,7 +329,7 @@ SF and RS members **refuse any signature request other than `SIGHASH_DEFAULT` / 
 
 ## Revision 3 (CTO 28 conditioned approval of Delivery A): the four points
 
-> Status: PROPOSAL (joint opinion Principal + GK, co-signed). Not approved, not homologated, not implemented. Delivery B is not authorized; public activation stays NO-GO. All values are references pending the CTO.
+> Status: PROPOSAL text (joint opinion Principal + GK, co-signed), under the conditioned approval of Delivery A as a direction (CTO 28). Not homologated, not implemented. Delivery B is not authorized; public activation stays NO-GO. All values are references pending the CTO.
 
 
 Status: Delivery A has **CONDITIONED APPROVAL** (CTO 28). Delivery B (economic) is **not** authorized. Nothing is implemented.
