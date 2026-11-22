@@ -40,6 +40,7 @@ const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/d
 const FundingInstructionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/FundingInstructionPreview').then((m) => ({ default: m.FundingInstructionPreview }))) : null
 const MarketContextPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/MarketContextPreview').then((m) => ({ default: m.MarketContextPreview }))) : null
 const DesignSystemPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/DesignSystemPreview').then((m) => ({ default: m.DesignSystemPreview }))) : null
+const WiringMap = import.meta.env.DEV ? lazy(() => import('./pages/dev/WiringMap').then((m) => ({ default: m.WiringMap }))) : null
 
 // Mobile: top, so a toast never covers the page's primary action or the bottom nav.
 const MOBILE_QUERY = '(max-width: 767px)'
@@ -124,6 +125,7 @@ export default function App() {
                 {FundingInstructionPreview && <Route path="/dev/funding-instruction" element={<Suspense fallback={<RouteFallback />}><FundingInstructionPreview /></Suspense>} />}
                 {MarketContextPreview && <Route path="/dev/market-context" element={<Suspense fallback={<RouteFallback />}><MarketContextPreview /></Suspense>} />}
                 {DesignSystemPreview && <Route path="/dev/design-system" element={<Suspense fallback={<RouteFallback />}><DesignSystemPreview /></Suspense>} />}
+                {WiringMap && <Route path="/dev/wiring" element={<Suspense fallback={<RouteFallback />}><WiringMap /></Suspense>} />}
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
