@@ -49,10 +49,13 @@ import {
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
 import { config } from '../../config'
 
-// The protocol fee ceiling: config.settlement.maxProtocolFeeRate (SAILS_MAX_PROTOCOL_FEE_RATE), provisional 1% until governed (CTO 38, D-E6).
-// A rate above it is never accepted.
+// The protocol fee ceiling (CTO 38, D-E6). PROPOSED value, pending governance: 0.50%, 1.25x the 0.40% reference, until
+// the signed global policy carries it. A node's SAILS_MAX_PROTOCOL_FEE_RATE can only TIGHTEN it, never widen it, so local
+// configuration never allows more than the protocol does. A rate above the effective ceiling is never accepted.
+export const PROTOCOL_MAX_FEE_RATE = '0.005'
 export function maxProtocolFeeRate(): string {
-  return config.settlement?.maxProtocolFeeRate ?? '0.01'
+  const local = config.settlement?.maxProtocolFeeRate
+  return local && new Prisma.Decimal(local).lessThan(PROTOCOL_MAX_FEE_RATE) ? local : PROTOCOL_MAX_FEE_RATE
 }
 
 // CTO 413 (P1) — structural checks plus the ceiling above. DECIMAL(24,8) would store NaN

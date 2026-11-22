@@ -213,9 +213,10 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['comma decimal', '0,5', /not a decimal number/],
     ['non-numeric', 'abc', /not a decimal number/],
     ['empty', '', /not a decimal number/],
-    // Provisional protocol ceiling (MAX_PROTOCOL_FEE_RATE, 1%; final value is the CTO's, D-E6).
-    ['above the 1% ceiling', '0.01000001', /must be <= 0.01/],
-    ['above 100%', '1.5', /must be <= 0.01/],
+    // Protocol ceiling (PROTOCOL_MAX_FEE_RATE, proposed 0.50%, pending governance: CTO 38 D-E6).
+    ['above the protocol ceiling', '0.00500001', /must be <= 0.005/],
+    ['1%, the former placeholder', '0.01', /must be <= 0.005/],
+    ['above 100%', '1.5', /must be <= 0.005/],
   ]
 
   it.each(invalid)('createDraft refuses %s and writes nothing', async (_label, rate, message) => {
@@ -236,7 +237,7 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['exactly 8 decimal places', '0.00000001'],
     ['the fixture rate', '0.004'],
     ['trailing zeros past 8 places (value has 8 or fewer)', '0.0040000000'],
-    ['exactly the 1% ceiling', '0.01'],
+    ['exactly the protocol ceiling', '0.005'],
   ])('createDraft and publish accept %s, passing the value through unchanged', async (_label, rate) => {
     const repo = fakeRepo({ create: jest.fn().mockImplementation(async (input) => input) })
     await expect(new FeePolicyService(repo).createDraft(draftInput(rate))).resolves.toMatchObject({ protocolFeeRate: rate })
@@ -311,5 +312,22 @@ describe('FeePolicyService — PUBLISHED-only snapshotting (Test I)', () => {
     const service = new FeePolicyService(repo)
 
     await expect(service.assertPublished(published.id)).resolves.toEqual(published)
+  })
+})
+
+// CTO 38 (D-E6): a node's configuration can only tighten the protocol ceiling, never widen it.
+describe('protocol fee ceiling: local configuration only tightens it', () => {
+  const { config } = require('../src/config')
+  const { maxProtocolFeeRate, PROTOCOL_MAX_FEE_RATE } = require('../src/modules/open-settlement/fee-policy.service')
+  const original = config.settlement.maxProtocolFeeRate
+  afterEach(() => { config.settlement.maxProtocolFeeRate = original })
+  it.each([
+    ['unset', undefined, PROTOCOL_MAX_FEE_RATE],
+    ['a WIDER local value (1%) is ignored', '0.01', PROTOCOL_MAX_FEE_RATE],
+    ['an equal local value', PROTOCOL_MAX_FEE_RATE, PROTOCOL_MAX_FEE_RATE],
+    ['a TIGHTER local value applies', '0.003', '0.003'],
+  ])('%s', (_label, local, effective) => {
+    config.settlement.maxProtocolFeeRate = local
+    expect(maxProtocolFeeRate()).toBe(effective)
   })
 })
