@@ -11,6 +11,8 @@ export function DemoBanner() {
       {/* One line on mobile: the short notice; the full sentence from md. */}
       <span className="md:hidden">{t('shell.demo.bannerShort')}</span>
       <span className="hidden md:inline">{t('shell.demo.bannerLong')}</span>
+      {/* From md only: the mobile banner stays one line. */}
+      <a href="/dev/wiring" className={`${link} hidden md:inline-flex`}>{t('shell.demo.wiring')}</a>
       <button type="button" onClick={resetDemoAndReload} className={link}>{t('shell.demo.reset')}</button>
       {/* Full reload on purpose: turning the demo off must restore the real client. */}
       <a href="/?demo=0" className={link}>{t('shell.demo.exit')}</a>
