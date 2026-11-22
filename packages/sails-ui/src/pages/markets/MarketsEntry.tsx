@@ -1,48 +1,46 @@
 /**
  * Layer C: the ways into markets from the rest of the app (DECISIONS.md "Modelo mundo aberto"):
- * - MarketPortalButton: "Mercado aberto ▾" next to the Market title. Real mode lists only Mercado aberto; demo adds
- *   fictional markets (listed, not selectable: no market offers exist in the protocol) and, after a fictional invite
- *   is granted, that market right after Mercado aberto.
+ * - MarketPortalButton: "Mercado aberto ▾" next to the Market title. Navigation only (PO 2026-11-22): the current
+ *   market, then the actions (Meus mercados shows how many markets the person has). The list itself lives in
+ *   Meus mercados.
  * - MarketsDiscoveryCard: a small card in the Market, shown until dismissed, then hidden for 30 days.
  * - MarketsCallToAction: the same invitation in natural places (empty offer list, Perfil).
  */
 import { useState } from 'react'
 import { Link } from 'react-router'
-import { X } from 'lucide-react'
+import { ShoppingBag, UsersRound, X } from 'lucide-react'
 import { MarketPortal, type MarketPortalAction, type MarketPortalCopy } from '../../components/markets/MarketPortal'
 import { ActionIcon, MARKET_ACTION_ICON } from '../../components/markets/MarketIcon'
 import { IconButton } from '../../components/ui/icon-button'
 import { buttonVariants } from '../../components/ui/button'
-import { MARKETS_ROUTES } from '../../components/layout/navMatch'
+import { MARKETS_ROUTES, SPACE_SHOP_ROUTE } from '../../components/layout/navMatch'
 import { dismissDiscovery, readDiscoveryDismissedAt, shouldShowDiscovery } from '../../lib/discoveryCard'
 import { ownMarkets } from '../../lib/myMarkets'
 import { cn } from '../../lib/utils'
-import { marketListCopy, marketsValueLine, useVisibleMarkets } from './shared'
+import { marketsValueLine, useVisibleMarkets } from './shared'
+import { isDemoMode } from '../../lib/demoMarkers'
 import { t } from '../../i18n'
 
-function portalActions(): readonly MarketPortalAction[] {
+function portalActions(mineCount: number, demo: boolean): readonly MarketPortalAction[] {
   return [
     { id: 'explore', label: t('markets.action.explore'), description: t('markets.action.exploreDescription'), icon: MARKET_ACTION_ICON.explore, to: MARKETS_ROUTES.explore },
+    { id: 'mine', label: t('markets.action.mine'), description: t('spaces.portal.mineDescription'), icon: UsersRound, to: MARKETS_ROUTES.mine, meta: t('spaces.portal.mineCount', { count: mineCount }) },
     { id: 'join', label: t('markets.action.join'), description: t('markets.action.joinDescription'), icon: MARKET_ACTION_ICON.invite, to: MARKETS_ROUTES.join },
     { id: 'create', label: t('markets.action.create'), description: t('markets.action.createDescription'), icon: MARKET_ACTION_ICON.create, to: MARKETS_ROUTES.create },
+    // Demo only: outside the demo the shop is only a planned item, so the portal does not offer it.
+    ...(demo ? [{ id: 'space', label: t('shop.title'), description: t('shop.portalDescription'), icon: ShoppingBag, to: SPACE_SHOP_ROUTE, secondary: true }] : []),
   ]
 }
 
 function portalCopy(): MarketPortalCopy {
-  const list = marketListCopy()
   return {
     triggerPrefix: t('markets.portal.triggerPrefix'),
     title: t('markets.title'),
-    yourMarkets: t('markets.portal.yourMarkets'),
+    currentTitle: t('spaces.portal.currentTitle'),
     actionsTitle: t('markets.portal.actionsTitle'),
     current: t('markets.portal.current'),
     close: t('common.close'),
-    marketLine: (m) => m.relation === 'default'
-      ? t('markets.default.description')
-      : t('markets.portal.marketLine', { visibility: list.visibility[m.visibility], relation: list.relation[m.relation] }),
-    unavailable: t('common.soon'),
-    unavailableReason: () => t('markets.portal.unavailableReason'),
-    illustrative: t('markets.fictionalExample'),
+    currentLine: (m) => (m.relation === 'default' ? t('markets.default.description') : m.description ?? ''),
   }
 }
 
@@ -50,12 +48,9 @@ export function MarketPortalButton({ className }: { className?: string }) {
   const markets = ownMarkets(useVisibleMarkets())
   return (
     <MarketPortal
+      // Until market offers exist (LOOSE_WIRES.marketMembership), the current market is always Mercado aberto.
       current={markets[0]}
-      markets={markets}
-      // Until market offers exist (LOOSE_WIRES.marketMembership), only Mercado aberto can be entered.
-      isSelectable={(m) => m.relation === 'default'}
-      onSelect={() => undefined}
-      actions={portalActions()}
+      actions={portalActions(markets.filter((m) => m.relation !== 'default').length, isDemoMode())}
       renderLink={({ to, className: c, onClick, children }) => <Link to={to} className={c} onClick={onClick}>{children}</Link>}
       copy={portalCopy()}
       className={className}

@@ -26,6 +26,9 @@ import { marketPreview, parseUsdWhole, type MarketDraft, type MarketPreviewModel
 import { addDemoCreatedMarket, demoMarketPage, isDemoMode } from '../lib/demoMarkers'
 import { MARKET_CATEGORIES, filterByCategory, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
 import { spaceProduct } from '../lib/spaceCatalog'
+import { IMAGE_MAX_BYTES, IMAGE_SPECS, formatPx, type ImageKind } from '../lib/imageCheck'
+import { getLocale } from '../lib/locale'
+import type { ImagePickerCopy } from '../components/markets/ImagePicker'
 import type { MarketView } from '../lib/myMarkets'
 import { cn } from '../lib/utils'
 import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
@@ -45,9 +48,23 @@ const tabs = () => [
 const SURFACE = 'border-brand-border-subtle bg-brand-surface p-4'
 const safeLocalStorage = () => { try { return window.localStorage } catch { return undefined } }
 
-const imageCopy = (label: string, help: string) => ({
-  label, help, choose: t('spaces.create.choose'), replace: t('spaces.create.replace'), remove: t('spaces.create.remove'), wrongType: t('spaces.create.wrongType'),
-})
+// Pixel sizes and formats from lib/imageCheck.ts, written in the interface language (PO, 2026-11-22).
+const imageCopy = (kind: ImageKind, label: string): ImagePickerCopy => {
+  const spec = IMAGE_SPECS[kind]
+  const locale = getLocale()
+  const formats = t(kind === 'icon' ? 'spaces.create.formatsIcon' : 'spaces.create.formatsPhoto')
+  const max = t('spaces.create.maxSize', { mb: IMAGE_MAX_BYTES / 1024 / 1024 })
+  const rec = formatPx(spec.recommended, locale)
+  return {
+    label,
+    help: t('spaces.create.imageHelp', { ratio: spec.ratioLabel, rec, min: formatPx(spec.minimum, locale), formats, max }) + (kind === 'icon' ? '' : ` ${t('spaces.create.safeArea')}`),
+    choose: t('spaces.create.choose'), replace: t('spaces.create.replace'), remove: t('spaces.create.remove'),
+    wrongType: t('spaces.create.wrongType', { formats }),
+    tooBig: t('spaces.create.tooBig', { max }),
+    warnSmall: t('spaces.create.warnSmall', { rec }),
+    warnRatio: t('spaces.create.warnRatio', { ratio: spec.ratioLabel }),
+  }
+}
 
 function createCopy(): CreateMarketCopy {
   const list = marketListCopy()
@@ -93,9 +110,9 @@ function createCopy(): CreateMarketCopy {
       ],
     },
     images: {
-      icon: imageCopy(t('spaces.create.icon'), t('spaces.create.iconHelp')),
-      banner: imageCopy(t('spaces.create.banner'), t('spaces.create.bannerHelp')),
-      cover: imageCopy(t('spaces.create.cover'), t('spaces.create.coverHelp')),
+      icon: imageCopy('icon', t('spaces.create.icon')),
+      banner: imageCopy('banner', t('spaces.create.banner')),
+      cover: imageCopy('cover', t('spaces.create.cover')),
       coverToggle: t('spaces.create.coverToggle'),
       note: t('spaces.create.imagesNote'),
     },
@@ -320,6 +337,8 @@ function MineView() {
         {!demo && <WirePlanned id="marketMembership" label={t('spaces.mine.privateLabel')} badge={t('spaces.preparing')} description={t('spaces.mine.privatePreparing')} />}
         {markets.length === 1 && <WirePlanned id="marketMembership" description={t('markets.mine.membershipPlanned')} />}
         <WirePlanned id="marketPortability" description={t('markets.mine.portabilityPlanned')} />
+        {/* Moved from the portal (PO 2026-11-22): the honest note lives next to the list it explains. */}
+        <p className="text-caption text-brand-text-muted">{t('markets.portal.unavailableReason')}</p>
       </Card>
     </div>
   )

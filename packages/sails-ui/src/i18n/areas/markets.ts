@@ -20,10 +20,8 @@ export default defineArea(
     'markets.fictionalExample': 'Exemplo fictício',
 
     'markets.portal.triggerPrefix': 'Mercado:',
-    'markets.portal.yourMarkets': 'Seus mercados',
     'markets.portal.actionsTitle': 'Mais mercados',
     'markets.portal.current': 'Selecionado',
-    'markets.portal.marketLine': '{visibility} · {relation}',
     'markets.portal.unavailableReason': 'Não disponível: as ofertas por mercado dependem de uma evolução do protocolo.',
     'markets.discovery.title': 'Comunidades e mercados privados',
 
@@ -36,7 +34,7 @@ export default defineArea(
     'markets.list.relation.none': 'Aberto para seguir',
     'markets.list.presetLabel': 'Modelo',
     'markets.list.preset.vitrine': 'Vitrine',
-    'markets.list.preset.comunidade': 'Comunidade',
+    'markets.list.preset.comunidade': 'Todos publicam',
     'markets.list.preset.personalizado': 'Personalizado',
     'markets.list.infrastructureLabel': 'Detalhe técnico:',
     'markets.list.infrastructure.own': 'nó próprio',
@@ -202,10 +200,8 @@ export default defineArea(
       'markets.fictionalExample': 'Fictional example',
 
       'markets.portal.triggerPrefix': 'Market:',
-      'markets.portal.yourMarkets': 'Your markets',
       'markets.portal.actionsTitle': 'More markets',
       'markets.portal.current': 'Selected',
-      'markets.portal.marketLine': '{visibility} · {relation}',
       'markets.portal.unavailableReason': 'Not available: offers per market depend on a protocol update.',
       'markets.discovery.title': 'Communities and private markets',
 
@@ -218,7 +214,7 @@ export default defineArea(
       'markets.list.relation.none': 'Open to follow',
       'markets.list.presetLabel': 'Model',
       'markets.list.preset.vitrine': 'Storefront',
-      'markets.list.preset.comunidade': 'Community',
+      'markets.list.preset.comunidade': 'Everyone publishes',
       'markets.list.preset.personalizado': 'Custom',
       'markets.list.infrastructureLabel': 'Technical detail:',
       'markets.list.infrastructure.own': 'own node',
@@ -383,10 +379,8 @@ export default defineArea(
       'markets.fictionalExample': 'Ejemplo ficticio',
 
       'markets.portal.triggerPrefix': 'Mercado:',
-      'markets.portal.yourMarkets': 'Tus mercados',
       'markets.portal.actionsTitle': 'Más mercados',
       'markets.portal.current': 'Seleccionado',
-      'markets.portal.marketLine': '{visibility} · {relation}',
       'markets.portal.unavailableReason': 'No disponible: las ofertas por mercado dependen de una evolución del protocolo.',
       'markets.discovery.title': 'Comunidades y mercados privados',
 
@@ -399,7 +393,7 @@ export default defineArea(
       'markets.list.relation.none': 'Abierto para seguir',
       'markets.list.presetLabel': 'Modelo',
       'markets.list.preset.vitrine': 'Escaparate',
-      'markets.list.preset.comunidade': 'Comunidad',
+      'markets.list.preset.comunidade': 'Todos publican',
       'markets.list.preset.personalizado': 'Personalizado',
       'markets.list.infrastructureLabel': 'Detalle técnico:',
       'markets.list.infrastructure.own': 'nodo propio',
@@ -564,10 +558,8 @@ export default defineArea(
       'markets.fictionalExample': 'Exemple fictif',
 
       'markets.portal.triggerPrefix': 'Marché :',
-      'markets.portal.yourMarkets': 'Vos marchés',
       'markets.portal.actionsTitle': 'Plus de marchés',
       'markets.portal.current': 'Sélectionné',
-      'markets.portal.marketLine': '{visibility} · {relation}',
       'markets.portal.unavailableReason': 'Non disponible : les offres par marché dépendent d’une évolution du protocole.',
       'markets.discovery.title': 'Communautés et marchés privés',
 
@@ -580,7 +572,7 @@ export default defineArea(
       'markets.list.relation.none': 'Ouvert au suivi',
       'markets.list.presetLabel': 'Modèle',
       'markets.list.preset.vitrine': 'Vitrine',
-      'markets.list.preset.comunidade': 'Communauté',
+      'markets.list.preset.comunidade': 'Tout le monde publie',
       'markets.list.preset.personalizado': 'Personnalisé',
       'markets.list.infrastructureLabel': 'Détail technique :',
       'markets.list.infrastructure.own': 'nœud propre',
@@ -745,10 +737,8 @@ export default defineArea(
       'markets.fictionalExample': 'Fiktives Beispiel',
 
       'markets.portal.triggerPrefix': 'Markt:',
-      'markets.portal.yourMarkets': 'Deine Märkte',
       'markets.portal.actionsTitle': 'Weitere Märkte',
       'markets.portal.current': 'Ausgewählt',
-      'markets.portal.marketLine': '{visibility} · {relation}',
       'markets.portal.unavailableReason': 'Nicht verfügbar: Angebote pro Markt hängen von einer Weiterentwicklung des Protokolls ab.',
       'markets.discovery.title': 'Communitys und private Märkte',
 
@@ -761,7 +751,7 @@ export default defineArea(
       'markets.list.relation.none': 'Offen zum Folgen',
       'markets.list.presetLabel': 'Modell',
       'markets.list.preset.vitrine': 'Schaufenster',
-      'markets.list.preset.comunidade': 'Gemeinschaft',
+      'markets.list.preset.comunidade': 'Alle veröffentlichen',
       'markets.list.preset.personalizado': 'Benutzerdefiniert',
       'markets.list.infrastructureLabel': 'Technisches Detail:',
       'markets.list.infrastructure.own': 'eigener Knoten',

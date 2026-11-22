@@ -120,7 +120,8 @@ export function MarketPage() {
   const presetRules = m.preset === 'vitrine'
     ? { publishes: t('markets.preview.rules.vitrinePublishes'), trades: t('markets.preview.rules.vitrineTrades') }
     : { publishes: t('markets.preview.rules.members'), trades: t('markets.preview.rules.members') }
-  const banner = <MarketBanner market={m} image={m.bannerImage} />
+  // Keeps 3:1 in the detail column; capped on wide screens so it never pushes the content below the fold.
+  const banner = <MarketBanner market={m} image={m.bannerImage} className="md:max-h-64" />
 
   return (
     <Page width="detail">

@@ -1,9 +1,10 @@
 /**
- * Layer A: the market portal (DECISIONS.md "Modelo mundo aberto"). One discreet button with the current market's
- * icon and name next to the Market title ("Mercado aberto ▾"). It opens a panel (popover from md, bottom sheet below)
- * with the person's markets first and then the actions (explore, invite, create). People who only use the open
- * market are never bothered; switching takes two taps. Markets that cannot be entered yet are listed, disabled, with
- * their reason. No routing here: the caller renders each action link through `renderLink`. Copy from props.
+ * Layer A: the market portal (DECISIONS.md "Modelo mundo aberto"; PO 2026-11-22: the portal is navigation). One
+ * discreet button with the current market's icon and name next to the Market title ("Mercado aberto ▾"). It opens a
+ * panel (popover from md, bottom sheet below) with the current market only, then the actions, each with its icon and
+ * one line (explore, my markets with a count, invite, create, and optional quieter ones). The list of the person's
+ * markets is not here: it lives in Meus mercados. No routing here: the caller renders each action link through
+ * `renderLink`. Copy from props.
  */
 import { useId, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, X, type LucideIcon } from 'lucide-react'
@@ -19,16 +20,13 @@ export interface MarketPortalCopy {
   /** Accessible prefix of the trigger ("Mercado:"). */
   triggerPrefix: string
   title: string
-  yourMarkets: string
+  /** Accessible name of the current-market group ("Mercado atual"). */
+  currentTitle: string
   actionsTitle: string
   current: string
   close: string
-  /** Second line of a market row (visibility · relation). */
-  marketLine: (m: MarketView) => string
-  /** Tonal tag on a market that cannot be entered yet ("Em breve"). */
-  unavailable: string
-  unavailableReason: (m: MarketView) => string
-  illustrative: string
+  /** Second line of the current market row. */
+  currentLine: (m: MarketView) => string
 }
 
 export interface MarketPortalAction {
@@ -37,17 +35,16 @@ export interface MarketPortalAction {
   description?: string
   icon: LucideIcon
   to: string
+  /** Short trailing text, e.g. "4 mercados". */
+  meta?: string
+  /** Quieter row (e.g. a demo-only commercial action), shown after the main ones. */
+  secondary?: boolean
 }
 
 const ROW = 'flex min-h-11 w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left focus-visible:-outline-offset-2'
-const TAG = 'rounded-sm bg-brand-tonal px-1.5 text-caption font-medium leading-4 text-brand-text-secondary'
 
-export function MarketPortal({ current, markets, isSelectable, onSelect, actions, renderLink, copy, className }: {
+export function MarketPortal({ current, actions, renderLink, copy, className }: {
   current: MarketView
-  /** The person's markets, current included, in display order. */
-  markets: readonly MarketView[]
-  isSelectable: (m: MarketView) => boolean
-  onSelect: (id: string) => void
   actions: readonly MarketPortalAction[]
   renderLink: (a: { to: string; className: string; onClick: () => void; children: ReactNode }) => ReactNode
   copy: MarketPortalCopy
@@ -75,67 +72,55 @@ export function MarketPortal({ current, markets, isSelectable, onSelect, actions
     </button>
   )
 
+  const actionRow = (a: MarketPortalAction) => (
+    <li key={a.id}>
+      {renderLink({
+        to: a.to,
+        onClick: close,
+        className: cn(ROW, 'state-layer'),
+        children: (
+          <>
+            <ActionIcon icon={a.icon} />
+            <span className="min-w-0 flex-1">
+              <span className={cn('block font-medium', a.secondary ? 'text-brand-text-secondary' : 'text-brand-text')}>{a.label}</span>
+              {a.description && <span className="block text-caption text-brand-text-secondary">{a.description}</span>}
+            </span>
+            {a.meta && <span className="shrink-0 tabular-nums text-caption text-brand-text-secondary">{a.meta}</span>}
+          </>
+        ),
+      })}
+    </li>
+  )
+  const main = actions.filter((a) => !a.secondary)
+  const extra = actions.filter((a) => a.secondary)
+
   const body = (
     <div className="flex flex-col gap-1">
-      <p id={`${id}-mine`} className="px-2 pb-1 pt-1 text-caption font-medium text-brand-text-muted">{copy.yourMarkets}</p>
-      <ul aria-labelledby={`${id}-mine`} className="flex flex-col gap-0.5">
-        {markets.map((m) => {
-          const selectable = isSelectable(m)
-          const isCurrent = m.id === current.id
-          return (
-            <li key={m.id}>
-              <button
-                type="button"
-                aria-current={isCurrent ? 'true' : undefined}
-                aria-disabled={selectable ? undefined : 'true'}
-                aria-describedby={selectable ? undefined : `${id}-reason`}
-                onClick={() => { if (!selectable) return; close(); if (!isCurrent) onSelect(m.id) }}
-                className={cn(ROW, isCurrent ? 'bg-brand-selected' : selectable ? 'state-layer' : 'cursor-not-allowed')}
-              >
-                <MarketIcon market={m} size="sm" />
-                <span className="min-w-0 flex-1">
-                  <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                    <span className={cn('font-medium', selectable ? 'text-brand-text' : 'text-brand-text-secondary')}>{m.name}</span>
-                    {!selectable && <span className={TAG}>{copy.unavailable}</span>}
-                    {m.illustrative && <span className={TAG}>{copy.illustrative}</span>}
-                  </span>
-                  <span className="block text-caption text-brand-text-secondary">{copy.marketLine(m)}</span>
-                </span>
-                {isCurrent && (
-                  <span className="shrink-0 text-brand-checked">
-                    <Check aria-hidden="true" className="h-4 w-4" />
-                    <span className="sr-only">{copy.current}</span>
-                  </span>
-                )}
-              </button>
-            </li>
-          )
-        })}
-      </ul>
-      {/* One shared reason for every unavailable market (not repeated on each row). */}
-      {markets.some((m) => !isSelectable(m)) && <p id={`${id}-reason`} className="px-3 pb-1 pt-0.5 text-caption text-brand-text-muted">{copy.unavailableReason(markets.find((m) => !isSelectable(m))!)}</p>}
+      <p id={`${id}-current`} className="sr-only">{copy.currentTitle}</p>
+      <div role="group" aria-labelledby={`${id}-current`}>
+        <button type="button" aria-current="true" onClick={close} className={cn(ROW, 'bg-brand-selected')}>
+          <MarketIcon market={current} size="sm" />
+          <span className="min-w-0 flex-1">
+            <span className="block font-medium text-brand-text">{current.name}</span>
+            <span className="block text-caption text-brand-text-secondary">{copy.currentLine(current)}</span>
+          </span>
+          <span className="shrink-0 text-brand-checked">
+            <Check aria-hidden="true" className="h-4 w-4" />
+            <span className="sr-only">{copy.current}</span>
+          </span>
+        </button>
+      </div>
       <Divider className="my-1" />
       <p id={`${id}-actions`} className="sr-only">{copy.actionsTitle}</p>
       <ul aria-labelledby={`${id}-actions`} className="flex flex-col gap-0.5">
-        {actions.map((a) => (
-          <li key={a.id}>
-            {renderLink({
-              to: a.to,
-              onClick: close,
-              className: cn(ROW, 'state-layer'),
-              children: (
-                <>
-                  <ActionIcon icon={a.icon} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium text-brand-text">{a.label}</span>
-                    {a.description && <span className="block text-caption text-brand-text-secondary">{a.description}</span>}
-                  </span>
-                </>
-              ),
-            })}
-          </li>
-        ))}
+        {main.map(actionRow)}
       </ul>
+      {extra.length > 0 && (
+        <>
+          <Divider className="my-1" />
+          <ul aria-labelledby={`${id}-actions`} className="flex flex-col gap-0.5">{extra.map(actionRow)}</ul>
+        </>
+      )}
     </div>
   )
 

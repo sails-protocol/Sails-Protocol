@@ -126,13 +126,11 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
   const last = index >= steps.length - 1
   const set = <K extends keyof MarketDraft>(key: K, value: MarketDraft[K]) => setDraft((d) => ({ ...d, [key]: value }))
   const label = <T extends string>(options: Option<T>[], v: T | null) => options.find((o) => o.value === v)?.label ?? copy.review.empty
-  const [rejected, setRejected] = useState<ImageKey | null>(null)
   const [cover, setCover] = useState(false)
   // Local previews only: every object URL this wizard made is revoked when replaced and when it unmounts.
   const urls = useRef(new Set<string>())
   useEffect(() => () => { urls.current.forEach((u) => URL.revokeObjectURL(u)); urls.current.clear() }, [])
   const pick = (key: ImageKey) => (file: File | null) => {
-    setRejected(null)
     setDraft((d) => {
       const old = d[key]
       if (old) { URL.revokeObjectURL(old); urls.current.delete(old) }
@@ -168,10 +166,10 @@ export function CreateMarketWizard({ copy, initial, privateHostingSlot, branding
           <Choice legend={copy.category.legend} legendVisible columns name={`${id}-category`} options={copy.category.options} value={draft.category} onChange={(v) => set('category', v)} />
           <Choice legend={copy.profile.legend} legendVisible columns name={`${id}-profile`} options={copy.profile.options} value={draft.profile} onChange={(v) => set('profile', v)} note={copy.profile.note} />
           <div className="space-y-4">
-            <ImagePicker ratio="1:1" url={draft.iconUrl} copy={copy.images.icon} onPick={pick('iconUrl')} onReject={() => setRejected('iconUrl')} error={rejected === 'iconUrl'} />
-            <ImagePicker ratio="3:1" url={draft.bannerUrl} copy={copy.images.banner} onPick={pick('bannerUrl')} onReject={() => setRejected('bannerUrl')} error={rejected === 'bannerUrl'} />
+            <ImagePicker kind="icon" url={draft.iconUrl} copy={copy.images.icon} onPick={pick('iconUrl')} />
+            <ImagePicker kind="banner" url={draft.bannerUrl} copy={copy.images.banner} onPick={pick('bannerUrl')} />
             {cover || draft.coverUrl ? (
-              <ImagePicker ratio="3:4" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} onReject={() => setRejected('coverUrl')} error={rejected === 'coverUrl'} />
+              <ImagePicker kind="cover" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} />
             ) : (
               <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="touch:min-h-11">{copy.images.coverToggle}</Button>
             )}

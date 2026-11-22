@@ -30,7 +30,7 @@ export function MarketBanner({ market, image, className }: {
   return (
     <div aria-hidden="true" className={cn('relative aspect-[3/1] w-full overflow-hidden rounded-lg bg-brand-elevated', className)}>
       {isLocalPreviewUrl(image) ? (
-        <img src={image} alt="" className="h-full w-full object-cover" />
+        <img src={image} alt="" className="h-full w-full object-cover object-center" />
       ) : (
         <div className={cn('flex h-full w-full items-center justify-end bg-gradient-to-br pr-[8%]', TONES[bannerTone(market.id)])}>
           <Icon className="h-1/2 w-auto text-brand-text-muted opacity-40" strokeWidth={1.25} />

@@ -32,11 +32,12 @@ import { t } from '../../i18n'
 
 /** "Em breve" (or `badge`, e.g. "Em preparação") + the loose wires a disabled control waits for (the contract is in LOOSE_WIRES). */
 export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: string }) {
+  // A div, not a p: Badge renders a div (a p cannot contain it).
   return (
-    <p className="text-caption text-brand-text-secondary">
+    <div className="text-caption text-brand-text-secondary">
       <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{badge ?? t('common.soon')}</Badge>
       {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
-    </p>
+    </div>
   )
 }
 
