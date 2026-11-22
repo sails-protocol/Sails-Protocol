@@ -32,6 +32,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Despacho 064: LN_BTC and LIGHTNING_HODL (Arkade) are closed for Day 0, in every environment (Gatekeeper criteria H1-H5).**
+  - **Why:** the LIGHTNING_HODL provider is under review (Despacho 064). Before this change, only a production process refused the rail (#220); elsewhere, LN_BTC routed to it, and `type: 'LIGHTNING_HODL'` was accepted for any asset without a settlement scope.
+  - **Change:** one source of truth, `src/common/day0-closed-rails.ts` (no NODE_ENV, config or env var, no flag to reopen), checked before any write at offer creation, TradeIntent creation, trade admission, escrow creation (the asset before resolving, the resolved type after) and the Pear offer announcement. Refusal: HTTP 409 `RAIL_CLOSED`.
+  - **Changed test expectations (declared):** three `escrowProviderWiring.test.ts` cases that expected LN_BTC to resolve to LIGHTNING_HODL now expect `RAIL_CLOSED`; the #220 production gate stays proven for LIGHTNING_HODL, SAFE_GUARD_EVM and WDK_USDT_EVM.
+  - **Not changed:** no migration (both enum values remain); existing escrows keep their dispatch, refund and recovery rules; `PRODUCTION_INELIGIBLE_TYPES` is untouched; the provider review is a separate change.
 - **#748: integration suites that simulate a restart now get a new database client (tests only).**
   - **Cause:** `src/common/database/index.ts` reuses `global.__prisma` across `jest.resetModules()`. The restarted modules paired a new `@prisma/client` (their `Prisma.sql` fragments) with the old client, which sent the D13 `SWEEP_KEY` fragment as a value (PG 22007). The ruling-recovery sweep failed in `postBroadcastFeeRecovery`, and the failure was hidden because the suite filtered `report.failed` by the case's own escrow.
   - **Change:** `postBroadcastFeeRecovery`, `economicDispositionAuthorityConcurrency`, `escrowFundingConcurrency` and `escrowFundingUncertainty` disconnect and clear `global.__prisma` before each `jest.resetModules()`, and close the restarted client in `afterAll`.
