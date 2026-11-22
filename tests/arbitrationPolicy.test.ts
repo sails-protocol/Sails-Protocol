@@ -88,6 +88,12 @@ describe('Issue #255 - market arbitration collateral is not economically backed 
     )
   })
 
+  it('the boot path passes the per-implementation overrides to this guard (app.ts)', () => {
+    const app = require('fs').readFileSync(require('path').join(__dirname, '../src/app.ts'), 'utf8') as string
+    const call = app.slice(app.indexOf('assertMarketArbitrationCollateralProductionEligible('), app.indexOf(')', app.indexOf('assertMarketArbitrationCollateralProductionEligible(')) + 1)
+    expect(call).toContain('config.settlement.arbitrationPolicyByEscrowType')
+  })
+
   it('allows trusted-list overrides in production and a market override outside production', () => {
     expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', true, { MULTISIG: 'trusted-list' })).not.toThrow()
     expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', false, { MOCK: 'market' })).not.toThrow()
