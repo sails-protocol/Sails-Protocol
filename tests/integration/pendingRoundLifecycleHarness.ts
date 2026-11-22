@@ -96,7 +96,7 @@ export async function buildCooperative(
   deps: { prisma: any; escrowService: any; identityService: any; liquidityRouter: any; tradeService: any; payoutAddressService: any },
   chain: Chain,
   label: string,
-  kind: 'release' | 'refund' = 'release'
+  kind: 'release' | 'refund' | 'none' = 'release' // 'none': funded, both payout addresses set, no round
 ) {
   const { registerTestParticipantWithKey } = require('./identityTestHelpers')
   const { createCommitmentFixture } = require('./helpers/committedPairFixture')
@@ -122,11 +122,14 @@ export async function buildCooperative(
     await escrowService.markPaymentSent(created.id, buyer.id)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', testnetAddress(`${label}-buyer`))
     await escrowService.initiateRelease(created.id, undefined, seller.id)
-  } else {
+  } else if (kind === 'refund') {
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', testnetAddress(`${label}-seller`))
     await escrowService.initiateRefund(created.id, seller.id)
+  } else {
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', testnetAddress(`${label}-buyer`))
+    await payoutAddressService.setPayoutAddress(seller.id, 'BTC', testnetAddress(`${label}-seller`))
   }
-  const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: created.id } })
+  const round = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: created.id } })
   const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: created.id } })
   return { escrow, trade, buyer, seller, round, funding } as {
     escrow: { id: string; status: string; txLockId: string | null }; trade: { id: string }; buyer: { id: string }; seller: { id: string }
