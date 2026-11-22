@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
-  Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
+  Activity, Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Link2, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
   Globe, LayoutGrid, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
@@ -35,6 +35,9 @@ import { MarketIcon } from '../components/markets/MarketIcon'
 import { useVisibleMarkets } from './markets/shared'
 import { ownMarkets } from '../lib/myMarkets'
 import { demoReceivedInvites, isDemoMode } from '../lib/demoMarkers'
+import { BASE_URL } from '../lib/sailsClient'
+import { useNodeConnection } from '../hooks/useNodeConnection'
+import type { NodeConnectionStatus } from '../lib/nodeConnection'
 import { t } from '../i18n'
 
 // Option lists are built at render so their labels follow the interface language.
@@ -70,6 +73,22 @@ const localeOptions = (): ReadonlyArray<{ value: LocalePreference; label: string
 function Planned({ id, description }: { id: LooseWireId; description?: string }) {
   const wire = LOOSE_WIRES[id]
   return <SettingsRow icon={wire.icon} label={wire.label} description={description} plannedLabel={t('common.soon')} />
+}
+
+// Host of the build-time node address; the raw value when it is not a URL, so a misconfigured build shows what it uses.
+function nodeHost(): string {
+  try { return new URL(BASE_URL).host } catch { return BASE_URL }
+}
+
+const CONNECTION_TONE: Record<NodeConnectionStatus, string> = {
+  online: 'text-brand-success-fg',
+  unreachable: 'text-brand-danger-fg',
+  unknown: 'text-brand-text-secondary',
+}
+
+/** Live status from lib/nodeConnection.ts: the last SDK request got a response, got none, or none was made yet. */
+function ConnectionStatus({ status }: { status: NodeConnectionStatus }) {
+  return <span className={CONNECTION_TONE[status]}>{t(`settings.network.status.${status}`)}</span>
 }
 
 const SOON_TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text'
@@ -179,6 +198,7 @@ export function Settings() {
   const [locale, setLocale] = useLocalePreference()
   const { user, loading: authLoading } = useAuth()
   const disconnect = useDisconnect()
+  const nodeStatus = useNodeConnection()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
   const [navPosition, setNavPosition] = useNavPosition()
 
@@ -227,8 +247,15 @@ export function Settings() {
           <SettingsGroup {...panel('no-sails')} title={t('settings.section.network')} icon={Network}>
             {/* Rede Sails is the default and works behind the scenes; markets live in the Market area, not here. */}
             <NetworkRow />
-            {/* The app talks to one API base fixed by its build config (lib/sailsClient.ts); no live connection signal exists, so no status line. */}
+            {/* The app talks to one API base fixed by its build config (VITE_API_BASE_URL, lib/sailsClient.ts). */}
             <SettingsRow icon={Server} label={t('settings.network.node')} description={t('settings.network.nodeDescription')} value={t('markets.node.automatic')} />
+            <SettingsRow
+              icon={Link2}
+              label={t('settings.network.address')}
+              value={<span className="font-mono text-xs">{nodeHost()}</span>}
+              control={<CopyButton value={BASE_URL} className="min-h-9 touch:min-h-11 px-3" />}
+            />
+            <SettingsRow icon={Activity} label={t('settings.network.connection')} value={<ConnectionStatus status={nodeStatus} />} />
             {/* "Nós públicos e privados" and "Nó manual" are covered by the node catalogue (nodeCatalog, under Avançado) and
                 "Adicionar nó manualmente" (wire manualServer): node profiles are never market types (DECISIONS). */}
             <NetworkSettingsRows advanced={<Planned id="connectionDiagnostics" />} />

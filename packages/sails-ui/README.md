@@ -394,6 +394,27 @@ real backend) — not used by anything yet, but means swapping a mock
 data read for a real `fetch`/`@satsails/p2p-trading-sdk` call later doesn't also
 require touching `vite.config.ts`.
 
+## Homologação (build for the VPS)
+
+The nó Sails address is fixed at build time by `VITE_API_BASE_URL` (see `.env.example`; unset means
+`http://localhost:3000`):
+
+```bash
+VITE_API_BASE_URL=https://<node host> npm run build -w @sails/ui   # output in packages/sails-ui/dist
+```
+
+Serve `dist/` as static files with a fallback to `index.html` (client-side routes). The UI calls the node
+cross-origin, so the node (or the proxy in front of it) must send:
+
+- `Access-Control-Allow-Origin: <UI origin>`: in production the backend sets this from
+  `CORS_ALLOWED_ORIGINS` (comma-separated); without it every request fails and the UI shows "Não foi
+  possível conectar ao nó Sails".
+- `Access-Control-Expose-Headers: Date`: lets deadline countdowns use the node's clock
+  (`src/lib/serverClock.ts`). The backend does not send it today; add it at the proxy. Without it the UI
+  falls back to the device clock.
+
+Settings → Rede e nós shows the configured address and the live connection status.
+
 ## Next steps (not done here)
 
 > **Correction, 2026-08-01:** items 1-3 and 10 below were written before

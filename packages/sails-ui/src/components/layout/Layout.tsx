@@ -5,6 +5,8 @@ import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
 import { AccountMenu } from './AccountMenu'
 import { OnboardingTour } from '../onboarding/OnboardingTour'
+import { NodeUnreachableBanner } from './NodeUnreachableBanner'
+import { TRADES_ROUTES } from './navMatch'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
@@ -43,6 +45,14 @@ export function Layout() {
     if (user && !hasSeenOnboarding()) setTourOpen(true)
   }, [user])
 
+  // Bumped when the nó Sails answers again after "Tentar de novo": remounts the page so it reads its data again.
+  const [reloadKey, setReloadKey] = useState(0)
+  const reloadPage = () => {
+    // A form the person is filling (publish offer) keeps its state: only read-only pages reload.
+    if (location.pathname !== TRADES_ROUTES.newOffer) setReloadKey((k) => k + 1)
+    document.getElementById('main-content')?.focus()
+  }
+
   const closeTour = (open: boolean) => {
     setTourOpen(open)
     if (!open) markOnboardingSeen()
@@ -80,6 +90,7 @@ export function Layout() {
             </Link>
           )}
         </header>
+        <NodeUnreachableBanner onReconnected={reloadPage} />
         {/* UI-FOUNDATION-1 — max-w-6xl -> max-w-7xl: the sidebar now
             reserves its own width (Sidebar.tsx), so the old cap left a
             visibly asymmetric empty band on the right at wide desktop
@@ -88,7 +99,7 @@ export function Layout() {
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
         <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 md:px-6 xl:px-8 py-6 pb-20 md:pb-8">
-          <Outlet context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
+          <Outlet key={reloadKey} context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>
       <BottomNav />

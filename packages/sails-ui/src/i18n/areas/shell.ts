@@ -65,6 +65,9 @@ export default defineArea(
     'shell.errors.intentBound': 'Esta intenção já está vinculada a um trade e não pode ser removida.',
     'shell.errors.ambiguousIntent': 'Esta intenção corresponde a mais de um trade. Abra o trade em Trades, aba Ativos.',
     'shell.errors.idempotencyUnknown': 'Não foi possível confirmar se o trade foi criado. Confira em Trades, aba Ativos, antes de tentar novamente.',
+    'shell.node.unreachable': 'Não foi possível conectar ao nó Sails. Verifique a conexão e tente de novo.',
+    'shell.node.retry': 'Tentar de novo',
+    'shell.node.retrying': 'Tentando…',
   },
   {
     en: {
@@ -130,6 +133,9 @@ export default defineArea(
       'shell.errors.intentBound': 'This intent is already linked to a trade and cannot be removed.',
       'shell.errors.ambiguousIntent': 'This intent matches more than one trade. Open the trade in Trades, Active tab.',
       'shell.errors.idempotencyUnknown': 'Could not confirm whether the trade was created. Check Trades, Active tab, before trying again.',
+      'shell.node.unreachable': 'Could not connect to the Sails node. Check your connection and try again.',
+      'shell.node.retry': 'Try again',
+      'shell.node.retrying': 'Trying…',
     },
     es: {
       'shell.nav.main': 'Navegación principal',
@@ -194,6 +200,9 @@ export default defineArea(
       'shell.errors.intentBound': 'Esta intención ya está vinculada a un trade y no se puede eliminar.',
       'shell.errors.ambiguousIntent': 'Esta intención corresponde a más de un trade. Abre el trade en Trades, pestaña Activos.',
       'shell.errors.idempotencyUnknown': 'No se pudo confirmar si el trade se creó. Revisa Trades, pestaña Activos, antes de volver a intentarlo.',
+      'shell.node.unreachable': 'No se pudo conectar con el nodo Sails. Revisa la conexión e inténtalo de nuevo.',
+      'shell.node.retry': 'Intentar de nuevo',
+      'shell.node.retrying': 'Intentando…',
     },
     fr: {
       'shell.nav.main': 'Navigation principale',
@@ -258,6 +267,9 @@ export default defineArea(
       'shell.errors.intentBound': 'Cette intention est déjà liée à un trade et ne peut pas être supprimée.',
       'shell.errors.ambiguousIntent': 'Cette intention correspond à plusieurs trades. Ouvrez le trade dans Trades, onglet En cours.',
       'shell.errors.idempotencyUnknown': 'Impossible de confirmer si le trade a été créé. Vérifiez dans Trades, onglet En cours, avant de réessayer.',
+      'shell.node.unreachable': 'Impossible de se connecter au nœud Sails. Vérifiez la connexion et réessayez.',
+      'shell.node.retry': 'Réessayer',
+      'shell.node.retrying': 'Nouvelle tentative…',
     },
     de: {
       'shell.nav.main': 'Hauptnavigation',
@@ -322,6 +334,9 @@ export default defineArea(
       'shell.errors.intentBound': 'Diese Absicht ist bereits mit einem Trade verknüpft und kann nicht entfernt werden.',
       'shell.errors.ambiguousIntent': 'Diese Absicht passt zu mehr als einem Trade. Öffne den Trade unter Trades, Tab Aktiv.',
       'shell.errors.idempotencyUnknown': 'Es konnte nicht bestätigt werden, ob der Trade erstellt wurde. Prüfe unter Trades, Tab Aktiv, bevor du es noch einmal versuchst.',
+      'shell.node.unreachable': 'Keine Verbindung zum Sails-Knoten. Prüfe die Verbindung und versuche es erneut.',
+      'shell.node.retry': 'Erneut versuchen',
+      'shell.node.retrying': 'Wird versucht…',
     },
   },
   {
