@@ -4,7 +4,7 @@
  * it is the protocol's job. State is owned by the caller; copy from props, tokens only.
  */
 import { useId, useState, type FormEvent, type ReactNode } from 'react'
-import { CheckCircle2, Clock, Hourglass, TimerOff, UserX, type LucideIcon } from 'lucide-react'
+import { CheckCircle2, CircleAlert, Clock, Hourglass, type LucideIcon } from 'lucide-react'
 import { Alert, type AlertTone } from '../ui/alert'
 import { Button } from '../ui/button'
 import { Progress } from '../ui/progress'
@@ -21,8 +21,8 @@ const LOOK: Record<ShownState, { tone: AlertTone; Icon: LucideIcon }> = {
   validating: { tone: 'info', Icon: Hourglass },
   pending: { tone: 'info', Icon: Clock },
   granted: { tone: 'success', Icon: CheckCircle2 },
-  expired: { tone: 'warning', Icon: TimerOff },
-  revoked: { tone: 'danger', Icon: UserX },
+  // One generic failure for invalid, expired or revoked (GK): never says which.
+  failed: { tone: 'warning', Icon: CircleAlert },
 }
 
 /** One block per state; renders nothing for 'idle'. `live` announces it when it changes. */
@@ -51,7 +51,7 @@ export interface JoinMarketCopy extends InviteStatusCopy {
   another: string
 }
 
-export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote, qrEntry, demoControls, onSubmit, onReset }: {
+export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote, qrEntry, demoControls, grantedAction, primarySolid = true, onSubmit, onReset }: {
   copy: JoinMarketCopy
   state: InviteState
   /** False = no contract: submit stays disabled and `unavailableNote` says why. */
@@ -61,13 +61,17 @@ export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote
   qrEntry?: ReactNode
   /** Demo-only controls that answer for the protocol; never passed in real mode. */
   demoControls?: ReactNode
+  /** Shown inside the "Acesso concedido" block (e.g. a link to the market page). */
+  grantedAction?: ReactNode
+  /** One solid orange per screen: false without a session (the topbar holds it). */
+  primarySolid?: boolean
   onSubmit: (invite: string) => void
   onReset: () => void
 }) {
   const id = useId()
   const [value, setValue] = useState('')
   const canSubmit = canSubmitInvite(state, value, contractAvailable)
-  const final = state === 'granted' || state === 'expired' || state === 'revoked'
+  const final = state === 'granted' || state === 'failed'
 
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -92,13 +96,15 @@ export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote
         />
         <p id={`${id}-invite-help`} className="mt-1 text-caption text-brand-text-muted">{copy.inviteHelp}</p>
       </div>
-      {qrEntry}
+      {/* Once checking starts, the status and the demo answers come right under the field (no scrolling). */}
+      {state === 'idle' && qrEntry}
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         {final ? (
           <Button type="button" variant="secondary" onClick={reset} className="touch:min-h-11">{copy.another}</Button>
         ) : (
           <Button
             type="submit"
+            variant={primarySolid ? 'default' : 'secondary'}
             disabled={!canSubmit}
             loading={state === 'validating'}
             aria-describedby={!contractAvailable && unavailableNote ? `${id}-unavailable` : undefined}
@@ -110,7 +116,7 @@ export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote
       </div>
       {!contractAvailable && unavailableNote && <div id={`${id}-unavailable`}>{unavailableNote}</div>}
       <div aria-live="polite">
-        <InviteStatus state={state} copy={copy} />
+        <InviteStatus state={state} copy={copy} action={state === 'granted' ? grantedAction : undefined} />
       </div>
       {demoControls}
     </form>

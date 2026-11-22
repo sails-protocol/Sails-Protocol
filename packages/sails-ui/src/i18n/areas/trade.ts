@@ -234,7 +234,7 @@ export default defineArea(
     // Chat
     'trade.chat.toggleHide': 'Ocultar chat',
     'trade.chat.toggleOpen': { one: 'Abrir chat · {count} mensagem', other: 'Abrir chat · {count} mensagens' },
-    'trade.chat.title': 'Chat P2P',
+    'trade.chat.title': 'Chat do trade',
     'trade.chat.presenceUnknownTitle': 'Ainda não observamos esta pessoa entrar na sala de chat',
     'trade.chat.inChatNamed': '{name} está no chat agora',
     'trade.chat.inChatAnon': 'A contraparte está no chat agora',
@@ -515,7 +515,7 @@ export default defineArea(
 
       'trade.chat.toggleHide': 'Hide chat',
       'trade.chat.toggleOpen': { one: 'Open chat · {count} message', other: 'Open chat · {count} messages' },
-      'trade.chat.title': 'P2P chat',
+      'trade.chat.title': 'Trade chat',
       'trade.chat.presenceUnknownTitle': 'We have not seen this person join the chat room yet',
       'trade.chat.inChatNamed': '{name} is in the chat now',
       'trade.chat.inChatAnon': 'The counterparty is in the chat now',
@@ -794,7 +794,7 @@ export default defineArea(
 
       'trade.chat.toggleHide': 'Ocultar chat',
       'trade.chat.toggleOpen': { one: 'Abrir chat · {count} mensaje', other: 'Abrir chat · {count} mensajes' },
-      'trade.chat.title': 'Chat P2P',
+      'trade.chat.title': 'Chat del trade',
       'trade.chat.presenceUnknownTitle': 'Todavía no vimos a esta persona entrar en la sala de chat',
       'trade.chat.inChatNamed': '{name} está en el chat ahora',
       'trade.chat.inChatAnon': 'La contraparte está en el chat ahora',
@@ -1073,7 +1073,7 @@ export default defineArea(
 
       'trade.chat.toggleHide': 'Masquer le chat',
       'trade.chat.toggleOpen': { one: 'Ouvrir le chat · {count} message', other: 'Ouvrir le chat · {count} messages' },
-      'trade.chat.title': 'Chat P2P',
+      'trade.chat.title': 'Chat du trade',
       'trade.chat.presenceUnknownTitle': 'Nous n’avons pas encore vu cette personne entrer dans le salon de chat',
       'trade.chat.inChatNamed': '{name} est dans le chat en ce moment',
       'trade.chat.inChatAnon': 'La contrepartie est dans le chat en ce moment',
@@ -1352,7 +1352,7 @@ export default defineArea(
 
       'trade.chat.toggleHide': 'Chat ausblenden',
       'trade.chat.toggleOpen': { one: 'Chat öffnen · {count} Nachricht', other: 'Chat öffnen · {count} Nachrichten' },
-      'trade.chat.title': 'P2P-Chat',
+      'trade.chat.title': 'Trade-Chat',
       'trade.chat.presenceUnknownTitle': 'Wir haben diese Person noch nicht den Chatraum betreten sehen',
       'trade.chat.inChatNamed': '{name} ist gerade im Chat',
       'trade.chat.inChatAnon': 'Die Gegenpartei ist gerade im Chat',

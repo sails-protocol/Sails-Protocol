@@ -73,6 +73,7 @@ export default {
           selected: 'rgb(var(--color-selected) / var(--selected-a))',
           link: 'rgb(var(--color-link) / <alpha-value>)',
           'segment-track': 'rgb(var(--color-text) / var(--segment-track-a))',
+          'segment-selected-border': 'rgb(var(--color-text-muted) / var(--segment-selected-border-a))',
           'inverse-link': 'rgb(var(--color-inverse-link) / <alpha-value>)',
           'inverse-success': 'rgb(var(--color-inverse-success) / <alpha-value>)',
           'inverse-info': 'rgb(var(--color-inverse-info) / <alpha-value>)',

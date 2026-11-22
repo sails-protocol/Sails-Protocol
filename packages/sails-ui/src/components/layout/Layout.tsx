@@ -41,9 +41,10 @@ export function Layout() {
   // load (AuthContext's own silent re-authenticate effect) triggers it
   // exactly the same as a fresh "Conectar wallet" click would.
   const [tourOpen, setTourOpen] = useState(false)
+  // Not over the sign-in dialog: the tour waits until the person is back on the page they came from.
   useEffect(() => {
-    if (user && !hasSeenOnboarding()) setTourOpen(true)
-  }, [user])
+    if (user && !hasSeenOnboarding() && location.pathname !== '/login') setTourOpen(true)
+  }, [user, location.pathname])
 
   // Bumped when the nó Sails answers again after "Tentar de novo": remounts the page so it reads its data again.
   const [reloadKey, setReloadKey] = useState(0)

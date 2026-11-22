@@ -24,6 +24,13 @@ export const MARKETS_ROUTES = {
   join: '/markets/join',
 } as const
 
+/** One market's page (Market Spaces): a sibling of the hub tabs, not a tab. The id is opaque (lib/marketContract.ts). */
+export const MARKET_PAGE_ROUTE = '/markets/:id'
+export const marketPath = (id: string) => `/markets/${encodeURIComponent(id)}`
+
+/** "Comprar espaço": a Satsails commercial service, demo only, kept apart from the markets hub (lib/spaceCatalog.ts). */
+export const SPACE_SHOP_ROUTE = '/markets/space'
+
 /** Old addresses that keep working: each one redirects (replace) to its new home. */
 export const LEGACY_REDIRECTS: Readonly<Record<string, string>> = {
   '/profile/active': TRADES_ROUTES.active,

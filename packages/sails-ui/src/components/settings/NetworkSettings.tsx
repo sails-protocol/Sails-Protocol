@@ -15,10 +15,12 @@ import { SettingsRow } from './SettingsRow'
 import type { NodeListCopy } from '../markets/NodeList'
 import { NetworkSummary, type NetworkSummaryCopy } from '../markets/NetworkSummary'
 import { AddNodeForm, type AddNodeCopy } from '../markets/AddNodeForm'
-import { demoNodes } from '../../lib/demoMarkers'
+import { demoNodes, isDemoMode } from '../../lib/demoMarkers'
+import { SimulatedBadge } from '../ui/SimulatedBadge'
+import { LOOSE_WIRES } from '../../lib/looseWires'
 import type { NodeView } from '../../lib/sailsNode'
 import { cn } from '../../lib/utils'
-import { WireNote, WirePlanned } from '../../pages/markets/shared'
+import { simulatedToast, WireNote, WirePlanned } from '../../pages/markets/shared'
 import { t } from '../../i18n'
 
 const DIALOG_CLASS = 'max-w-lg max-h-[90dvh] overflow-y-auto overscroll-contain max-md:inset-0 max-md:max-h-none max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:content-start max-md:border-0'
@@ -97,10 +99,15 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
   const [adding, setAdding] = useState(false)
   const [open, setOpen] = useState(false)
   const nodes = [currentNode(), ...demoNodes()]
+  const demo = isDemoMode()
   return (
     <>
       <SettingsRow icon={BadgeCheck} label={t('settings.network.operator')} description={t('settings.network.operatorDescription')} plannedLabel={t('common.soon')} />
       <SettingsRow icon={Plus} label={t('settings.network.addNode')} description={t('settings.network.addNodeDescription')} onClick={() => setAdding(true)} />
+      {/* Not in Day 0 (DECISIONS.md "Nó Sails gerenciado"): no provisioning, price or availability promise. */}
+      {demo
+        ? <SettingsRow icon={LOOSE_WIRES.managedNode.icon} label={LOOSE_WIRES.managedNode.label} description={<><SimulatedBadge label={t('spaces.simulated')} className="mr-1.5" />{t('spaces.managedNode.description')}</>} onClick={() => simulatedToast(t('spaces.hosting.provisioned'))} />
+        : <SettingsRow icon={LOOSE_WIRES.managedNode.icon} label={LOOSE_WIRES.managedNode.label} description={t('spaces.managedNode.description')} plannedLabel={t('common.soon')} />}
       <li className="px-4 py-3">
         <Alert tone="info" size="sm" title={t('settings.network.notMarketTitle')}>
           {t('settings.network.notMarketBody')}
@@ -136,7 +143,8 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
             <DialogTitle>{t('settings.network.addNode')}</DialogTitle>
             <DialogDescription>{t('settings.network.addNodeDialog')}</DialogDescription>
           </DialogHeader>
-          <AddNodeForm copy={addNodeCopy()} submitAvailable={false} unavailableNote={<WireNote ids={['nodeCatalog', 'manualServer']} />} onCancel={() => setAdding(false)} />
+          {/* Demo: the form works and says so; real mode keeps it disabled with its loose wires. */}
+          <AddNodeForm copy={addNodeCopy()} submitAvailable={demo} unavailableNote={<WireNote ids={['nodeCatalog', 'manualServer']} />} onSubmit={() => { setAdding(false); simulatedToast(t('spaces.sim.nodeAdded')) }} onCancel={() => setAdding(false)} />
         </DialogContent>
       </Dialog>
     </>

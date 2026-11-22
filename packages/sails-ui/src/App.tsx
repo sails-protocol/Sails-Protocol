@@ -6,7 +6,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { Toaster } from './components/ui/toast'
 import { Layout } from './components/layout/Layout'
 import { SessionExpiryRedirect } from './components/auth/SessionExpiryRedirect'
-import { LEGACY_REDIRECTS, legacyRedirect, MARKETS_ROUTES, TRADES_ROUTES } from './components/layout/navMatch'
+import { LEGACY_REDIRECTS, legacyRedirect, MARKET_PAGE_ROUTE, MARKETS_ROUTES, SPACE_SHOP_ROUTE, TRADES_ROUTES } from './components/layout/navMatch'
 import { UiStringsProvider } from './components/ui/uiStrings'
 import { t, useLocale } from './i18n'
 import { sailsUiStrings } from './i18n/uiStrings'
@@ -29,6 +29,9 @@ const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ de
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
 const Markets = lazy(() => import('./pages/Markets').then((m) => ({ default: m.Markets })))
+const MarketPage = lazy(() => import('./pages/MarketPage').then((m) => ({ default: m.MarketPage })))
+// A Satsails commercial service, its own module (not protocol): lib/spaceCatalog.ts.
+const SpaceShop = lazy(() => import('./pages/spaces/SpaceShop').then((m) => ({ default: m.SpaceShop })))
 const Disputes = lazy(() => import('./pages/Disputes').then((m) => ({ default: m.Disputes })))
 const MyOffers = lazy(() => import('./pages/MyOffers').then((m) => ({ default: m.MyOffers })))
 // Dev-only preview: import.meta.env.DEV is statically false in production builds, so Rollup drops this chunk.
@@ -37,6 +40,7 @@ const SigningRequestPreview = import.meta.env.DEV ? lazy(() => import('./pages/d
 const FundingInstructionPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/FundingInstructionPreview').then((m) => ({ default: m.FundingInstructionPreview }))) : null
 const MarketContextPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/MarketContextPreview').then((m) => ({ default: m.MarketContextPreview }))) : null
 const DesignSystemPreview = import.meta.env.DEV ? lazy(() => import('./pages/dev/DesignSystemPreview').then((m) => ({ default: m.DesignSystemPreview }))) : null
+const WiringMap = import.meta.env.DEV ? lazy(() => import('./pages/dev/WiringMap').then((m) => ({ default: m.WiringMap }))) : null
 
 // Mobile: top, so a toast never covers the page's primary action or the bottom nav.
 const MOBILE_QUERY = '(max-width: 767px)'
@@ -113,12 +117,15 @@ export default function App() {
                 <Route path={TRADES_ROUTES.disputes} element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
                 {Object.values(MARKETS_ROUTES).map((path) => <Route key={path} path={path} element={<Suspense fallback={<RouteFallback />}><Markets /></Suspense>} />)}
+                <Route path={SPACE_SHOP_ROUTE} element={<Suspense fallback={<RouteFallback />}><SpaceShop /></Suspense>} />
+                <Route path={MARKET_PAGE_ROUTE} element={<Suspense fallback={<RouteFallback />}><MarketPage /></Suspense>} />
                 {Object.keys(LEGACY_REDIRECTS).map((from) => <Route key={from} path={from} element={<LegacyRedirect />} />)}
                 {CurrentActionPreview && <Route path="/dev/current-action" element={<Suspense fallback={<RouteFallback />}><CurrentActionPreview /></Suspense>} />}
                 {SigningRequestPreview && <Route path="/dev/signing-request" element={<Suspense fallback={<RouteFallback />}><SigningRequestPreview /></Suspense>} />}
                 {FundingInstructionPreview && <Route path="/dev/funding-instruction" element={<Suspense fallback={<RouteFallback />}><FundingInstructionPreview /></Suspense>} />}
                 {MarketContextPreview && <Route path="/dev/market-context" element={<Suspense fallback={<RouteFallback />}><MarketContextPreview /></Suspense>} />}
                 {DesignSystemPreview && <Route path="/dev/design-system" element={<Suspense fallback={<RouteFallback />}><DesignSystemPreview /></Suspense>} />}
+                {WiringMap && <Route path="/dev/wiring" element={<Suspense fallback={<RouteFallback />}><WiringMap /></Suspense>} />}
                 <Route path="*" element={<NotFound />} />
               </Route>
             </Routes>
