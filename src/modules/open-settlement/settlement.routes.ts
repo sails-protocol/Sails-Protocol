@@ -136,7 +136,7 @@ export function toPendingTransactionResponse<T extends { signatures?: Array<{ pa
   return { ...round, signedBy: (signatures ?? []).map((s) => ({ participantId: s.participantId, submittedAt: s.createdAt })) }
 }
 
-// A round's PSBT is returned UNSIGNED, always: a partial signature already stored on a legacy round (for example the
+// A round's PSBT is returned UNSIGNED, always: a partial signature already stored on a round (for example the
 // arbiter's) never leaves the server in any response.
 export function withoutPartialSignatures<T extends { unsignedPsbtBase64?: string }>(pending: T): T {
   if (!pending?.unsignedPsbtBase64) return pending

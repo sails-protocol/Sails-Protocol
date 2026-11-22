@@ -1565,7 +1565,7 @@ export class MultisigProvider implements SettlementProvider {
 
   /**
    * The ONLY place the arbiter key signs a settlement. Callers reach it only after the ADR-005 + ADR-004 commit gates of
-   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A legacy
+   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A
    * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
    */
   /** Whether a round's stored PSBT carries an arbiter signature, and whether it verifies for the committed key. */
