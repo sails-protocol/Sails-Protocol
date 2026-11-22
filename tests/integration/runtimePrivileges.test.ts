@@ -204,6 +204,8 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
       { table_name: 'commitment_pairs', column_name: 'takerReceivedAt' },
       { table_name: 'commitment_pairs', column_name: 'withdrawnBy' },
       { table_name: 'commitment_pairs', column_name: 'withdrawProof' },
+      // M-1b: the owner's signed capacity declaration (the service UPDATEs a newer revision) (the block columns are written only by the SECURITY DEFINER evidence trigger and the reviewer function, slice 4)
+      ...['capacityTotal', 'capacityRevision', 'declaredAt', 'declaration', 'declarationSignature', 'updatedAt'].map((column_name) => ({ table_name: 'offer_capacity', column_name })),
     ]
     expect(sorted(columnGrants)).toEqual(sorted(COLUMN_UPDATES.map((c) => ({ ...c, privilege_type: 'UPDATE' }))))
     // The one inventory the boot check reads (N1) is exactly the applied classification.

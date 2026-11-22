@@ -300,6 +300,14 @@ executes at its own *listed* price. Not yet frozen (new this pass, same
 as `proposeTrade` was when it first shipped); expected to stabilize
 alongside it.
 
+### Errors added without a type change
+➕ **ADDITIVE (Despacho 064, 2026-11-21)**: `RAIL_CLOSED` (HTTP 409). LN_BTC and the LIGHTNING_HODL (Arkade) escrow are
+closed for Day 0 in every environment. The calls behind `POST /v1/liquidity/offers`, `POST /v1/intents`,
+`POST /v1/openp2p/trades` and `POST /v1/settlement/escrow` (asset LN_BTC, or `type: 'LIGHTNING_HODL'` with any asset)
+refuse with a `SailsError` whose
+`code` is `RAIL_CLOSED`; nothing is written. No SDK type changes: `AssetType` and `EscrowType` keep both values, and
+existing escrows keep their current dispatch, refund and recovery rules.
+
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,
 shared by every module and every alias (same transport underneath).

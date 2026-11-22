@@ -22,6 +22,7 @@ import { NotFoundError, ForbiddenError, ValidationError } from '../common/errors
 import { docsOnlySchema } from '../common/openapi'
 import type { IntentType, IntentStatus, TradeIntentPayload } from '../common/types/intent'
 import type { AssetType } from '../common/types'
+import { assertRailOpen } from '../common/day0-closed-rails'
 
 // Fase 1 Red Team finding: asset/currency/fiatMethod were open
 // z.string(), letting adversarial free text ride all the way into
@@ -105,6 +106,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     },
   }, async (request, reply) => {
     const body = createIntentSchema.parse(request.body)
+    assertRailOpen({ asset: body.payload.asset }) // Despacho 064: no LN_BTC intent is born
     const participantId = (request as AuthenticatedRequest).participantId
     const intent = await intentEngine.create<TradeIntentPayload>(
       body.type as IntentType,

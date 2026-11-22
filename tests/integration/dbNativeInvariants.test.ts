@@ -279,6 +279,8 @@ describe('DB-native invariants — fresh-DB provisioning + negative-drop proof (
     expect(hostReachable).toBe(true)
 
     // 2. Apply the FULL migration history from scratch (mandate item E).
+    // the M-1b block/unblock migration requires the cluster role sails_capacity_reviewer (created by bootstrap-roles.js in real installs)
+    await execAsync('node scripts/db/ensure-capacity-reviewer-role.js', { cwd: process.cwd(), env: { ...process.env, ADMIN_DATABASE_URL: FRESH_DB_URL } })
     await execAsync('npx prisma migrate deploy', {
       cwd: process.cwd(),
       env: { ...process.env, DATABASE_URL: FRESH_DB_URL },
