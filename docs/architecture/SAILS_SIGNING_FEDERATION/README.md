@@ -73,7 +73,7 @@ flowchart LR
 
 ## 3. Assinatura e recuperação — Gen-1 versus Gen-2
 
-**Estado atual:** Gen-1 P2WSH 2-de-3 por escrow; o nó detém o `MULTISIG_SEED` que deriva a terceira chave. O árbitro é derivado do seed (`multisig.provider.ts:462-512`, `688-698`) e a decisão Ed25519 (`arbitration-authority.ts:107-125`) roda no mesmo processo: **não protege contra o operador**. Separação de decisão existe em lógica, **não** há separação operacional/criptográfica do signatário. A federação ainda **não está implementada**.
+**Estado atual:** Gen-1 P2WSH 2-de-3 por escrow; o nó detém o `MULTISIG_SEED` que deriva a terceira chave. O árbitro é derivado do seed (`multisig.provider.ts:462-512`, `688-698`) e a decisão Ed25519 (`arbitration-authority.ts:107-125`) roda no mesmo processo: **não protege contra o operador**. Separação de decisão: **parcial** em lógica — guardas de assinatura no fluxo de disputa da Gen-1 estão **em correção** — e **não** há separação operacional/criptográfica do signatário. A federação ainda **não está implementada**.
 
 **P1 (Tier 3):** fronteira `SettlementSigner` sem alteração econômica, compatível com Gen-1. **P2 (Tier 3):** signatário externo que nunca compartilha segredo com o nó, reconstrói independentemente a transação e recusa destino/valor/outpoint adulterados. **Federação distribuída:** desenho **proposto** na Entrega A (recomendação conjunta Principal + GK, **pendente de decisão do CTO**; não homologada, não implementada); exige testes, recuperação e independência; signatário externo único não é federação.
 
