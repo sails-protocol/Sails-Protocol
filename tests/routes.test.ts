@@ -990,6 +990,28 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(res.statusCode).toBe(404)
     })
 
+    it('forwards an accepted envelope revision to the admission (E21)', async () => {
+      const token = await authedSession('buyer-1')
+      mockOfferFindUnique.mockResolvedValueOnce({
+        id: 'offer-1', userId: 'seller-1', status: 'ACTIVE', side: 'SELL',
+        asset: 'BTC', priceUsd: '65000', network: null,
+      })
+      mockTradeCreate.mockResolvedValueOnce({
+        id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', status: 'PENDING',
+        asset: 'BTC', amount: '0.01', priceUsd: '65000', acceptedEnvelopeId: 'env-1',
+      })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/openp2p/trades',
+        headers: { authorization: `Bearer ${token}` },
+        payload: { offerId: 'offer-1', amount: '0.01', acceptedEnvelopeId: 'env-1' },
+      })
+
+      expect(res.statusCode).toBe(201)
+      expect(mockTradeCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ acceptedEnvelopeId: 'env-1' }) }))
+    })
+
     it('starts a trade from an active offer and opens negotiation', async () => {
       const token = await authedSession('buyer-1')
       mockOfferFindUnique.mockResolvedValueOnce({

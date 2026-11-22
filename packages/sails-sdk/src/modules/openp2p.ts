@@ -303,11 +303,14 @@ export class SailsOpenP2PModule {
    * returning the original Trade on a safe replay instead of a second
    * row. See `src/common/idempotency.ts`'s own header for the full
    * server-side contract.
+   *
+   * `acceptedEnvelopeId` (E21) - optional: the signed Offer envelope revision being accepted. The server refuses one
+   * that is not an acceptable revision of that Offer (owner, latest revision, active, terms within its bounds).
    */
-  async trade(offerId: string, amount: string, idempotencyKey?: string): Promise<Trade> {
+  async trade(offerId: string, amount: string, idempotencyKey?: string, acceptedEnvelopeId?: string): Promise<Trade> {
     return this.transport.post<Trade>(
       "/v1/openp2p/trades",
-      { offerId, amount, idempotencyKey },
+      { offerId, amount, idempotencyKey, acceptedEnvelopeId },
       true,
     );
   }
