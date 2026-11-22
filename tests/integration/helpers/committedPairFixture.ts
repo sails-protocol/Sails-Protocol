@@ -33,6 +33,8 @@ export interface CommitmentFixtureOptions {
   seed?: number
   /** Decimal strings in the Offer's min..max window. */
   amount?: string
+  /** The Offer's minimum (default 0.00100000), for suites whose trade is below it. */
+  minAmount?: string
   /** Use EXISTING registered participants (id + 64-byte Ed25519 secret key, hex) instead of seed-derived users: the pair must be signed by the real parties. */
   maker?: { id: string; secretKey: string }
   taker?: { id: string; secretKey: string }
@@ -42,6 +44,7 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
   const asset = opts.asset ?? 'BTC'
   const rail = opts.rail ?? 'MULTISIG'
   const amount = opts.amount ?? '0.00500000'
+  const minAmount = opts.minAmount ?? '0.00100000'
   const seed = opts.seed ?? 0x51
   const fromSecret = (h: string) => nacl.sign.keyPair.fromSecretKey(new Uint8Array(Buffer.from(h, 'hex')))
   const maker = opts.maker ? fromSecret(opts.maker.secretKey) : kp(seed), taker = opts.taker ? fromSecret(opts.taker.secretKey) : kp(seed + 1), arbiter = kp(seed + 2)
@@ -59,14 +62,14 @@ export async function createCommitmentFixture(prisma: any, opts: CommitmentFixtu
     data: { label: `fx-fee-${RUN}`, railScope: `FX-${RUN}`, status: 'PUBLISHED', publishedAt: new Date(), protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, createdBy: 'fixture' },
   })
   const feePolicyDigest = tc.feePolicyDigestV1({ protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, smallTradeRule: {} })
-  const legacyOffer = await prisma.offer.create({ data: { userId: makerId, asset, side: 'SELL', priceUsd: '65000', minAmount: '0.001', maxAmount: '0.01', paymentMethod: 'PIX' } })
+  const legacyOffer = await prisma.offer.create({ data: { userId: makerId, asset, side: 'SELL', priceUsd: '65000', minAmount, maxAmount: '0.01', paymentMethod: 'PIX' } })
 
   // The signed Offer envelope the trades accept: ACTIVE, latest revision, owner = maker, terms equal to the trade's.
   const logicalOfferId = `fx-offer-${RUN}`
   let revision = 1
   const now = Date.now()
   const envelopeContent = {
-    logicalOfferId, ownerPublicKey: hex(maker.publicKey), asset, side: 'SELL', priceUsd: '65000.00000000', minAmount: '0.00100000', maxAmount: '0.01000000',
+    logicalOfferId, ownerPublicKey: hex(maker.publicKey), asset, side: 'SELL', priceUsd: '65000.00000000', minAmount, maxAmount: '0.01000000',
     paymentMethod: 'PIX', revision, createdAt: iso(now - 120_000), revisedAt: iso(now - 60_000), expiresAt: iso(now + 86_400_000), status: 'ACTIVE',
   }
   const ingest = await offerEnvelopeRepository.ingest({ ...envelopeContent, signature: envMod.signOfferEnvelope(envelopeContent, hex(maker.secretKey)) })
@@ -199,9 +202,9 @@ export async function commitTradePair(
   tradeId: string,
   seller: { id: string; secretKey: string },
   buyer: { id: string; secretKey: string },
-  opts: { asset?: string; rail?: string; amount?: string } = {}
+  opts: { asset?: string; rail?: string; amount?: string; minAmount?: string } = {}
 ): Promise<string> {
-  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00100000', maker: seller, taker: buyer })
+  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00100000', minAmount: opts.minAmount, maker: seller, taker: buyer })
   return fx.commitExistingTrade(tradeId)
 }
 
@@ -210,12 +213,12 @@ export async function commitTradePair(
  * Ed25519 identities and an E21-admitted trade (own Intent, accepted envelope). `commit()` creates the COMMITTED pair of that trade (once)
  * and returns its id: pass it as `commitmentPairId` of a raw escrow row, or call it before escrowService.createEscrow() (the service finds the pair by anchor).
  */
-export async function createBoundTrade(prisma: any, opts: { asset?: string; rail?: string; amount?: string } = {}) {
+export async function createBoundTrade(prisma: any, opts: { asset?: string; rail?: string; amount?: string; minAmount?: string } = {}) {
   const seller = nacl.sign.keyPair(), buyer = nacl.sign.keyPair()
   const sellerUser = await prisma.user.create({ data: { publicKey: hex(seller.publicKey) } })
   const buyerUser = await prisma.user.create({ data: { publicKey: hex(buyer.publicKey) } })
   const sellerP = { id: sellerUser.id as string, secretKey: hex(seller.secretKey) }, buyerP = { id: buyerUser.id as string, secretKey: hex(buyer.secretKey) }
-  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00500000', maker: sellerP, taker: buyerP })
+  const fx = await createCommitmentFixture(prisma, { asset: opts.asset ?? 'BTC', rail: opts.rail ?? 'MULTISIG', amount: opts.amount ?? '0.00500000', minAmount: opts.minAmount, maker: sellerP, taker: buyerP })
   const { tradeId, anchorRef } = await fx.admitTrade('PENDING')
   const trade = await prisma.trade.findUniqueOrThrow({ where: { id: tradeId } })
   let pairId: string | null = null

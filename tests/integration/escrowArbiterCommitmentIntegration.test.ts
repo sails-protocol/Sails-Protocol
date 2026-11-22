@@ -95,7 +95,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const bound = await createBoundTrade(prisma, { amount: '0.00100000' }) // F4: real keys + an E21-admitted trade (the escrows below lock 0.001); bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
     const boundPairId = await bound.commit()
@@ -219,7 +219,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const bound = await createBoundTrade(prisma, { amount: '0.00100000' }) // F4: real keys + an E21-admitted trade (the escrows below lock 0.001); bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
     const boundPairId = await bound.commit()
