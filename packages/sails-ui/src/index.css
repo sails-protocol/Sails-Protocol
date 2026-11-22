@@ -241,6 +241,9 @@
   /* Segmented track: deeper than the tonal fill in light, so the white thumb
      separates by fill (1.50-1.62, was 1.16-1.26); unselected label 4.82-5.22. */
   --segment-track-a: 0.18;
+  /* Selected segment boundary (WCAG 1.4.11, DS owner 2026-11-22): 1px of text-muted #646464 inside the white thumb,
+     3.79:1 against the track composite (#cfcfcf on #fafafa) where the fill alone gave 1.50-1.62. Light only. */
+  --segment-selected-border-a: 1;
   /* Toast (inverse surface): action link 5.67, status icons 5.21-8.63. */
   --color-inverse-link: 96 165 250;
   --color-inverse-success: 52 211 153;
@@ -414,6 +417,8 @@
      5.36-7.09. Link 7.31 / 6.42 / 5.67. Track = tonal (thumb 1.51-1.54).
      Toast on the light inverse: link 5.51, icons 4.12-5.51. */
   --segment-track-a: 0.08;
+  /* Dark: no selected border (the raised thumb keeps its fill + elevation; see DESIGN_SYSTEM.md 5.1). */
+  --segment-selected-border-a: 0;
   --color-inverse-link: 29 78 216;
   --color-inverse-success: 21 128 61;
   --color-inverse-info: 29 78 216;

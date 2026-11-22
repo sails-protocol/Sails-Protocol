@@ -5,6 +5,7 @@ export default defineArea(
   {
     'auth.login.title': 'Conectar wallet',
     'auth.login.description': 'Conecte sua wallet e assine uma mensagem para entrar. Assinar para entrar não move fundos.',
+    'auth.login.continue': 'Entre para continuar.',
     'auth.login.localKey': 'Chave local',
     'auth.login.localKeySubtitle': 'Para testes, guardada neste navegador',
     'auth.login.noWallet': 'Não tem uma wallet? Satsails Wallet: em breve.',
@@ -40,6 +41,7 @@ export default defineArea(
     en: {
       'auth.login.title': 'Connect wallet',
       'auth.login.description': 'Connect your wallet and sign a message to sign in. Signing in does not move funds.',
+      'auth.login.continue': 'Sign in to continue.',
       'auth.login.localKey': 'Local key',
       'auth.login.localKeySubtitle': 'For testing, stored in this browser',
       'auth.login.noWallet': 'Don’t have a wallet? Satsails Wallet: coming soon.',
@@ -74,6 +76,7 @@ export default defineArea(
     es: {
       'auth.login.title': 'Conectar wallet',
       'auth.login.description': 'Conecta tu wallet y firma un mensaje para entrar. Firmar para entrar no mueve fondos.',
+      'auth.login.continue': 'Inicia sesión para continuar.',
       'auth.login.localKey': 'Clave local',
       'auth.login.localKeySubtitle': 'Para pruebas, guardada en este navegador',
       'auth.login.noWallet': '¿No tienes una wallet? Satsails Wallet: próximamente.',
@@ -108,6 +111,7 @@ export default defineArea(
     fr: {
       'auth.login.title': 'Connecter le wallet',
       'auth.login.description': 'Connectez votre wallet et signez un message pour entrer. Signer pour entrer ne déplace aucun fonds.',
+      'auth.login.continue': 'Connectez-vous pour continuer.',
       'auth.login.localKey': 'Clé locale',
       'auth.login.localKeySubtitle': 'Pour les tests, stockée dans ce navigateur',
       'auth.login.noWallet': 'Vous n’avez pas de wallet ? Satsails Wallet : bientôt.',
@@ -142,6 +146,7 @@ export default defineArea(
     de: {
       'auth.login.title': 'Wallet verbinden',
       'auth.login.description': 'Verbinde deine Wallet und signiere eine Nachricht, um dich anzumelden. Das Signieren zum Anmelden bewegt keine Mittel.',
+      'auth.login.continue': 'Melde dich an, um fortzufahren.',
       'auth.login.localKey': 'Lokaler Schlüssel',
       'auth.login.localKeySubtitle': 'Zum Testen, in diesem Browser gespeichert',
       'auth.login.noWallet': 'Keine Wallet? Satsails Wallet: demnächst.',

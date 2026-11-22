@@ -45,7 +45,7 @@ export function Login() {
           <>
             <DialogHeader>
               <DialogTitle>{t('auth.login.title')}</DialogTitle>
-              <DialogDescription>{t('auth.login.description')}</DialogDescription>
+              <DialogDescription>{state?.from && state.from !== '/' ? t('auth.login.continue') : t('auth.login.description')}</DialogDescription>
             </DialogHeader>
             <ul className="mt-2 space-y-2">
               <Option icon={Wallet} title="Satsails Wallet" trailing={t('common.soon')} />

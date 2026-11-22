@@ -6,7 +6,7 @@
 import type { EntryPolicy, MarketCategory } from './marketContract'
 import type { MarketView } from './myMarkets'
 
-export const MARKET_CATEGORIES: readonly MarketCategory[] = ['GENERAL', 'P2P_TRADER', 'BUSINESS_OTC', 'REGIONAL']
+export const MARKET_CATEGORIES: readonly MarketCategory[] = ['GENERAL', 'REGIONAL', 'BILL_PAY', 'COMMERCE']
 export type CategoryFilter = MarketCategory | 'all'
 
 export function filterByCategory<T extends Pick<MarketView, 'category'>>(markets: readonly T[], filter: CategoryFilter): T[] {
@@ -24,9 +24,12 @@ export type ViewMode = 'grid' | 'list'
 export const VIEW_MODE_KEY = 'sails_my_markets_view'
 type Store = Pick<Storage, 'getItem' | 'setItem'>
 
-/** Grid by default; anything unreadable (private window, blocked storage, junk value) falls back to grid. */
-export function readViewMode(store: Store | undefined): ViewMode {
-  try { return store?.getItem(VIEW_MODE_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
+/** The stored choice; nothing stored or unreadable (private window, blocked storage, junk) → `fallback` (list on phones). */
+export function readViewMode(store: Store | undefined, fallback: ViewMode = 'grid'): ViewMode {
+  try {
+    const v = store?.getItem(VIEW_MODE_KEY)
+    return v === 'list' || v === 'grid' ? v : fallback
+  } catch { return fallback }
 }
 
 export function saveViewMode(store: Store | undefined, mode: ViewMode): boolean {
@@ -77,4 +80,14 @@ export function meetsDemoVerifiedCriteria(s: DemoMarketStats | undefined): boole
  */
 export function canSeeOffers(m: Pick<MarketView, 'visibility' | 'relation'>): boolean {
   return m.visibility === 'public' || m.relation === 'member' || m.relation === 'admin'
+}
+
+/**
+ * Demo only: which of the demo backend's offers a market lists (a stand-in for liquidity.discover({ marketId })).
+ * Deterministic per market and offer, roughly one offer in `share`; never empty when there are offers.
+ */
+export function offersForMarket<T extends { id: string }>(offers: readonly T[], marketId: string, share = 2): T[] {
+  const hash = (s: string) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h }
+  const picked = offers.filter((o) => hash(`${marketId}:${o.id}`) % share === 0)
+  return picked.length > 0 || offers.length === 0 ? picked : [offers[hash(marketId) % offers.length]]
 }

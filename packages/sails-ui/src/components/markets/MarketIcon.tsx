@@ -7,6 +7,7 @@
 import { Compass, Globe, PlusCircle, Store, Ticket, UsersRound, type LucideIcon } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { MarketView } from '../../lib/myMarkets'
+import { isLocalPreviewUrl } from '../../lib/localImage'
 
 export const MARKET_ACTION_ICON = { explore: Compass, invite: Ticket, create: PlusCircle } as const satisfies Record<string, LucideIcon>
 
@@ -21,7 +22,7 @@ export function MarketIcon({ market, size = 'md', className }: { market: Pick<Ma
   const Icon = marketIconOf(market)
   return (
     <span aria-hidden="true" className={cn('flex shrink-0 items-center justify-center overflow-hidden rounded-lg bg-brand-elevated text-brand-text-secondary', SIZE[size], className)}>
-      {market.brandImage
+      {isLocalPreviewUrl(market.brandImage)
         ? <img src={market.brandImage} alt="" width={44} height={44} className="h-full w-full object-cover" />
         : <Icon className={size === 'lg' ? 'h-5 w-5' : 'h-4 w-4'} />}
     </span>

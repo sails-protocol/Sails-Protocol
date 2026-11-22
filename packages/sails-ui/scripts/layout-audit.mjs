@@ -11,6 +11,8 @@
  *   node packages/sails-ui/scripts/layout-audit.mjs [--base http://localhost:5173] [--quick] [--locales]
  *     --quick    1440, 834, 375 and 320 only
  *     --locales  also run pt-BR, en, es, fr and de (default: pt-BR only)
+ *     --widths   comma list of widths (e.g. 768,375), overrides --quick
+ *     --only     comma list of route prefixes (e.g. /markets)
  * Exits with code 1 when any check fails and prints the failing screen/width/theme/menu/locale.
  * Uses its own browser; it never touches an existing browser tab.
  */
@@ -19,7 +21,7 @@ import { chromium } from '@playwright/test'
 const args = process.argv.slice(2)
 const arg = (name, fallback) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] ? args[i + 1] : fallback }
 const BASE = arg('--base', 'http://localhost:5173')
-const WIDTHS = args.includes('--quick') ? [1440, 834, 375, 320] : [1440, 1366, 1280, 1152, 1024, 900, 768, 640, 414, 375, 320]
+const WIDTHS = arg('--widths', '') ? arg('--widths', '').split(',').map(Number) : args.includes('--quick') ? [1440, 834, 375, 320] : [1440, 1366, 1280, 1152, 1024, 900, 768, 640, 414, 375, 320]
 const LOCALES = args.includes('--locales') ? ['pt-BR', 'en', 'es', 'fr', 'de'] : ['pt-BR']
 const THEMES = ['dark', 'light']
 const MENUS = ['side', 'top']
@@ -27,11 +29,11 @@ const MENUS = ['side', 'top']
 // Main screens reachable by URL. Flows with steps (wizards, dialogs) are covered by each lot's own audit.
 const ROUTES = [
   '/', '/trades', '/trades/history', '/trades/offers', '/trades/disputes', '/profile',
-  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/space',
+  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/new?space=private',
   '/settings?section=wallet', '/settings?section=aparencia', '/settings?section=idioma',
   '/settings?section=notificacoes', '/settings?section=seguranca', '/settings?section=no-sails',
   '/settings?section=comunidades', '/settings?section=ajuda',
-]
+].filter((r) => !arg('--only', '') || arg('--only', '').split(',').some((o) => r.startsWith(o)))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 // Client-side navigation keeps the in-memory demo session (a full reload would drop it).
