@@ -29,6 +29,9 @@ describe('M-1b reorg block + two-role unblock (real PG, real login roles)', () =
     ;({ prisma } = require('../../src/common/database'))
     admin = new Client({ connectionString: process.env.DATABASE_URL }); await admin.connect()
     admin2 = new Client({ connectionString: process.env.DATABASE_URL }); await admin2.connect()
+    // sails_runtime is a cluster role normally created by bootstrap-roles.js; a shard that does not run a bootstrap suite first (CI sharding) has none:
+    // create it idempotently, without login and without privileges (bootstrap-roles.js upserts an existing role, so it stays compatible)
+    await admin.query(`DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sails_runtime') THEN CREATE ROLE sails_runtime NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; END IF; END $$`)
     await admin.query(`CREATE ROLE ${roles.op} LOGIN PASSWORD 'p' IN ROLE sails_runtime`)
     // the CI PG lane runs with the legacy single credential, so runtime-grants.sql is not applied: grant the runtime's one EXECUTE explicitly (as runtime-grants.sql does)
     await admin.query(`GRANT EXECUTE ON FUNCTION offer_capacity_request_unblock(text, jsonb, text) TO ${roles.op}`)
