@@ -1793,6 +1793,20 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(body.data).not.toHaveProperty('ownerId')
     })
 
+    it('refuses the account owner signing their own payment account (403), and writes nothing', async () => {
+      const token = await authedSession('buyer-1')
+      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: false, firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts/hash-1/sign',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(mockPaymentAccountUpdate).not.toHaveBeenCalled()
+    })
+
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface
     // conformance closure narrowed the response shape from the raw
     // PayoutAddress row to getPublicView()'s privacy-preserving
