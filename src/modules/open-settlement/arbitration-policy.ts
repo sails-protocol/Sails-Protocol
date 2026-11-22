@@ -82,8 +82,13 @@ export function assertArbitrationPolicyCompatible(
  * buildApp() calls this with `config.isProduction` at the same boot point as
  * assertArbitrationModeCompatibleWithAvailableRails() above.
  */
-export function assertMarketArbitrationCollateralProductionEligible(mode: ArbitrationMode, isProduction: boolean): void {
-  if (!isProduction || mode !== 'market') return
+export function assertMarketArbitrationCollateralProductionEligible(
+  mode: ArbitrationMode,
+  isProduction: boolean,
+  overrides: Readonly<Record<string, ArbitrationMode>> = {},
+): void {
+  // The default mode and every per-implementation override (ARBITRATION_POLICY_BY_ESCROW_TYPE) alike.
+  if (!isProduction || (mode !== 'market' && !Object.values(overrides).includes('market'))) return
   throw new Error(
     'FATAL: ARBITRATION_MODE=market in production, but MarketArbitrationProvider.monetaryCollateral is ' +
     'caller-declared bookkeeping with no external funding/escrow verification (Issue #255) — a participant ' +

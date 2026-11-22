@@ -81,4 +81,15 @@ describe('Issue #255 - market arbitration collateral is not economically backed 
   it('allows trusted-list mode outside production', () => {
     expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', false)).not.toThrow()
   })
+
+  it('refuses to boot in production when a per-implementation override selects market, even with a trusted-list default', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', true, { MOCK: 'market' })).toThrow(
+      /Not economically backed, not production-eligible/
+    )
+  })
+
+  it('allows trusted-list overrides in production and a market override outside production', () => {
+    expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', true, { MULTISIG: 'trusted-list' })).not.toThrow()
+    expect(() => assertMarketArbitrationCollateralProductionEligible('trusted-list', false, { MOCK: 'market' })).not.toThrow()
+  })
 })
