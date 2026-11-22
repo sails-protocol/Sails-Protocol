@@ -266,6 +266,22 @@ describe('escrow-pending-tx.ts — disputed disposition authority', () => {
     expect(mockPendingTxCreate).not.toHaveBeenCalled()
   })
 
+  // GK C-a3: the ruling is re-read under the dispute lock inside the round's transaction; a ruling that changed between the
+  // first check and the write leaves no round.
+  it('refuses when the ruling changed between the check and the round write (re-read inside the transaction)', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 })
+    mockDisputeFindUniqueLive.mockResolvedValue({ id: 'dispute-1', status: 'APPEALED', ruling: null, appealRound: 1 })
+    await expect(escrowService.initiateRelease(ESCROW_ID, undefined, 'arbiter-1')).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
+  // GK C-a1: a split round executes the ratio the ruling signed.
+  it('refuses a split whose buyerBps differs from the one the ruling signed', async () => {
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: 'arbiter-1', status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 6000 })
+    await expect(escrowService.initiateSplit(ESCROW_ID, undefined, undefined, 5000, 'arbiter-1')).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
+    expect(mockPendingTxCreate).not.toHaveBeenCalled()
+  })
+
   // ADR-005 / #218 — the ruling-generation provenance snapshot captured
   // at pending-transaction creation time, over the REAL initiateRelease()
   // path (only Prisma/the provider are mocked). Proves
