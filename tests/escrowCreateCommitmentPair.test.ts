@@ -116,6 +116,25 @@ describe('createEscrow(): its asset/amount are the trade's and its committed pai
     expect(repoCreate).not.toHaveBeenCalled()
   })
 
+  it('refuses when the committed pair ASSET differs from the input even though the trade matches: nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'MULTISIG', { asset: 'USDT_ERC20' }), readiness: { ok: true }, t: new Date() })
+    await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses one satoshi less than the trade amount (0.00099999 vs 0.001): nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    await expect(service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.00099999' }, 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('refuses the trade amount written in satoshis instead of BTC (100000 vs 0.001, a 1e8 scale error): nothing is created', async () => {
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    await expect(service.createEscrow({ ...input('MULTISIG'), lockedAmount: '100000' }, 'buyer-1')).rejects.toMatchObject({ code: 'ESCROW_TERMS_MISMATCH' })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
   it('accepts amounts equal as decimals but written differently (0.00100000 vs 0.001)', async () => {
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
     await service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.00100000' }, 'buyer-1')
