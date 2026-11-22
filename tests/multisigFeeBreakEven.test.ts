@@ -213,3 +213,7 @@ describe('break-even property over the transaction actually built', () => {
     })
   }
 })
+
+it('the construction weight per output stays 43 vB: committed policies freeze V, so changing the estimator needs a rule migration', () => {
+  for (const n of [1, 2, 3]) expect(estimatedVBytesForOutputCount(n + 1) - estimatedVBytesForOutputCount(n)).toBe(BE.vBytes)
+})
