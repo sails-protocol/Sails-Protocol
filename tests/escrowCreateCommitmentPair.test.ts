@@ -79,7 +79,7 @@ describe('createEscrow() A1: bound to the COMMITTED pair of the trade\'s own Int
   })
 })
 
-describe('createEscrow(): its asset/amount are the trade's and its committed pair's, never the caller's own (ESCROW_TERMS_MISMATCH)', () => {
+describe("createEscrow(): its asset/amount are the trade's and its committed pair's, never the caller's own (ESCROW_TERMS_MISMATCH)", () => {
   let repoCreate: jest.Mock
   let service: EscrowService
   beforeEach(() => {

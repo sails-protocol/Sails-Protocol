@@ -61,8 +61,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   }
 
   // The escrow's terms are its trade's: the trade is admitted for the amount the test then locks.
-  async function createFixtureTrade(suffix: string, amount = '0.01000000') {
-    const bound = await createBoundTrade(prisma, { amount }) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+  async function createFixtureTrade(suffix: string, amount = '0.01000000', rail = 'MULTISIG') {
+    const bound = await createBoundTrade(prisma, { amount, rail }) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
     const boundPairId = await bound.commit()
@@ -112,7 +112,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   it('Test 1: createEscrow() with no PUBLISHED policy for the rail creates a legacy (unsnapshotted) escrow', async () => {
     requirePostgres('Test 1')
     const suffix = `t1-${Date.now()}`
-    const { trade, buyer } = await createFixtureTrade(suffix, '0.00100000')
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.00100000', 'MOCK') // a MOCK escrow executes a MOCK-rail pair
 
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
 

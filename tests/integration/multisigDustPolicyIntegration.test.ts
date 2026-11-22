@@ -94,7 +94,7 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     // output (293 sats) is deliberately 1 sat under the 294-sat P2WPKH dust threshold.
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.00000457', maxAmount: '0.00000457', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.00000457' })
-    await commitTradePair(prisma, trade.id, seller, buyer, { amount: '0.00000457' }) // F4 deny-by-default: the COMMITTED pair of this trade
+    await commitTradePair(prisma, trade.id, seller, buyer, { amount: '0.00000457', minAmount: '0.00000457' }) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.00000457', asset: 'BTC' }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
