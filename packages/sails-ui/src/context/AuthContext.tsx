@@ -5,7 +5,7 @@
  *
  * Demo-only shortcut, disclosed rather than hidden: this reference UI
  * generates and stores the Ed25519 secret key in the browser's own
- * localStorage so "Conectar Carteira" has something to sign with without
+ * localStorage so "Conectar wallet" has something to sign with without
  * a real external wallet extension. A real wallet integration keeps that
  * key in the wallet's own secure storage/hardware and never lets a page
  * touch it — see CRYPTOGRAPHIC_MODEL.md. This is a demonstration of the
@@ -45,6 +45,7 @@ import { sailsClient } from '../lib/sailsClient'
 import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../lib/errors'
 import { createSessionEpochGate } from '../lib/sessionEpochGate'
+import { t } from '../i18n'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
 
@@ -122,7 +123,7 @@ async function storeKeypair(encryptionKey: CryptoKey, kp: Ed25519Keypair) {
   try {
     localStorage.setItem(KEYPAIR_STORAGE_KEY, packed)
   } catch {
-    throw new Error('Não foi possível salvar sua chave neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+    throw new Error(t('auth.errors.saveKeyFailed'))
   }
 }
 

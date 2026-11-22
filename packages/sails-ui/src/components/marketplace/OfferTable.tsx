@@ -1,0 +1,113 @@
+import { Link } from 'react-router'
+import type { Offer } from '../../types'
+import { UserAvatar } from '../ui/UserAvatar'
+import { PaymentMethods } from '../ui/PaymentMethods'
+import { LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, offerPaymentMethods } from '../../lib/paymentMethods'
+import { buttonVariants } from '../ui/button'
+import { formatAmount } from '../../lib/format'
+import { formatPrice } from '../../lib/currency'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { AssetNetworkLabel } from '../ui/AssetIcon'
+import { cn } from '../../lib/utils'
+import { Check } from 'lucide-react'
+import { sellerTrust } from './offerList'
+import { TrustLine } from '../ui/TrustLine'
+import { ExplanationPopover } from '../ui/ExplanationPopover'
+import { REPUTATION_EXPLANATION } from '../../lib/reputation'
+import { offerRatings, ratingCompactItem } from '../../lib/ratings'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table'
+import { t } from '../../i18n'
+
+/**
+ * Desktop offer table: Anunciante | Preço | Limites | Pagamento | Ação.
+ * Rows are split by one hairline, no boxes. The action is the row's one real link
+ * (keyboard reachable); its ::after stretches over the row so the whole row is clickable.
+ */
+export function OfferTable({ offers, isOwn }: { offers: Offer[]; isOwn?: (offer: Offer) => boolean }) {
+  return (
+    <Table className="table-fixed">
+      <caption className="sr-only">{t('market.results.list')}</caption>
+      {/* Fixed widths (narrower from 1024, full from 1280); only the seller column absorbs extra width. */}
+      <colgroup>
+        <col />
+        <col className="w-[11rem] xl:w-[12rem]" />
+        <col className="w-[9.5rem] xl:w-[12rem]" />
+        <col className="w-[10rem] xl:w-[14rem]" />
+        <col className="w-[8rem]" />
+      </colgroup>
+      <TableHeader>
+        <tr>
+          <TableHead className="pl-5">
+            {/* The explanation sits in the header, not in a row: each row is already one stretched link. */}
+            <span className="inline-flex items-center gap-1.5">
+              {t('market.offer.seller')}
+              <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} />
+            </span>
+          </TableHead>
+          <TableHead>{t('market.table.price')}</TableHead>
+          <TableHead>{t('market.table.limits')}</TableHead>
+          <TableHead>{t('market.field.payment')}</TableHead>
+          <TableHead className="pr-5"><span className="sr-only">{t('market.table.action')}</span></TableHead>
+        </tr>
+      </TableHeader>
+      <TableBody>
+        {offers.map((offer) => <OfferTableRow key={offer.id} offer={offer} own={!!isOwn?.(offer)} />)}
+      </TableBody>
+    </Table>
+  )
+}
+
+function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
+  const { name, items } = sellerTrust(offer)
+  // The viewer's own offer gets no trade action, only a quiet link to the offer.
+  const action = own ? t('market.offer.yours') : offer.side === 'SELL' ? t('labels.side.buy') : t('labels.side.sell')
+  const seller = name ?? t('market.offer.seller')
+  const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
+  const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
+  // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
+  const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
+  // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. Same line as the trust line when it fits, else wraps.
+  const ratings = offerRatings(offer)
+  const rating = ratings ? ratingCompactItem(ratings) : null
+  const label = t('market.offer.rowLabel', { action, asset: ASSET_LABELS[offer.asset], price, seller, rating: rating ? `, ${rating.srText}` : '', methods: methods.join(', '), limits })
+
+  return (
+    <TableRow interactive className="relative h-[4.25rem]">
+      <TableCell className="pl-5">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <UserAvatar user={{ id: offer.user.id, displayName: seller }} size="sm" />
+          <div className="min-w-0">
+            <div className="flex items-center gap-1">
+              <span data-seller-name className="text-sm font-medium text-brand-text truncate">{seller}</span>
+              {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="size-icon-xs shrink-0 text-brand-orange-accent" />}
+            </div>
+            <TrustLine items={rating ? [...items, rating] : items} className="block text-xs text-brand-text-muted" />
+          </div>
+        </div>
+      </TableCell>
+      <TableCell>
+        <div data-price className="money-lg text-brand-text whitespace-nowrap">{price}</div>
+        <div className="flex items-center gap-1 text-xs text-brand-text-muted whitespace-nowrap">{t('market.offer.per')} <AssetNetworkLabel asset={offer.asset} /></div>
+      </TableCell>
+      <TableCell className="text-body-sm text-brand-text-secondary tabular-nums whitespace-nowrap">{limits}</TableCell>
+      <TableCell>
+        <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} />
+      </TableCell>
+      <TableCell className="pr-5 text-right">
+        <Link
+          to={`/offer/${offer.id}`}
+          aria-label={label}
+          className={cn(
+            own
+              ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
+              // The row action IS the viewer's side: tonal green "Comprar" / tonal red "Vender".
+              : cn(buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal', size: 'sm' }), 'min-w-[5.5rem]'),
+            'after:absolute after:inset-0 after:content-[""]'
+          )}
+        >
+          {action}
+        </Link>
+      </TableCell>
+    </TableRow>
+  )
+}

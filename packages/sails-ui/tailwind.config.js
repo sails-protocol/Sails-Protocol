@@ -11,6 +11,19 @@
 // works — found while building this: a plain `var(--x)` string doesn't
 // support `<alpha-value>` substitution, `rgb(var(--x) / <alpha-value>)`
 // does.
+// One role -> base, -fg, -bg (tint), -border (decorative), -solid, on-*.
+// `blue` is the brand blue (--color-brand-blue*), not the info status.
+const roles = (names) => Object.fromEntries(names.flatMap((n) => {
+  const v = n === 'blue' ? 'brand-blue' : n
+  return [
+    [n, `rgb(var(--color-${v}) / <alpha-value>)`],
+    [`${n}-fg`, `rgb(var(--color-${v}-fg) / <alpha-value>)`],
+    [`${n}-bg`, `rgb(var(--color-${v}) / 0.1)`],
+    [`${n}-border`, `rgb(var(--color-${v}) / 0.25)`],
+    [`${n}-solid`, `rgb(var(--color-${v}-solid) / <alpha-value>)`],
+    [`on-${n}`, `rgb(var(--color-on-${v}) / <alpha-value>)`],
+  ]
+}))
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -39,12 +52,37 @@ export default {
           // §3's success/warning/danger/info categories). `danger` reuses
           // the existing `--destructive` var rather than a second red —
           // see index.css's own comment.
-          success: 'rgb(var(--color-success) / <alpha-value>)',
-          warning: 'rgb(var(--color-warning) / <alpha-value>)',
-          danger: 'rgb(var(--destructive) / <alpha-value>)',
-          info: 'rgb(var(--color-info) / <alpha-value>)',
+          // Design System roles (DESIGN_SYSTEM.md): `danger` is now its own
+          // theme-aware base (was --destructive, the button fill).
+          ...roles(['success', 'warning', 'danger', 'info', 'buy', 'sell', 'blue']),
           'border-subtle': 'rgb(var(--color-border-subtle) / <alpha-value>)',
+          // Surfaces lot (DESIGN_SYSTEM.md 5.1): focus outline, tonal fills (text color at a
+          // per-theme alpha over any container), and the raised segmented thumb.
+          focus: 'rgb(var(--color-focus) / <alpha-value>)',
+          tonal: 'rgb(var(--color-text) / var(--tonal-a))',
+          raised: 'rgb(var(--raised-base) / var(--raised-a))',
+          // Foundations (DESIGN_SYSTEM.md 5.2): floating layers, inverse, checked, disabled.
+          floating: 'rgb(var(--color-floating) / <alpha-value>)',
+          inverse: 'rgb(var(--color-inverse) / <alpha-value>)',
+          'on-inverse': 'rgb(var(--color-on-inverse) / <alpha-value>)',
+          checked: 'rgb(var(--color-checked) / <alpha-value>)',
+          'on-checked': 'rgb(var(--color-on-checked) / <alpha-value>)',
+          'disabled-container': 'rgb(var(--color-text) / var(--disabled-container-a))',
+          'disabled-content': 'rgb(var(--color-text) / var(--disabled-content-a))',
+          // Primitives (DESIGN_SYSTEM.md 5.3+): selection, links, segmented track, toast.
+          selected: 'rgb(var(--color-selected) / var(--selected-a))',
+          link: 'rgb(var(--color-link) / <alpha-value>)',
+          'segment-track': 'rgb(var(--color-text) / var(--segment-track-a))',
+          'inverse-link': 'rgb(var(--color-inverse-link) / <alpha-value>)',
+          'inverse-success': 'rgb(var(--color-inverse-success) / <alpha-value>)',
+          'inverse-info': 'rgb(var(--color-inverse-info) / <alpha-value>)',
+          'inverse-warning': 'rgb(var(--color-inverse-warning) / <alpha-value>)',
+          'inverse-danger': 'rgb(var(--color-inverse-danger) / <alpha-value>)',
         },
+        // Asset identity (AssetIcon only): bg-asset-btc/15 text-asset-btc.
+        asset: Object.fromEntries(
+          ['btc', 'usdt', 'usdc', 'depix', 'eth', 'bnb', 'sol', 'ltc', 'stx', 'spark', 'chip'].map((a) => [a, `rgb(var(--color-asset-${a}) / <alpha-value>)`]),
+        ),
         // shadcn/ui's expected token names (bg-background, bg-primary,
         // border-input, ring-ring, etc.) — aliased onto the same CSS vars
         // as `brand` above (see index.css's own comment) so components
@@ -81,6 +119,8 @@ export default {
           foreground: 'rgb(var(--destructive-foreground) / <alpha-value>)',
         },
         border: 'rgb(var(--border) / <alpha-value>)',
+        // Scrim behind dialogs, sheets and the sidebar overlay (40 % light / 60 % dark).
+        scrim: 'rgb(var(--scrim) / var(--scrim-a))',
         input: 'rgb(var(--input) / <alpha-value>)',
         ring: 'rgb(var(--ring) / <alpha-value>)',
       },
@@ -90,10 +130,47 @@ export default {
         sm: 'calc(var(--radius) - 4px)',
       },
       fontFamily: {
-        // Display face for headlines/wordmark only — body text stays on
-        // the fast, dense-legible system stack (see index.css's `body`
-        // rule); this is the one place asked to carry brand personality.
-        display: ['"Space Grotesk"', '-apple-system', 'sans-serif'],
+        // One family for UI and titles (display = ui since 2026-11-19);
+        // routed through CSS vars so the dev-only typography study can
+        // swap families at runtime. See index.css's `:root`.
+        display: ['var(--sails-font-display)'],
+        mono: ['var(--sails-font-mono)'],
+      },
+      // Responsive scale lives in index.css (--t-*); overriding the theme
+      // keys keeps these real utilities, so `sm:text-base` etc. still win.
+      // Design System scale (DESIGN_SYSTEM.md); xs/sm stay as aliases of
+      // caption/body. Names must also be in lib/utils.ts's twMerge config.
+      fontSize: {
+        xs: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
+        sm: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
+        display: ['var(--t-display)', { lineHeight: 'var(--t-display-lh)', letterSpacing: '-0.02em', fontWeight: '600' }],
+        title: ['var(--t-page)', { lineHeight: 'var(--t-page-lh)', letterSpacing: '-0.01em', fontWeight: '600' }],
+        heading: ['var(--t-section)', { lineHeight: 'var(--t-section-lh)', fontWeight: '600' }],
+        subheading: ['var(--t-body)', { lineHeight: '1.4', fontWeight: '500' }],
+        body: ['var(--t-body)', { lineHeight: 'var(--t-body-lh)' }],
+        'body-sm': ['var(--t-body-sm)', { lineHeight: 'var(--t-body-sm-lh)' }],
+        headline: ['var(--t-headline)', { lineHeight: 'var(--t-headline-lh)', letterSpacing: '-0.01em', fontWeight: '600' }],
+        // Field text (16 touch / 14 desktop). Not `text-input`: `input` is a color (border-input).
+        field: ['var(--t-input)', { lineHeight: '1.4' }],
+        control: ['var(--t-control)', { lineHeight: '1.25' }],
+        caption: ['var(--t-meta)', { lineHeight: 'var(--t-meta-lh)' }],
+      },
+      spacing: {
+        'control-sm': 'var(--control-h-sm)',
+        control: 'var(--control-h)',
+        'control-touch': 'var(--control-h-touch)',
+        'icon-xs': 'var(--icon-xs)',
+        'icon-sm': 'var(--icon-sm)',
+        icon: 'var(--icon-md)',
+        'icon-lg': 'var(--icon-lg)',
+      },
+      // Motion tokens (index.css): duration-short/medium/long, ease-standard/decelerate/accelerate.
+      transitionDuration: { short: 'var(--duration-short)', medium: 'var(--duration-medium)', long: 'var(--duration-long)' },
+      transitionTimingFunction: { standard: 'var(--easing-standard)', decelerate: 'var(--easing-decelerate)', accelerate: 'var(--easing-accelerate)' },
+      boxShadow: {
+        'elevation-1': 'var(--elevation-1)',
+        'elevation-2': 'var(--elevation-2)',
+        'elevation-3': 'var(--elevation-3)',
       },
     },
   },

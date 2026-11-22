@@ -1,16 +1,24 @@
 import { useEffect, useState } from 'react'
-import { Link, Outlet } from 'react-router'
+import { Link, Outlet, useLocation } from 'react-router'
 import { Sidebar } from './Sidebar'
 import { Topbar } from './Topbar'
 import { BottomNav } from './BottomNav'
-import { ThemeToggle } from '../ui/ThemeToggle'
-import { UserAvatar } from '../ui/UserAvatar'
+import { AccountMenu } from './AccountMenu'
 import { OnboardingTour } from '../onboarding/OnboardingTour'
+import { NodeUnreachableBanner } from './NodeUnreachableBanner'
+import { TRADES_ROUTES } from './navMatch'
 import { useAuth } from '../../context/AuthContext'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
-import { HelpCircle } from 'lucide-react'
 import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
+import { SailsLogo } from '../brand/SailsLogo'
+import { useNavPosition } from '../../lib/navPosition'
+import { t } from '../../i18n'
+
+/** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
+export interface LayoutOutletContext {
+  replayTour: () => void
+}
 
 export function Layout() {
   // Real bug found in a cold-start UX walkthrough: on mobile, TopNav
@@ -20,6 +28,10 @@ export function Layout() {
   // Mirrors TopNav's own avatar+name / "Conectar" pattern so the same
   // signal exists on both breakpoints.
   const { user } = useAuth()
+  const location = useLocation()
+  // Settings → Aparência → "Posição do menu"; only changes the layout from 1024 px (lg).
+  const [navPosition] = useNavPosition()
+  const topNav = navPosition === 'top'
 
   // First-time onboarding (2026-08-04) — owned here rather than inside
   // OnboardingTour itself, since Layout already knows `user` and wraps
@@ -27,11 +39,19 @@ export function Layout() {
   // render where a session exists and the flag hasn't been set yet —
   // not tied to the login action itself, so a session restored on page
   // load (AuthContext's own silent re-authenticate effect) triggers it
-  // exactly the same as a fresh "Conectar Carteira" click would.
+  // exactly the same as a fresh "Conectar wallet" click would.
   const [tourOpen, setTourOpen] = useState(false)
   useEffect(() => {
     if (user && !hasSeenOnboarding()) setTourOpen(true)
   }, [user])
+
+  // Bumped when the nó Sails answers again after "Tentar de novo": remounts the page so it reads its data again.
+  const [reloadKey, setReloadKey] = useState(0)
+  const reloadPage = () => {
+    // A form the person is filling (publish offer) keeps its state: only read-only pages reload.
+    if (location.pathname !== TRADES_ROUTES.newOffer) setReloadKey((k) => k + 1)
+    document.getElementById('main-content')?.focus()
+  }
 
   const closeTour = (open: boolean) => {
     setTourOpen(open)
@@ -46,40 +66,31 @@ export function Layout() {
     // reserves its width. Mobile is completely untouched: same header +
     // BottomNav as before, `md:hidden`-gated exactly as they already were.
     <div className="min-h-screen bg-brand-bg md:flex">
-      <Sidebar />
+      {/* First stop for keyboard users in both menu positions: jump past the navigation. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-brand-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-text focus:shadow-elevation-2"
+      >
+        {t('shell.nav.skipToContent')}
+      </a>
+      <Sidebar hideFromLg={topNav} />
       <div className="flex-1 min-w-0">
-        <Topbar onReplayTour={() => setTourOpen(true)} />
-        {/* Mobile-only bar — desktop nav now lives in Sidebar/Topbar;
-            mobile needs its own since BottomNav is reserved for primary
-            navigation. */}
-        <header className="md:hidden h-14 flex items-center justify-between px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
-          <Link to="/" className="font-display font-bold text-brand-text tracking-tight">
-            Sails <span className="text-brand-orange-accent">Market</span>
+        <Topbar withNav={topNav} />
+        {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
+            every width (reachable from BottomNav). */}
+        <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
+          <Link to="/" aria-label={t('shell.nav.home')} className="inline-flex items-center rounded-md touch:min-h-11">
+            <SailsLogo size="sm" />
           </Link>
-          <div className="flex items-center gap-3">
-            {user && (
-              <button
-                type="button"
-                onClick={() => setTourOpen(true)}
-                title="Rever tour de boas-vindas"
-                aria-label="Rever tour de boas-vindas"
-                className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </button>
-            )}
-            <ThemeToggle />
-            {user ? (
-              <Link to="/profile" className="flex items-center gap-1.5">
-                <UserAvatar user={user} size="sm" />
-              </Link>
-            ) : (
-              <Link to="/login" className={cn(buttonVariants({ className: 'text-xs px-3 py-1.5' }))}>
-                Conectar
-              </Link>
-            )}
-          </div>
+          {user ? (
+            <AccountMenu user={user} compact />
+          ) : (
+            <Link to="/login" state={{ from: location.pathname }} className={cn(buttonVariants({ size: 'sm', className: 'min-h-11 px-3' }))}>
+              {t('shell.session.connectWallet')}
+            </Link>
+          )}
         </header>
+        <NodeUnreachableBanner onReconnected={reloadPage} />
         {/* UI-FOUNDATION-1 — max-w-6xl -> max-w-7xl: the sidebar now
             reserves its own width (Sidebar.tsx), so the old cap left a
             visibly asymmetric empty band on the right at wide desktop
@@ -87,8 +98,8 @@ export function Layout() {
             spanning edge-to-edge. A modest widen, not full-bleed —
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
-        <main className="max-w-7xl mx-auto px-4 py-6 pb-20 md:pb-6">
-          <Outlet />
+        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 md:px-6 xl:px-8 py-6 pb-20 md:pb-8">
+          <Outlet key={reloadKey} context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>
       <BottomNav />

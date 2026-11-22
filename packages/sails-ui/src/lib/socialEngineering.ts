@@ -15,6 +15,8 @@
  * detected by the real agent yet either (RFC-017's own scope note), so
  * it's not simulated here.
  */
+import { t } from '../i18n'
+
 export type RiskPattern = 'off_channel_migration' | 'payment_instruction_change'
 
 export interface RiskWarning {
@@ -31,20 +33,21 @@ export function detectRiskLocally(content: string): RiskWarning | null {
     return {
       pattern: 'off_channel_migration',
       riskScore: 78,
-      reasoning: 'Mensagem sugere continuar a negociação fora deste chat — um padrão comum antes de golpes P2P.',
+      reasoning: t('escrow.risk.offChannelReason'),
     }
   }
   if (PAYMENT_CHANGE_HINTS.test(content)) {
     return {
       pattern: 'payment_instruction_change',
       riskScore: 70,
-      reasoning: 'Mensagem sugere uma mudança nos dados de pagamento combinados — confirme diretamente com a contraparte antes de agir.',
+      reasoning: t('escrow.risk.paymentChangeReason'),
     }
   }
   return null
 }
 
+// Getters: each read uses the current language.
 export const RISK_PATTERN_LABEL: Record<RiskPattern, string> = {
-  off_channel_migration: 'Possível tentativa de sair do chat oficial',
-  payment_instruction_change: 'Possível mudança nos dados de pagamento',
+  get off_channel_migration() { return t('escrow.risk.offChannelLabel') },
+  get payment_instruction_change() { return t('escrow.risk.paymentChangeLabel') },
 }

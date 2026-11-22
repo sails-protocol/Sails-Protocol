@@ -1,8 +1,10 @@
+import { getLocale } from './locale'
+import { currencyDisplay } from './format'
 import type { FiatCurrency } from '../types'
 
-// Locale used purely for Intl.NumberFormat's currency symbol/grouping —
-// not a claim about which country the currency "belongs to" beyond
-// picking a reasonable formatting convention.
+// `locale` is the currency's home convention, kept as data. Display follows the interface language for
+// every currency (lib/format.ts), so a row never mixes "," and "." decimals. `label` is the pt-BR name;
+// other languages read the name from Intl (currencyLabel).
 export const FIAT_CURRENCIES: { code: FiatCurrency; label: string; locale: string }[] = [
   { code: 'BRL', label: 'Real Brasileiro', locale: 'pt-BR' },
   { code: 'USD', label: 'Dólar Americano', locale: 'en-US' },
@@ -44,26 +46,23 @@ export const AMOUNT_PRESETS: Record<FiatCurrency, number[]> = {
 
 export function formatByCurrency(value: number, currency: FiatCurrency): string {
   const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
-  return value.toLocaleString(meta.locale, { style: 'currency', currency: meta.code })
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, currencyDisplay: currencyDisplay(meta.code) })
 }
 
-// Illustrative-only fiat->USD rates, same honesty boundary as
-// AMOUNT_PRESETS above — used by PublishOffer.tsx to derive the
-// mandatory `priceUsd` (real CreateOfferInput field,
-// liquidity.service.ts) from whatever fiat price the user enters, since
-// no live rate feed exists. Not sourced from any live market.
-export const ILLUSTRATIVE_FX_TO_USD: Record<FiatCurrency, number> = {
-  BRL: 1 / 5.05,
-  USD: 1,
-  EUR: 1 / 0.92,
-  GBP: 1 / 0.79,
-  ARS: 1 / 980,
-  MXN: 1 / 18,
-  NGN: 1 / 1550,
-  INR: 1 / 83,
-  VES: 1 / 200,
-  COP: 1 / 4000,
-  PEN: 1 / 3.8,
-  BOB: 1 / 6.9,
-  EGP: 1 / 49,
+/** Unit price: never rounds away sub-cent digits (a 1.002 offer showed as "$1.00" while 100 units totalled $100.20). */
+export function formatPrice(value: number, currency: FiatCurrency): string {
+  const meta = FIAT_CURRENCIES.find((c) => c.code === currency) ?? FIAT_CURRENCIES[0]
+  return value.toLocaleString(getLocale(), { style: 'currency', currency: meta.code, currencyDisplay: currencyDisplay(meta.code), maximumFractionDigits: 8 })
+}
+
+/** Currency name in the interface language: the pt-BR label as written here, Intl.DisplayNames elsewhere. */
+export function currencyLabel(code: FiatCurrency): string {
+  const meta = FIAT_CURRENCIES.find((c) => c.code === code)
+  const locale = getLocale()
+  if (locale === 'pt-BR' && meta) return meta.label
+  try {
+    return new Intl.DisplayNames(locale, { type: 'currency' }).of(code) ?? meta?.label ?? code
+  } catch {
+    return meta?.label ?? code
+  }
 }

@@ -1,13 +1,12 @@
-/* Display typeface (2026-07-28 visual redesign) — the one place asked
-   to carry brand personality (wordmark, page headlines); body text
-   stays on the system stack below for density/legibility on
-   info-heavy trading screens. Loaded via Google Fonts rather than a
-   bundled @fontsource package to avoid touching node_modules/
-   package-lock while another session has this workspace's dev server
-   open concurrently. Must precede every other rule (CSS requires all
-   `@import`s to come first) — `vite build` only warns and drops it
-   silently if it doesn't, it doesn't fail the build. */
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&display=swap');
+/* Typography (2026-11-19, provisional pending PM sign-off; study notes
+   outside the repo): Inter for UI and titles (one family, no display-face
+   mix), IBM Plex Mono only for IDs/keys/hashes/addresses. Must precede
+   every other rule (CSS requires all `@import`s first; `vite build` only
+   warns and drops it otherwise).
+   shortcut: loaded from Google Fonts like the Space Grotesk import it
+   replaces; self-host (Inter v4.1 from rsms/inter, Plex Mono, OFL texts
+   shipped alongside) before production, no third-party font requests. */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 /* Tailwind v4 (Dependabot major-version bump, 2026-07-19) — the old
    `@tailwind base/components/utilities` directives are replaced by a
@@ -28,6 +27,37 @@
    syntax (bg-brand-orange/15) to work with a CSS-var-backed color, see
    tailwind.config.js's own comment. */
 :root {
+  /* Font stacks as vars so the dev-only typography study
+     (src/dev/typeStudy) can still swap them at runtime. */
+  --sails-font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --sails-font-display: var(--sails-font-ui);
+  --sails-font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  /* Responsive type scale: mobile <768 / desktop >=768.
+     `text-sm`/`text-xs` read --t-body/--t-meta (tailwind.config.js), so
+     responsive variants on the same element still win normally.
+     One scale (desktop refinement 2026-11-20): page title 24, section 16,
+     body 14 (`text-sm`), secondary 13 (`text-body-sm`), meta 12 (`text-xs`,
+     the floor). Weights 400/500/600 only; no 700 anywhere. */
+  /* rem (2026-11-20, provisório — ratificação pendente): same px at the
+     default 16px root, but a larger browser font size now enlarges text. */
+  --t-page: 1.375rem;    --t-page-lh: 1.25;     /* 22 */
+  --t-section: 1rem;     --t-section-lh: 1.35;  /* 16 */
+  --t-body: 0.9375rem;   --t-body-lh: 1.5;      /* 15 */
+  --t-control: 0.875rem; /* 14: buttons, form labels */
+  --t-meta: 0.75rem;     --t-meta-lh: 1.4;      /* 12; 13px pushed the OfferCard price out of a 375px row */
+  --t-mono: 0.875rem;    /* 14: IDs/keys; 15px wrapped a PIX key to 3 lines at 375px */
+  --t-money: 0.9375rem;  /* 15 */
+  --t-money-hero: 1.625rem; /* 26 */
+  /* Design System scale names (DESIGN_SYSTEM.md): display / title (=page)
+     / headline / heading (=section) / subheading / body / body-sm / caption (=meta). */
+  --t-display: 1.75rem;  --t-display-lh: 1.15;  /* 28 */
+  --t-body-sm: 0.8125rem; --t-body-sm-lh: 1.5;  /* 13 */
+  /* headline 18 (dialog/sheet/card titles) and input 16 on mobile (no iOS
+     focus zoom) / 14 desktop. Provisório. money-lg 18 (row prices) is its own
+     token, so a title change never moves prices (Architect 2026-11-21, item 11). */
+  --t-headline: 1.125rem; --t-headline-lh: 1.3;
+  --t-money-lg: 1.125rem;
+  --t-input: 1rem;
   --color-bg: 250 250 250;           /* #fafafa */
   --color-surface: 255 255 255;      /* #ffffff */
   --color-elevated: 245 245 245;     /* #f5f5f5 */
@@ -75,21 +105,25 @@
   --foreground: var(--color-text);
   --card: var(--color-surface);
   --card-foreground: var(--color-text);
-  --popover: var(--color-surface);
+  --popover: var(--color-floating);
   --popover-foreground: var(--color-text);
-  --primary: var(--color-orange);
-  --primary-foreground: 255 255 255;
+  /* Light primary (2026-11-20, provisório — ratificação pendente): dark text
+     on #ea580c, the same rule as dark ("dark text on orange"). Label 5.22:1;
+     fill vs bg/surface/elevated 3.41 / 3.56 / 3.26. --color-orange (#c2410c)
+     stays the orange for text and borders on light surfaces. */
+  --primary: 234 88 12;              /* #ea580c */
+  --primary-foreground: 17 19 24;    /* #111318 */
   --secondary: var(--color-elevated);
   --secondary-foreground: var(--color-text);
   --muted: var(--color-elevated);
   --muted-foreground: var(--color-text-muted);
   --accent: var(--color-elevated);
   --accent-foreground: var(--color-text);
-  --destructive: 185 28 28; /* red-700 — matches SideBadge's existing text-red-700 */
-  --destructive-foreground: 255 255 255;
+  --destructive: var(--color-danger-solid); /* alias, see Design System roles below */
+  --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
-  --ring: var(--color-orange);
+  --ring: var(--color-focus);
   --radius: 0.5rem; /* rounded-lg — matches the 2026-07-28 sharper-corners redesign */
 
   /* UI-FOUNDATION-1 — semantic state tokens (docs/SAILS_MARKET_DESIGN_DIRECTION.md
@@ -101,8 +135,9 @@
      shade for light-mode text/icon-on-white (this repo's own established
      AA-safe pattern — see `--color-orange`'s comment above), not
      independently re-verified with AxeBuilder in this pass (disclosed,
-     not silently assumed). `--danger` intentionally reuses `--destructive`
-     above rather than a second red — one danger color, not two. */
+     not silently assumed). Re-measured 2026-11-20 (Design System roles
+     below); `--destructive` is now an alias of `--color-danger-solid`, one
+     danger color, not two. */
   --color-success: 21 128 61;   /* green-700, #15803d */
   --color-warning: 180 83 9;    /* amber-700, #b45309 */
   --color-info: 29 78 216;      /* blue-700, #1d4ed8 */
@@ -110,30 +145,175 @@
      (e.g. a table's internal row lines) where the full border weight
      would compete with the surface's own outer border. */
   --color-border-subtle: 225 225 225; /* #e1e1e1, light mode */
+
+  /* Sails Design System roles (DESIGN_SYSTEM.md, 2026-11-20). One meaning
+     per color: brand (orange, brand blue), trade side (buy/sell), status
+     (success/warning/danger/info/neutral). Per role: base (icons, functional
+     borders, tint source), -fg (text, >= 4.5:1 on bg/surface/elevated AND
+     on its own 10% tint), -solid + on- (filled controls). Tint = base/10,
+     chip border = base/25 (decorative: the label carries the meaning).
+     Measured contrast (min over bg/surface/elevated) in the comments;
+     script: ui-refs/design-system-2026-11-20/contrast.cjs. */
+  --color-success-fg: 22 101 52;     /* #166534 6.54:1, on tint 5.74:1 */
+  --color-success-solid: 21 128 61;  /* #15803d */
+  --color-on-success: 255 255 255;   /* 5.02:1 */
+  --color-warning-fg: 146 64 14;     /* #92400e 6.50:1, on tint 5.71:1 */
+  --color-warning-solid: 180 83 9;   /* #b45309 */
+  --color-on-warning: 255 255 255;   /* 5.02:1 */
+  --color-danger: 185 28 28;         /* #b91c1c 5.93:1 */
+  --color-danger-fg: 185 28 28;      /* on tint 5.02:1 */
+  --color-danger-solid: 185 28 28;
+  --color-on-danger: 255 255 255;    /* 6.47:1 */
+  --color-info-fg: 29 78 216;        /* #1d4ed8 6.15:1, on tint 5.27:1 */
+  --color-info-solid: 29 78 216;
+  --color-on-info: 255 255 255;      /* 6.70:1 */
+  /* Trade side, never status: a "Vender" chip must not read as an error. */
+  --color-buy: 13 130 89;            /* #0d8259 4.42:1 (icons/borders >= 3:1) */
+  --color-buy-fg: 10 107 73;         /* #0a6b49 6.00:1, on tint 5.29:1 */
+  --color-buy-solid: 13 130 89;
+  --color-on-buy: 255 255 255;       /* 4.82:1 */
+  --color-sell: 185 56 78;           /* #b9384e 5.15:1 */
+  --color-sell-fg: 163 50 74;        /* #a3324a 6.19:1, on tint 5.36:1 */
+  --color-sell-solid: 185 56 78;
+  --color-on-sell: 255 255 255;      /* 5.62:1 */
+  /* Tonal side buttons (buy-tonal / sell-tonal, DESIGN_SYSTEM.md 5.1): the
+     state layer is the side color here (label on hover/pressed: buy 4.82 / 4.60,
+     sell 4.80 / 4.57, min over bg/surface/elevated); in dark it is black. */
+  --state-layer-buy: var(--color-buy);
+  --state-layer-sell: var(--color-sell);
+  --state-hover-a-side: 0.08;
+  --state-pressed-a-side: 0.12;
+  /* Brand blue: secondary brand accent (links, selection, charts,
+     highlights). Not info: separate tokens even where values coincide. */
+  --color-brand-blue: 37 99 235;     /* #2563eb 4.74:1 */
+  --color-brand-blue-fg: 29 78 216;  /* #1d4ed8 6.15:1, on tint 5.36:1 */
+  --color-brand-blue-solid: 37 99 235;
+  --color-on-brand-blue: 255 255 255; /* 5.17:1 */
+
+  /* Surfaces lot (2026-11-20, DESIGN_SYSTEM.md §5.1). Focus: its own token, not a
+     white-label brand token (accessibility is locked). = text color, so it never
+     reads as the orange primary, a selection or a status, and never clashes with
+     orange (no blue ring around an orange button). vs bg/surface/elevated
+     18.97 / 19.80 / 18.16. Buttons and rows: outline with a transparent 2px
+     offset; fields: their own border turns focus color, 2px inset. */
+  --color-focus: 10 10 10;           /* #0a0a0a = --color-text */
+  /* Tonal fill = text color at low alpha over its container (M3 state layer
+     idea): one step off any surface. Label on it >= 13:1 here. */
+  --tonal-a: 0.07;
+  /* Segmented-control thumb (raised): opaque white + shadow-elevation-1. */
+  --raised-base: 255 255 255;
+  --raised-a: 1;
+
+  /* Foundations (DESIGN_SYSTEM.md 5.2, 2026-11-20, provisório — ratificação
+     pendente). Contrast: ui-refs/ds-foundations-2026-11-20/contrast.cjs. */
+  /* State layers (Sails values, inspired by M3), one system for every interactive element. The
+     layer moves away from the label color: text color on neutral fills,
+     white on solids with a dark label, black on solids with a white label. */
+  --state-hover-a: 0.08;
+  --state-focus-a: 0.12;
+  --state-pressed-a: 0.12;
+  --state-dragged-a: 0.16;
+  /* Disabled (M3): container 12 %, content 38 % of the text color, no brand
+     color. Exempt from 1.4.3/1.4.11 (inactive); semantics carry the state. */
+  --disabled-container-a: 0.12;
+  --disabled-content-a: 0.38;
+  /* Floating layers (popover, menu, select list): = surface in light, the
+     shadow separates it. Text 19.80, muted 5.92, focus 19.80. */
+  --color-floating: 255 255 255;
+  /* Inverse (tooltip; toast skin in phase 3): on-inverse 13.42:1. */
+  --color-inverse: 37 42 51;         /* #252a33 */
+  --color-on-inverse: 245 247 250;   /* #f5f7fa */
+  /* Scrim behind modal layers: 40 % (dialog surface vs scrimmed page 2.71+). */
+  --scrim: 10 10 10;
+  --scrim-a: 0.4;
+  /* Checked (checkbox, switch on): brand blue, never orange (orange = act).
+     Fill vs bg/surface/elevated 4.95 / 5.17 / 4.74; check mark 5.17. */
+  --color-checked: 37 99 235;        /* #2563eb */
+  --color-on-checked: 255 255 255;
+  /* Primitives (DESIGN_SYSTEM.md 5.3+, 2026-11-20, provisório). Contrast:
+     ui-refs/ds-primitives-2026-11-20/contrast.cjs (min-max over bg/surface/elevated). */
+  /* Selected (listbox option, list/table row): brand blue at 12 % + a check or
+     bar, never color alone. Text on it 15.40-16.73, secondary 6.08-6.60. */
+  --color-selected: var(--color-brand-blue);
+  --selected-a: 0.12;
+  /* Link: brand blue text, never orange (orange = act). 6.42 / 6.70 / 6.15. */
+  --color-link: var(--color-brand-blue-fg);
+  /* Segmented track: deeper than the tonal fill in light, so the white thumb
+     separates by fill (1.50-1.62, was 1.16-1.26); unselected label 4.82-5.22. */
+  --segment-track-a: 0.18;
+  /* Toast (inverse surface): action link 5.67, status icons 5.21-8.63. */
+  --color-inverse-link: 96 165 250;
+  --color-inverse-success: 52 211 153;
+  --color-inverse-info: 96 165 250;
+  --color-inverse-warning: 251 191 36;
+  --color-inverse-danger: 248 113 113;
+  /* Motion: three durations, enter decelerates, exit accelerates and is
+     shorter; reduced motion makes both instant (base layer below). */
+  --duration-short: 100ms;
+  --duration-medium: 200ms;
+  --duration-long: 300ms;
+  --easing-standard: cubic-bezier(0.2, 0, 0, 1);
+  --easing-decelerate: cubic-bezier(0, 0, 0, 1);
+  --easing-accelerate: cubic-bezier(0.3, 0, 1, 1);
+
+  /* Asset identity (AssetIcon monograms, decorative, aria-hidden). Same in
+     both themes, never reused for meaning, not white-label brand tokens. */
+  --color-asset-btc: 249 115 22;
+  --color-asset-usdt: 16 185 129;
+  --color-asset-usdc: 59 130 246;
+  --color-asset-depix: 22 163 74;
+  --color-asset-eth: 99 102 241;
+  --color-asset-bnb: 202 138 4;
+  --color-asset-sol: 168 85 247;
+  --color-asset-ltc: 148 163 184;
+  --color-asset-stx: 251 146 60;
+  --color-asset-spark: 245 158 11;
+  /* Network badge chip under official logos (AssetIcon): neutral light in both themes so dark marks
+     (Arbitrum, Liquid) read on the dark surface; the logo itself is never recolored. */
+  --color-asset-chip: 255 255 255;
+
+  /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
+     mobile. Icons 14/16/20/24 (14 only beside 12px text: badges, chips, meta lines). Avatars (UserAvatar SIZES) 28/36/48/64. */
+  --control-h-sm: 36px;
+  --control-h: 40px;
+  --control-h-touch: 44px;
+  --icon-xs: 14px;
+  --icon-sm: 16px;
+  --icon-md: 20px;
+  --icon-lg: 24px;
+  /* Elevation: tonal first (bg -> surface -> elevated); shadow only for
+     layers that float (menus, popovers, dialogs). */
+  --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.06);
+  --elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.12);
+  --elevation-3: 0 12px 32px -4px rgb(0 0 0 / 0.20);
 }
 
 :root.dark {
-  --color-bg: 5 5 5;                 /* #050505 */
-  --color-surface: 15 15 15;         /* #0f0f0f */
-  --color-elevated: 22 22 22;        /* #161616 */
+  /* Palette 2026-11-19 (CTO 437 / PM): graphite surfaces, contrast-checked
+     (WCAG 2.1 AA: text >= 4.5:1, functional borders >= 3:1 on every surface). */
+  --color-bg: 17 19 24;              /* #111318 */
+  --color-surface: 28 32 40;         /* #1c2028 */
+  --color-elevated: 37 42 51;        /* #252a33 */
   /* Was 36 36 36 (#242424) — same real WCAG 1.4.11 violation as :root's
      own comment above, measured 1.23-1.31:1 against this theme's own
      surfaces. 100 100 100 gives ~3.2-3.4:1. */
-  --color-border: 100 100 100;       /* #646464 */
-  --color-border-hover: 130 130 130; /* #828282 */
-  --color-text: 250 250 250;         /* #fafafa */
-  --color-text-secondary: 163 163 163; /* #a3a3a3 */
+  --color-border: 107 115 133;       /* #6b7385, >= 3.0:1 on bg/surface/elevated */
+  --color-border-hover: 138 146 160; /* #8a92a0 */
+  --color-text: 245 247 250;         /* #f5f7fa */
+  --color-text-secondary: 169 176 188; /* #a9b0bc, 7.5:1 on surface */
   /* Was 82 82 82 (#525252) — same real contrast bug as light mode's
      --color-text-muted, just inverted (too dark against this near-black
      background instead of too light against white). 140 140 140 gives
      ~6.1:1 while staying dimmer than --color-text-secondary above. */
-  --color-text-muted: 140 140 140;   /* #8c8c8c */
+  --color-text-muted: 148 156 170;   /* #949caa, >= 4.6:1 on elevated */
 
   /* Same fix as :root above — dark mode's button text is still white
      (.btn-primary hardcodes text-white regardless of theme), so this
      needed the identical fix, not a theme-specific one. */
-  --color-orange: 194 65 12;        /* #c2410c */
-  --color-orange-hover: 154 52 18;  /* #9a3412 */
+  /* Brand orange behind DARK text (6.6:1). White on any orange tested fails AA
+     (#f97316 2.8:1, #ea580c 3.6:1), so dark mode flips the button text instead. */
+  --color-orange: 249 115 22;       /* #f97316 */
+  --color-orange-hover: 251 146 60; /* #fb923c, dark text 8.2:1 */
   /* orange-as-TEXT/icon/accent (2026-07-28 visual redesign, requested
      directly): the original vibrant #f97316 was only ever a contrast
      problem as white-text-on-orange (`--color-orange` above) or as text
@@ -151,37 +331,291 @@
   --foreground: var(--color-text);
   --card: var(--color-surface);
   --card-foreground: var(--color-text);
-  --popover: var(--color-surface);
+  --popover: var(--color-floating);
   --popover-foreground: var(--color-text);
   --primary: var(--color-orange);
-  --primary-foreground: 255 255 255;
+  --primary-foreground: 17 19 24;   /* dark text on orange, see --color-orange */
   --secondary: var(--color-elevated);
   --secondary-foreground: var(--color-text);
   --muted: var(--color-elevated);
   --muted-foreground: var(--color-text-muted);
   --accent: var(--color-elevated);
   --accent-foreground: var(--color-text);
-  --destructive: 185 28 28;
-  --destructive-foreground: 255 255 255;
+  --destructive: var(--color-danger-solid);
+  --destructive-foreground: var(--color-on-danger);
   --border: var(--color-border);
   --input: var(--color-border);
-  --ring: var(--color-orange);
+  --ring: var(--color-focus);
 
   /* UI-FOUNDATION-1 — dark-mode semantic state tokens, same "brighter
      shade against a near-black surface" methodology as
      `--color-orange-accent` above. */
-  --color-success: 74 222 128;  /* green-400, #4ade80 */
+  --color-success: 52 211 153;  /* #34d399, 8.5:1 on surface */
   --color-warning: 251 191 36;  /* amber-400, #fbbf24 */
   --color-info: 96 165 250;     /* blue-400, #60a5fa */
-  --color-border-subtle: 45 45 45; /* #2d2d2d, dark mode */
+  --color-border-subtle: 46 52 64; /* #2e3440, decorative dividers only */
+
+  /* Design System roles, dark (see :root). Light hues as text; solids keep
+     the decided fills (BUY #0d8259, SELL #b9384e, blue #2563eb) with white,
+     lighter solids take dark text like brand orange. */
+  --color-success-fg: 52 211 153;    /* #34d399 7.49:1, on tint 6.14:1 */
+  --color-success-solid: 52 211 153;
+  --color-on-success: 17 19 24;      /* 9.67:1 */
+  --color-warning-fg: 251 191 36;    /* #fbbf24 8.63:1, on tint 6.95:1 */
+  --color-warning-solid: 251 191 36;
+  --color-on-warning: 17 19 24;      /* 11.13:1 */
+  --color-danger: 248 113 113;       /* #f87171 5.21:1 */
+  --color-danger-fg: 248 113 113;    /* on tint 4.52:1 */
+  --color-danger-solid: 185 28 28;   /* #b91c1c, unchanged destructive fill */
+  --color-on-danger: 255 255 255;    /* 6.47:1 */
+  --color-info-fg: 96 165 250;       /* #60a5fa 5.67:1, on tint 4.80:1 */
+  --color-info-solid: 96 165 250;
+  --color-on-info: 17 19 24;         /* 7.31:1 */
+  --color-buy: 76 199 154;           /* #4cc79a 6.82:1 */
+  --color-buy-fg: 76 199 154;        /* on tint 5.63:1 */
+  /* Side solids (phase 4A): light fill + dark label, the dark-theme rule of the
+     orange primary, so the ticket button clears 3:1 against every dark surface
+     (was #0d8259 / white: 2.99 vs elevated). Label 8.80, fill vs bg/surface/
+     elevated 8.80 / 7.73 / 6.82. */
+  --color-buy-solid: 76 199 154;     /* #4cc79a */
+  --color-on-buy: 17 19 24;          /* #111318 8.80:1 */
+  --color-sell: 251 113 133;         /* #fb7185 5.35:1 */
+  --color-sell-fg: 251 113 133;      /* on tint 4.64:1 */
+  /* Label 6.90, fill 6.90 / 6.06 / 5.35 (was #b9384e / white: 2.56 vs elevated). */
+  --color-sell-solid: 251 113 133;   /* #fb7185 */
+  --color-on-sell: 17 19 24;         /* #111318 6.90:1 */
+  /* Black layer: a side-color or text layer would lower the light label
+     (sell hover 4.13); black raises it. Stronger than the shared 8 / 12 % so the
+     fill visibly moves (1.06-1.14 hover, 1.09-1.21 pressed, as in light); label
+     buy 6.42-8.23, sell 5.21-6.59 (Architect 2026-11-21, item 6). */
+  --state-layer-buy: 0 0 0;
+  --state-layer-sell: 0 0 0;
+  --state-hover-a-side: 0.16;
+  --state-pressed-a-side: 0.24;
+  --color-brand-blue: 96 165 250;    /* #60a5fa 5.67:1 */
+  --color-brand-blue-fg: 96 165 250; /* on tint 4.80:1 */
+  --color-brand-blue-solid: 37 99 235; /* #2563eb */
+  --color-on-brand-blue: 255 255 255;  /* 5.17:1 */
+  /* Focus = text #f5f7fa: 17.31 / 15.21 / 13.42 vs bg/surface/elevated. */
+  --color-focus: 245 247 250;
+  --tonal-a: 0.08;
+  /* Foundations, dark (see :root). Floating #2b303a: 1.23 vs surface; text
+     12.33, secondary 6.07, muted 4.79, focus 12.33. Inverse 15.28. Scrim 60 %.
+     Checked #60a5fa with dark check: fill 7.31 / 6.42 / 5.67, check 7.31
+     (#2563eb measured only 2.79 vs elevated). */
+  --color-floating: 43 48 58;
+  --color-inverse: 230 233 239;      /* #e6e9ef */
+  --color-on-inverse: 17 19 24;
+  --scrim: 0 0 0;
+  --scrim-a: 0.6;
+  --color-checked: 96 165 250;       /* #60a5fa */
+  --color-on-checked: 17 19 24;
+  /* Primitives, dark (see :root). Selected: text 10.91-14.43, secondary
+     5.36-7.09. Link 7.31 / 6.42 / 5.67. Track = tonal (thumb 1.51-1.54).
+     Toast on the light inverse: link 5.51, icons 4.12-5.51. */
+  --segment-track-a: 0.08;
+  --color-inverse-link: 29 78 216;
+  --color-inverse-success: 21 128 61;
+  --color-inverse-info: 29 78 216;
+  --color-inverse-warning: 180 83 9;
+  --color-inverse-danger: 185 28 28;
+  /* Thumb = text at 14% over the track: always one step above it (1.5:1). */
+  --raised-base: 245 247 250;      /* = --color-text */
+  --raised-a: 0.14;
+  --elevation-1: 0 1px 2px 0 rgb(0 0 0 / 0.30);
+  --elevation-2: 0 4px 12px -2px rgb(0 0 0 / 0.45);
+  --elevation-3: 0 12px 32px -4px rgb(0 0 0 / 0.60);
+}
+
+@media (min-width: 768px) {
+  :root { --t-display: 2rem; --t-page: 1.5rem; --t-body: 0.875rem; --t-money-hero: 1.75rem; --t-input: 0.875rem; }
+}
+/* Touch tablets keep 16px field text (iOS zooms into smaller fields on focus). */
+@media (pointer: coarse) {
+  :root { --t-input: 1rem; }
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: var(--sails-font-ui);
   background-color: rgb(var(--color-bg));
   color: rgb(var(--color-text));
-  transition: background-color 0.15s ease, color 0.15s ease;
+  transition: background-color var(--duration-medium) var(--easing-standard), color var(--duration-medium) var(--easing-standard);
+}
+
+/* One focus indicator for every interactive element (DESIGN_SYSTEM.md §5.1):
+   an outline, not a ring with a painted offset, so the 2px gap is transparent
+   on any surface (page, card, dialog, popover). Base layer, so a utility such
+   as `focus-visible:-outline-offset-2` (rows inside clipped lists) still wins.
+   Never `outline-none` on a focusable element without a replacement. */
+/* `touch:` = coarse pointer (any width) or a phone-width window: 44px targets.
+   Fine pointer at >= 768px keeps the dense 36/40 controls. Provisório. */
+/* Block form: the one-line form with a comma media list compiled to (pointer: coarse) only, dropping the width rule. */
+@custom-variant touch {
+  @media (pointer: coarse) { @slot; }
+  @media (max-width: 767.98px) { @slot; }
+}
+
+/* Enter/exit motion for overlays (no plugin): the shadcn-style classes
+   animate-in/out, fade-*, zoom-*, slide-* set per-element variables these
+   two keyframes read. Variables do not inherit, so nested overlays start clean. */
+@property --enter-opacity { syntax: "*"; inherits: false; }
+@property --enter-scale { syntax: "*"; inherits: false; }
+@property --enter-x { syntax: "*"; inherits: false; }
+@property --enter-y { syntax: "*"; inherits: false; }
+@property --exit-opacity { syntax: "*"; inherits: false; }
+@property --exit-scale { syntax: "*"; inherits: false; }
+@property --exit-x { syntax: "*"; inherits: false; }
+@property --exit-y { syntax: "*"; inherits: false; }
+@keyframes sails-enter {
+  from {
+    opacity: var(--enter-opacity, 1);
+    transform: translate3d(var(--enter-x, 0), var(--enter-y, 0), 0) scale(var(--enter-scale, 1));
+  }
+}
+@keyframes sails-exit {
+  to {
+    opacity: var(--exit-opacity, 1);
+    transform: translate3d(var(--exit-x, 0), var(--exit-y, 0), 0) scale(var(--exit-scale, 1));
+  }
+}
+@utility animate-in {
+  animation: sails-enter var(--enter-duration, var(--duration-medium)) var(--easing-decelerate) both;
+}
+@utility animate-out {
+  animation: sails-exit var(--exit-duration, var(--duration-short)) var(--easing-accelerate) both;
+}
+@utility fade-in-0 { --enter-opacity: 0; }
+@utility fade-out-0 { --exit-opacity: 0; }
+@utility zoom-in-95 { --enter-scale: 0.96; }
+@utility zoom-out-95 { --exit-scale: 0.96; }
+@utility slide-in-from-top-2 { --enter-y: -0.5rem; }
+@utility slide-in-from-bottom-2 { --enter-y: 0.5rem; }
+@utility slide-in-from-left-2 { --enter-x: -0.5rem; }
+@utility slide-in-from-right-2 { --enter-x: 0.5rem; }
+@utility slide-in-from-top { --enter-y: -100%; }
+@utility slide-in-from-bottom { --enter-y: 100%; }
+@utility slide-in-from-left { --enter-x: -100%; }
+@utility slide-in-from-right { --enter-x: 100%; }
+@utility slide-out-to-top { --exit-y: -100%; }
+@utility slide-out-to-bottom { --exit-y: 100%; }
+@utility slide-out-to-left { --exit-x: -100%; }
+@utility slide-out-to-right { --exit-x: 100%; }
+/* Long/medium overlays (dialog, sheet) and short ones (tooltip). */
+@utility motion-overlay-long { --enter-duration: var(--duration-long); --exit-duration: var(--duration-medium); }
+@utility motion-overlay-short { --enter-duration: var(--duration-short); --exit-duration: var(--duration-short); }
+/* Indeterminate linear progress (ui/progress.tsx): one bar sweeping the track. Only under
+   motion-safe; with reduced motion it rests as a static partial bar. */
+@keyframes sails-progress { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@utility animate-progress { animation: sails-progress 1400ms var(--easing-standard) infinite; }
+/* Trade rail (DESIGN_SYSTEM.md 5.5): when the viewer's stage appears, a ring grows and fades out
+   twice (2 x 2 s; transform/opacity only). Stops before 5 s (WCAG 2.2.2, no pause control needed);
+   only under motion-safe, so reduced motion keeps the static ring. */
+@keyframes sails-rail-pulse { from { transform: scale(1); opacity: 0.5; } 70%, to { transform: scale(1.6); opacity: 0; } }
+@utility animate-rail-pulse { animation: sails-rail-pulse 2000ms var(--easing-decelerate) 2; }
+
+/* State layers (DESIGN_SYSTEM.md 5.2): an overlay on top of the fill, so the
+   fill token never changes per state. Hover only on hover-capable pointers
+   (no stuck hover after a tap); pressed everywhere; nothing when disabled. */
+@utility state-layer {
+  @media (hover: hover) {
+    &:hover:not(:disabled):not([aria-disabled="true"]) {
+      background-image: linear-gradient(rgb(var(--state-layer, var(--color-text)) / var(--state-hover-a)), rgb(var(--state-layer, var(--color-text)) / var(--state-hover-a)));
+    }
+  }
+  &:active:not(:disabled):not([aria-disabled="true"]) {
+    background-image: linear-gradient(rgb(var(--state-layer, var(--color-text)) / var(--state-pressed-a)), rgb(var(--state-layer, var(--color-text)) / var(--state-pressed-a)));
+  }
+}
+/* Layer color for solids: white over a dark label, black over a white label. */
+@utility state-layer-light { --state-layer: 255 255 255; }
+@utility state-layer-dark { --state-layer: 0 0 0; }
+/* Tinted side buttons: a layer that never lowers the side-colored label (tokens above). */
+@utility state-layer-buy { --state-layer: var(--state-layer-buy); --state-hover-a: var(--state-hover-a-side); --state-pressed-a: var(--state-pressed-a-side); }
+@utility state-layer-sell { --state-layer: var(--state-layer-sell); --state-hover-a: var(--state-hover-a-side); --state-pressed-a: var(--state-pressed-a-side); }
+/* Focus inside a composite widget (menu item, listbox option): the 12 % focus
+   layer replaces the outline, so the list never shows a box inside its box.
+   `data-active` = the combobox option under aria-activedescendant. */
+@utility state-focus {
+  &:focus-visible, &[data-active="true"] {
+    outline: none;
+    background-image: linear-gradient(rgb(var(--color-text) / var(--state-focus-a)), rgb(var(--color-text) / var(--state-focus-a)));
+  }
+}
+
+/* Toast (sonner, skinned in components/ui/toast.tsx): its own 400 ms transitions
+   move onto the motion tokens. Transform/opacity only; reduced motion = instant. */
+[data-sonner-toaster] [data-sonner-toast] {
+  transition: transform var(--duration-medium) var(--easing-decelerate), opacity var(--duration-medium) var(--easing-decelerate), height var(--duration-medium) var(--easing-standard);
+}
+/* sonner paints its close button (black disc in dark) with a `background`
+   shorthand at 4-5 attribute specificity; the repeated attribute outranks it so
+   the button stays a quiet icon on the inverse surface with its state layer. */
+[data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button] {
+  background: transparent;
+  border: 0;
+  color: rgb(var(--color-on-inverse));
+}
+@media (hover: hover) {
+  [data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button]:hover {
+    background: linear-gradient(rgb(var(--color-on-inverse) / var(--state-hover-a)), rgb(var(--color-on-inverse) / var(--state-hover-a)));
+  }
+}
+[data-sonner-toaster] [data-sonner-toast] [data-close-button][data-close-button][data-close-button]:active {
+  background: linear-gradient(rgb(var(--color-on-inverse) / var(--state-pressed-a)), rgb(var(--color-on-inverse) / var(--state-pressed-a)));
+}
+
+@layer base {
+  /* Native controls and scrollbars follow the theme (Windows dark mode). */
+  :root { color-scheme: light; }
+  :root.dark { color-scheme: dark; }
+  /* The 56px sticky top bar (both menu layouts) must never cover a focused or anchored element. */
+  html { scroll-padding-top: 3.5rem; }
+  /* No double-tap zoom delay on controls. */
+  a, button, [role="button"], label, input, select, textarea { touch-action: manipulation; }
+  :focus-visible {
+    outline: 2px solid rgb(var(--color-focus));
+    outline-offset: 2px;
+  }
+  /* Reduced motion: transitions and enter/exit animations become instant (still
+     fire their end events, so Radix dialogs/sheets unmount normally). */
+  @media (prefers-reduced-motion: reduce) {
+    *, ::before, ::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Fields (input, textarea, select, picker chips): one boundary only. No outer
+   outline; on focus the field's own 1px border turns focus color and an inset
+   1px shadow makes it 2px without shifting layout. Error = same, in danger. */
+@utility field-focus {
+  &:focus-visible {
+    outline: none;
+    border-color: rgb(var(--color-focus));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-focus));
+  }
+  &[aria-invalid="true"] {
+    border-color: rgb(var(--color-danger));
+  }
+  &[aria-invalid="true"]:focus-visible {
+    border-color: rgb(var(--color-danger));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-danger));
+  }
+}
+/* Same treatment for a bordered wrapper around an input (radio cards, the price
+   stepper): the wrapper's border shows focus, the inner input draws nothing. */
+@utility field-focus-within {
+  &:has(input:focus-visible) {
+    border-color: rgb(var(--color-focus));
+    box-shadow: inset 0 0 0 1px rgb(var(--color-focus));
+  }
+  & input:focus-visible {
+    outline: none;
+  }
 }
 
 /* Component classes — the same shapes the pasted design brief described
@@ -209,34 +643,18 @@ body {
      layering). Tonal contrast (bg-brand-surface against the page's
      bg-brand-bg) now does more of the separating work; the border is a
      quiet finishing line, not the main structural signal. */
-  .card {
-    @apply bg-brand-surface border border-brand-border-subtle rounded-lg;
-  }
-  /* Tailwind v4 (Dependabot major-version bump, 2026-07-19): @apply can
-     no longer chain through another custom @layer components class
-     (v3 allowed `@apply card`) — inlined .card's own utility list
-     directly rather than referencing it by name. */
-  .card-hover {
-    @apply bg-brand-surface border border-brand-border-subtle rounded-lg transition-colors;
-  }
-  .card-hover:hover {
-    border-color: var(--color-orange-border);
-  }
+  /* .card / .card-hover removed 2026-11-20 (unused; Card in ui/card.tsx is
+     the one card). */
   /* Dense list-row treatment (2026-07-28), replacing the floaty
      bordered-card-in-a-grid shape for listing screens (Marketplace's
      OfferCard) with a single hairline-divided list — the actual layout
      Binance P2P/Airtm/El Dorado use for offer listings, not a card
-     grid. Side (buy/sell) reads instantly off the left accent border,
-     set per-row via a `border-l-green-500`/`border-l-red-500` utility
-     class at the call site rather than baked in here (this class has
-     no opinion on side). */
-  /* lg (1024px), not md (768px): at tablet width the old md-breakpoint
-     single-line row didn't have enough space for all 5 columns (found
-     by actually screenshotting at 768px — text wrapped and columns
-     overlapped). Tablet now gets the same paired-row mobile layout,
-     which scales cleanly since it has no fixed column widths. */
+     grid. No side accent border (2026-11-20): the row's action label
+     ("Comprar"/"Vender") already names the side. */
+  /* Compact offer row (OfferCard), used below the desktop table (lg): cells folded into lines inside one
+     row, action on the right, one hairline between rows. */
   .offer-row {
-    @apply flex flex-col gap-2 border-b border-brand-border-subtle border-l-2 px-3 py-3 transition-colors hover:bg-brand-elevated lg:flex-row lg:items-center lg:gap-6 lg:px-5 lg:py-3.5;
+    @apply flex items-center gap-3 border-b border-brand-border-subtle px-4 py-3 transition-colors state-layer focus-visible:-outline-offset-2;
   }
   .btn-dark {
     @apply bg-brand-text text-brand-bg hover:opacity-85 font-semibold rounded-lg transition-opacity;
@@ -245,7 +663,7 @@ body {
      unchanged. This IS the kind of interactive component boundary that
      rule protects. */
   .input-field {
-    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand-orange transition-colors;
+    @apply bg-brand-elevated border border-brand-border text-brand-text placeholder:text-brand-text-muted rounded-lg px-3 py-2 text-field transition-colors field-focus;
   }
   /* UI-FOUNDATION-1-VISUAL-CORRECTION — toolbar chip: for a filter/sort
      TRIGGER (AssetPicker/CurrencyPicker/PaymentMethodPicker), not a form
@@ -257,10 +675,12 @@ body {
   /* DESIGN-LANGUAGE-1 §2.4 — this class had no focus-visible treatment at
      all; a keyboard user tabbing through the Market toolbar got no visual
      signal which chip had focus (PopoverTrigger is a plain button with no
-     built-in ring). Same ring convention every other interactive
-     primitive here already uses (Input/Select/Checkbox/Switch). */
+     built-in ring). Since 2026-11-20 it focuses like a field (field-focus:
+     its own border turns focus color, 2px inset), never an outer outline. */
+  /* One compact control height on desktop: 36px (h-9) for inputs, selects,
+     toolbar chips and `sm` buttons; 44px on mobile for touch. */
   .toolbar-chip {
-    @apply bg-brand-elevated border border-brand-border-subtle text-brand-text rounded-lg px-3 py-2 text-sm transition-colors hover:border-brand-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+    @apply h-9 touch:h-11 bg-brand-elevated border border-brand-border text-brand-text rounded-md px-3 text-sm transition-colors state-layer field-focus;
   }
 
   /* UI-FOUNDATION-1 — typography hierarchy (docs/SAILS_MARKET_DESIGN_DIRECTION.md
@@ -271,13 +691,19 @@ body {
      (page/section title, label, metadata, tabular numeric emphasis),
      nothing speculative beyond that. */
   .text-page-title {
-    @apply font-display font-bold tracking-tight text-brand-text text-2xl;
+    @apply font-display font-semibold text-brand-text;
+    font-size: var(--t-page);
+    line-height: var(--t-page-lh);
+    letter-spacing: -0.01em;
   }
   .text-section-title {
-    @apply font-display font-semibold tracking-tight text-brand-text text-base;
+    @apply font-display font-semibold text-brand-text;
+    font-size: var(--t-section);
+    line-height: var(--t-section-lh);
   }
+  /* Sentence case, like the Market table header: no uppercase/tracking. */
   .text-label {
-    @apply text-xs font-medium uppercase tracking-wider text-brand-text-muted;
+    @apply text-xs font-medium text-brand-text-muted;
   }
   .text-metadata {
     @apply text-xs text-brand-text-muted;
@@ -288,6 +714,33 @@ body {
      reuse elsewhere without retyping the utility. */
   .text-numeric {
     @apply tabular-nums;
+  }
+  /* Money roles. Not `text-*` names on purpose: cn()/tailwind-merge would
+     read `text-money` as a text colour and drop it next to `text-brand-*`.
+     Component layer, so a size utility on the same element still wins. */
+  .money {
+    @apply font-semibold tabular-nums;
+    font-size: var(--t-money);
+    line-height: 1.3;
+  }
+  /* Row/table price (provisório — ratificação pendente): 18, tabular. */
+  .money-lg {
+    @apply font-semibold tabular-nums;
+    font-size: var(--t-money-lg);
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+  }
+  .money-hero {
+    @apply font-semibold tabular-nums;
+    font-size: var(--t-money-hero);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+  }
+  /* Mono identifiers (IDs, keys, hashes, addresses) only, never prose. */
+  .mono-id {
+    @apply font-mono;
+    font-size: var(--t-mono);
+    line-height: 1.5;
   }
 }
 

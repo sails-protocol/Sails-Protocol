@@ -9,9 +9,9 @@
  * fixed — see Trade.tsx's own `channel.onEvent()` wiring for presence and
  * `channel.onMessage()` for messages).
  *
- * Image/video attach: `handleFileSelect` below creates a local
- * `URL.createObjectURL(file)` blob — the file never leaves this browser
- * tab. What a real "send image/video via Pears" would need, concretely:
+ * Image/video attach was removed (Lote B): it created a local
+ * `URL.createObjectURL(file)` blob that never left this browser tab, so
+ * the counterparty never saw it. What a real "send image/video via Pears" would need, concretely:
  * (1) `Message.msgType` on the real backend is already a free String
  * (prisma/schema.prisma) so `IMAGE`/`VIDEO` need no migration; (2) an
  * actual upload/storage step first — `Message.content` is Postgres text,
@@ -25,24 +25,21 @@
  * of that exists today, so this is UI-only, not a claim any of it works
  * end-to-end.
  */
-import { useEffect, useRef, useState } from 'react'
-import { toast } from 'sonner'
-import type { Message, MessageType } from '../../types'
+import { useEffect, useId, useRef, useState } from 'react'
+import type { Message } from '../../types'
 import { ChatMessage } from './ChatMessage'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
 import { Input } from '../ui/input'
 import { Switch } from '../ui/switch'
 import { InfoTooltip } from '../ui/InfoTooltip'
-import { Paperclip, Lock } from 'lucide-react'
-
-const MAX_MEDIA_BYTES = 15 * 1024 * 1024 // 15MB — arbitrary client-side guard, not a backend limit (none exists yet)
+import { t } from '../../i18n'
+import { Lock, LockOpen } from 'lucide-react'
 
 interface Props {
   messages: Message[]
   currentUserId?: string
   onSend: (content: string) => void
-  onSendMedia: (media: { url: string; fileName: string; type: MessageType }) => void
   // Opt-in end-to-end encryption (@satsails/p2p-trading-sdk's encryptChatMessage/
   // decryptChatMessage) — see Trade.tsx's own comment for the full wiring.
   encryptionEnabled: boolean
@@ -59,13 +56,13 @@ interface Props {
 }
 
 export function ChatWindow({
-  messages, currentUserId, onSend, onSendMedia,
+  messages, currentUserId, onSend,
   encryptionEnabled, onToggleEncryption, encryptionAvailable,
   counterpartyName, counterpartyOnline,
 }: Props) {
   const [input, setInput] = useState('')
   const endRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
+  const switchId = useId()
   // Real bug found live: onSend/handleSend below are fully synchronous
   // (Trade.tsx's own handleSend just does a WebSocket .send(), no await),
   // so a plain `if (!input.trim())` guard doesn't help against holding or
@@ -87,63 +84,51 @@ export function ChatWindow({
     queueMicrotask(() => { sendingRef.current = false })
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    e.target.value = ''
-    if (!file) return
-
-    if (file.size > MAX_MEDIA_BYTES) {
-      toast.error('Arquivo muito grande (máx. 15MB nesta demonstração)')
-      return
-    }
-    const isImage = file.type.startsWith('image/')
-    const isVideo = file.type.startsWith('video/')
-    if (!isImage && !isVideo) {
-      toast.error('Envie apenas imagem ou vídeo')
-      return
-    }
-
-    const url = URL.createObjectURL(file)
-    onSendMedia({ url, fileName: file.name, type: isImage ? 'IMAGE' : 'VIDEO' })
-  }
-
   return (
-    <Card className="flex flex-col h-[520px] overflow-hidden">
-      <div className="px-4 py-3 border-b border-brand-border flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-sm font-semibold text-brand-text">Chat P2P</span>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 text-xs text-brand-text-muted">
-            <Lock className="h-3.5 w-3.5 shrink-0" />
-            <span className="hidden sm:inline">Criptografado</span>
-            <InfoTooltip text="Cifra as próximas mensagens de ponta a ponta (só você e a contraparte conseguem ler). Mensagens antigas continuam em texto simples." />
-            <Switch
-              checked={encryptionEnabled}
-              onCheckedChange={onToggleEncryption}
-              disabled={!encryptionAvailable}
-              aria-label="Ativar criptografia de ponta a ponta no chat"
-            />
-          </div>
+    <Card className="flex flex-col h-[520px] lg:h-full lg:min-h-[22rem] overflow-hidden">
+      <div className="px-4 py-2 border-b border-brand-border">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-sm font-semibold text-brand-text">{t('trade.chat.title')}</span>
           <span
             className={`text-xs flex items-center gap-1 shrink-0 ${
-              counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-green-500' : 'text-brand-text-muted'
+              counterpartyOnline === null ? 'text-brand-text-muted' : counterpartyOnline ? 'text-brand-success-fg' : 'text-brand-text-muted'
             }`}
             title={
               counterpartyOnline === null
-                ? 'Ainda não observamos esta pessoa entrar na sala de chat'
+                ? t('trade.chat.presenceUnknownTitle')
                 : counterpartyOnline
-                  ? `${counterpartyName ?? 'A contraparte'} está no chat agora`
-                  : `${counterpartyName ?? 'A contraparte'} não está no chat agora`
+                  ? (counterpartyName != null ? t('trade.chat.inChatNamed', { name: counterpartyName }) : t('trade.chat.inChatAnon'))
+                  : (counterpartyName != null ? t('trade.chat.notInChatNamed', { name: counterpartyName }) : t('trade.chat.notInChatAnon'))
             }
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-green-500' : 'bg-brand-text-muted/50'}`} />
-            <span className="hidden sm:inline">
-              {counterpartyOnline === null ? 'Presença desconhecida' : counterpartyOnline ? `${counterpartyName ?? 'Contraparte'} online` : `${counterpartyName ?? 'Contraparte'} offline`}
+            <span className={`w-1.5 h-1.5 rounded-full ${counterpartyOnline ? 'bg-brand-success' : 'bg-brand-text-muted/50'}`} />
+            <span>
+              {counterpartyOnline === null ? t('trade.chat.presenceUnknown') : t(counterpartyOnline ? 'trade.chat.online' : 'trade.chat.offline', { name: counterpartyName ?? t('trade.parties.counterparty') })}
             </span>
           </span>
+        </div>
+        {/* The label states what is true now; the switch is the action. */}
+        <div className="flex items-center gap-1.5 text-xs text-brand-text-secondary">
+          {encryptionEnabled ? <Lock className="size-icon-xs shrink-0" aria-hidden="true" /> : <LockOpen className="size-icon-xs shrink-0" aria-hidden="true" />}
+          <span>{t(encryptionEnabled ? 'trade.chat.encrypted' : 'trade.chat.notEncrypted')}</span>
+          <InfoTooltip text={t('trade.chat.encryptionHelp')} />
+          <label htmlFor={switchId} className="flex min-h-11 cursor-pointer items-center gap-1.5 pl-1">
+            <span className={encryptionEnabled ? 'sr-only' : ''}>{t('trade.chat.enable')}</span>
+            <Switch
+              id={switchId}
+              checked={encryptionEnabled}
+              onCheckedChange={onToggleEncryption}
+              disabled={!encryptionAvailable}
+              aria-label={t('trade.chat.encryptionSwitch')}
+            />
+          </label>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+        {messages.length === 0 && (
+          <p className="m-auto text-sm text-brand-text-secondary">{t('trade.chat.empty')}</p>
+        )}
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} isMine={m.senderId === currentUserId} />
         ))}
@@ -151,31 +136,17 @@ export function ChatWindow({
       </div>
 
       <div className="border-t border-brand-border p-3 flex gap-2">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-        <Button
-          variant="outline"
-          onClick={() => fileInputRef.current?.click()}
-          title="Enviar imagem ou vídeo"
-          aria-label="Enviar imagem ou vídeo"
-          className="px-3 text-sm"
-        >
-          <Paperclip className="h-4 w-4" />
-        </Button>
         <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder={encryptionEnabled ? 'Mensagem criptografada...' : 'Digite uma mensagem...'}
-          className="flex-1"
+          placeholder={t(encryptionEnabled ? 'trade.chat.placeholderEncrypted' : 'trade.chat.placeholder')}
+          aria-label={t('trade.chat.messageLabel')}
+          className="flex-1 min-h-11"
         />
-        <Button onClick={handleSend} className="px-4 text-sm">
-          Enviar
+        {/* Tonal: the trade step action is the screen's one solid primary. */}
+        <Button variant="secondary" onClick={handleSend} className="min-h-11 px-4 text-sm">
+          {t('trade.chat.send')}
         </Button>
       </div>
     </Card>
