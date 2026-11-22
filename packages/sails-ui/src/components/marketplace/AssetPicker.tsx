@@ -14,78 +14,79 @@
  * now matches the label too (e.g. "bitcoin" finds BTC/LN_BTC/etc.), not
  * only the raw code — the label is what's visible now, so it should be
  * searchable too.
+ *
+ * 2026-11-20 (asset catalog, DECISIONS.md): the options are the official
+ * 14 pairs (lib/assetCatalog.ts), one per network, grouped under the asset.
+ * "Em breve" pairs stay visible but disabled: they cannot be filtered nor
+ * published. Only `available` pairs (plus the Arkade test rail in dev
+ * builds) can be chosen, so the filter and the publish form share one list.
+ * Whole-group selection ("all of Bitcoin") is not offered: each group has
+ * at most one selectable pair today, so it would add a control with no effect.
  */
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import type { AssetType } from '../../types'
 import { ASSET_LABELS } from '../../lib/labels'
-import { Input } from '../ui/input'
-import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover'
-import { AssetIcon } from '../ui/AssetIcon'
-import { ChevronDown } from 'lucide-react'
+import { ASSET_GROUPS, pairForAssetType, pickerPairs, soonNote } from '../../lib/assetCatalog'
+import { t } from '../../i18n'
+import { Combobox, type ComboboxOption } from '../ui/combobox'
+import { badgeVariants } from '../ui/badge'
+import { AssetIcon, AssetPairIcon } from '../ui/AssetIcon'
+import { cn } from '../../lib/utils'
 
 interface Props {
-  assets: readonly AssetType[]
   value: AssetType | 'Todos'
   onChange: (asset: AssetType | 'Todos') => void
+  /** Trigger text while nothing specific is chosen (a form passes a "select" prompt). */
+  allLabel?: string
+  /** A form input, not a filter: no "all assets" option in the list. */
+  hideAllOption?: boolean
 }
 
-export function AssetPicker({ assets, value, onChange }: Props) {
-  const [open, setOpen] = useState(false)
-  const [search, setSearch] = useState('')
+const SOON_BADGE = cn(badgeVariants({ variant: 'outline' }), 'border-transparent bg-brand-tonal font-medium text-brand-text')
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase()
-    return assets.filter((a) => a.toLowerCase().includes(q) || ASSET_LABELS[a].toLowerCase().includes(q))
-  }, [assets, search])
-
-  const select = (asset: AssetType | 'Todos') => {
-    onChange(asset)
-    setOpen(false)
-    setSearch('')
-  }
+// Combobox primitive (2026-11-20, DESIGN_SYSTEM.md 5.3): search (label, code, asset or network name), arrow keys and Enter.
+export function AssetPicker({ value, onChange, allLabel = t('market.asset.all'), hideAllOption }: Props) {
+  const options = useMemo<ComboboxOption<string>[]>(() => [
+    ...(hideAllOption ? [] : [{ value: 'Todos', label: t('market.asset.all') }]),
+    ...pickerPairs(import.meta.env.DEV).map((p) => {
+      const soon = p.availability === 'soon'
+      const group = ASSET_GROUPS.find((g) => g.asset === p.asset)!.name
+      return {
+        value: p.id,
+        label: p.label,
+        keywords: [group, p.networkLabel, ...(p.assetType ? [p.assetType] : [])],
+        leading: <AssetPairIcon pair={p} />,
+        group,
+        disabled: soon || p.assetType === null,
+        description: p.note && p.note !== soonNote() ? p.note : undefined,
+        detail: soon ? <span className={SOON_BADGE}>{soonNote()}</span> : undefined,
+      }
+    }),
+  ], [hideAllOption])
+  const valueText = value === 'Todos' ? allLabel : ASSET_LABELS[value]
+  const selectedId = value === 'Todos' ? 'Todos' : pairForAssetType(value)?.id ?? value
 
   return (
-    // Real Radix Popover (2026-08-01) — replaces a hand-rolled
-    // `fixed inset-0` backdrop, which had no focus trap, no Escape-to-
-    // close, no ARIA. Trigger keeps its `.input-field` look (that part
-    // was never the problem); only the dropdown mechanics changed.
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger aria-label="Ativo" className="toolbar-chip flex items-center gap-2 min-w-[140px] justify-between">
+    <Combobox
+      label={t('market.field.asset')}
+      valueText={valueText}
+      options={options}
+      selected={[selectedId]}
+      onSelect={(id) => {
+        if (id === 'Todos') return onChange('Todos')
+        const p = pickerPairs(import.meta.env.DEV).find((x) => x.id === id)
+        if (p?.assetType && p.availability === 'available') onChange(p.assetType)
+      }}
+      triggerClassName="min-w-[140px]"
+      contentClassName="w-80 max-w-[calc(100vw-2rem)]"
+      trigger={
         <span className="flex items-center gap-1.5 min-w-0">
           {value !== 'Todos' && <AssetIcon asset={value} />}
-          <span className="font-medium truncate">{value === 'Todos' ? 'Todos os ativos' : ASSET_LABELS[value]}</span>
+          <span className={value === 'Todos' && hideAllOption ? 'truncate text-brand-text-muted' : 'font-medium truncate'}>{valueText}</span>
         </span>
-        <ChevronDown className="h-4 w-4 text-brand-text-muted shrink-0" />
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 p-2">
-        <Input
-          autoFocus
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar ativo..."
-          className="w-full mb-2"
-        />
-        <div className="max-h-64 overflow-y-auto">
-          <button
-            onClick={() => select('Todos')}
-            className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === 'Todos' ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-          >
-            Todos os ativos
-          </button>
-          {filtered.map((asset) => (
-            <button
-              key={asset}
-              onClick={() => select(asset)}
-              title={asset}
-              className={`w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg text-sm hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value === asset ? 'text-brand-orange-accent font-semibold' : 'text-brand-text'}`}
-            >
-              <AssetIcon asset={asset} />
-              <span className="truncate">{ASSET_LABELS[asset]}</span>
-            </button>
-          ))}
-          {filtered.length === 0 && <p className="text-xs text-brand-text-muted px-3 py-2">Nenhum ativo encontrado.</p>}
-        </div>
-      </PopoverContent>
-    </Popover>
+      }
+      searchPlaceholder={t('market.asset.search')}
+      emptyText={() => t('market.asset.empty')}
+    />
   )
 }

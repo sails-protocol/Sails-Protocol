@@ -1,10 +1,25 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import type { Trade } from '@satsails/p2p-trading-sdk'
+import { ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
-import { TradeCard } from '../components/trade/TradeCard'
-import { Button } from '../components/ui/button'
+import { errorMessage } from '../lib/errors'
+import { formatAmount, formatDateTime, formatUsd } from '../lib/format'
+import { ASSET_SHORT_LABELS } from '../lib/labels'
+import { tradeNextStep, type TradeNextStep } from '../lib/tradeNextStep'
+import { SideBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
+import { ListSkeleton } from '../components/ui/skeleton'
+import { Button, buttonVariants } from '../components/ui/button'
+import { Card } from '../components/ui/card'
+import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TradesTabs } from '../components/layout/TradesTabs'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
+import { StateBlock } from '../components/ui/StateBlock'
+import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
+import type { EscrowStatus } from '../types'
+import { t } from '../i18n'
 
 // Trades still awaiting resolution from this trader's own point of view —
 // COMPLETED/CANCELLED already have a home in TradeHistory.tsx. DISPUTED
@@ -12,24 +27,27 @@ import { Button } from '../components/ui/button'
 // TradeHistory.tsx's own filter list also surfaces it there).
 const ACTIVE_STATUSES: ReadonlyArray<Trade['status']> = ['PENDING', 'ACTIVE', 'DISPUTED']
 
-// GET /v1/openp2p/trades (openp2p.ts's own getTrades() comment: "Fase 2
-// addition ... no such endpoint existed before" — sails-ui had no page
-// consuming it yet; TradeHistory.tsx closed that same gap for the
-// COMPLETED/DISPUTED/CANCELLED statuses, 2026-08-02).
-// `onRelease` is intentionally never passed to TradeCard below — the real
-// release flow (MULTISIG/LIGHTNING_HODL signing) only exists on Trade.tsx,
-// and rendering a `<button>` inside this page's own `<Link>` per row would
-// be a real button-in-anchor invalid-HTML bug, the same class this
-// codebase already hit once (OfferCard.tsx's own comment on that).
+interface Row {
+  trade: Trade
+  isBuyer: boolean
+  next: TradeNextStep | null
+}
+
+// Desktop column template, shared by the header and every row so they align.
+// Same columns as TradeHistory (Valor | Papel | Status | 1fr | Data | ›), so the two tabs line up.
+const COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
+
+// GET /v1/openp2p/trades carries no escrow status, so each active trade's
+// escrow is read with settlement.get() (the same per-row read Disputes.tsx
+// and Trade.tsx already make; active trades are few). A failed read leaves
+// that row without a next step instead of guessing one. The list carries no
+// counterparty name either (only ids), so there is no counterparty column.
 export function ActiveTrades() {
   const { user, loading: authLoading } = useAuth()
-  const [trades, setTrades] = useState<Trade[]>([])
+  const [rows, setRows] = useState<Row[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  // Extracted so the error state's "Tentar novamente" button below can
-  // re-run the same fetch instead of stranding the user with no recovery
-  // path but a full page reload.
   const load = () => {
     if (!user) {
       setLoading(false)
@@ -40,13 +58,26 @@ export function ActiveTrades() {
     setError(null)
     sailsClient.openp2p
       .getTrades({ limit: 50 })
-      .then((page) => {
+      .then(async (page) => {
+        const active = page.trades.filter((t) => ACTIVE_STATUSES.includes(t.status))
+        const statuses = await Promise.all(
+          active.map((t) =>
+            t.escrowId
+              ? sailsClient.settlement.get(t.escrowId).then((e) => e.status as EscrowStatus, () => null)
+              : Promise.resolve(undefined)
+          )
+        )
         if (cancelled) return
-        setTrades(page.trades.filter((t) => ACTIVE_STATUSES.includes(t.status)))
+        const next = active.map((trade, i) => {
+          const isBuyer = trade.buyerId === user.id
+          return { trade, isBuyer, next: tradeNextStep(statuses[i], { isBuyer, isSeller: trade.sellerId === user.id }) }
+        })
+        // "Sua vez" first, then most recently updated.
+        next.sort((a, b) => Number(!!b.next?.yourTurn) - Number(!!a.next?.yourTurn) || b.trade.updatedAt.localeCompare(a.trade.updatedAt))
+        setRows(next)
       })
       .catch((err) => {
-        if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar trades')
+        if (!cancelled) setError(errorMessage(err, t('trades.active.loadFailed')))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -58,43 +89,83 @@ export function ActiveTrades() {
 
   useEffect(load, [user])
 
-  if (authLoading || loading) {
-    return <div className="text-center py-16 text-brand-text-muted">Carregando trades ativos...</div>
-  }
-
-  if (!user) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua carteira para ver seus trades ativos.</p>
-        <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-red-500 text-sm">{error}</p>
-        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
-      </div>
-    )
-  }
+  const yourTurnCount = rows.filter((r) => r.next?.yourTurn).length
+  const signedOut = !authLoading && !user
+  const meta = !signedOut && !error && !loading && rows.length > 0
+    ? `${t('trades.active.count', { count: rows.length })}${yourTurnCount > 0 ? ` · ${t('trades.active.waiting', { count: yourTurnCount })}` : ''}`
+    : undefined
 
   return (
-    <div>
-      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Trades Ativos</h1>
+    <Page>
+      <PageHeader title="Trades" meta={meta}>
+        <TradesTabs />
+      </PageHeader>
 
-      {trades.length === 0 ? (
-        <p className="text-center text-brand-text-muted py-10">Nenhum trade ativo no momento.</p>
+      {signedOut ? (
+        <StateBlock
+          kind="signedOut"
+          title={t('trades.connectTitle')}
+          description={t('trades.active.signedOutDescription')}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.active }} className={cn(buttonVariants({ variant: 'secondary', className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
+        />
+      ) : error ? (
+        <StateBlock
+          kind="error"
+          title={t('trades.active.errorTitle')}
+          description={error}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
+        />
+      ) : authLoading || loading ? (
+        <Card className="overflow-hidden">
+          <ListSkeleton label={t('trades.active.loading')} rows={3} rowClassName="h-[6.125rem] lg:h-[3.75rem]" />
+        </Card>
+      ) : rows.length === 0 ? (
+        <StateBlock
+          kind="empty"
+          title={t('trades.active.emptyTitle')}
+          description={t('trades.active.emptyDescription')}
+          action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.exploreMarket')}</Link>}
+        />
       ) : (
-        <div className="mt-4 flex flex-col gap-3">
-          {trades.map((t) => (
-            <Link key={t.id} to={`/trade/${t.id}`} className="block">
-              <TradeCard trade={t} />
-            </Link>
-          ))}
-        </div>
+        <Card className="overflow-hidden">
+          <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', COLS)}>
+            <span>{t('trades.col.amount')}</span>
+            <span>{t('trades.col.role')}</span>
+            <span>{t('trades.col.status')}</span>
+            <span>{t('trades.active.col.next')}</span>
+            <span className="text-right">{t('trades.col.updated')}</span>
+            <span />
+          </div>
+          <ul>
+            {rows.map(({ trade: tr, isBuyer, next }) => (
+              <li key={tr.id} className={TABLE_ROW}>
+                <Link
+                  to={`/trade/${tr.id}`}
+                  className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, COLS)}
+                >
+                  <span className="flex items-center justify-between gap-3 lg:block">
+                    <span className="min-w-0">
+                      <span className="money block text-brand-text">{formatAmount(Number(tr.amount))} {ASSET_SHORT_LABELS[tr.asset]}</span>
+                      <span className="hidden lg:block text-xs text-brand-text-muted tabular-nums">{formatUsd(Number(tr.totalUsd))} USD</span>
+                    </span>
+                    <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
+                  </span>
+                  <span className="hidden lg:block"><SideBadge side={isBuyer ? 'BUY' : 'SELL'} label={t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} /></span>
+                  <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
+                  <span className={cn('text-sm', next?.yourTurn ? 'font-medium text-brand-orange-accent' : 'text-brand-text-secondary')}>
+                    {next ? next.text : t('trades.active.noNext')}
+                  </span>
+                  <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                    <span className="lg:hidden"><SideBadge side={isBuyer ? 'BUY' : 'SELL'} label={t(isBuyer ? 'trades.role.buyer' : 'trades.role.seller')} /> · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                    {formatDateTime(tr.updatedAt)}
+                  </span>
+                  <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
-    </div>
+    </Page>
   )
 }

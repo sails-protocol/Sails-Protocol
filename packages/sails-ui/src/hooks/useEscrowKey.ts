@@ -24,12 +24,13 @@
  * integration could derive per-trade keys instead without changing
  * anything on the server side (it only ever sees a pubkey).
  */
-import { generateEscrowKeypair, verifyAndSignEscrowPsbt, signEscrowArkTx, signEscrowSafeUserOp } from '@satsails/p2p-trading-sdk'
+import { generateEscrowKeypair, verifyAndSignEscrowPsbt } from '@satsails/p2p-trading-sdk'
+import type { Escrow, EscrowPendingTransaction } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { encryptBytes, decryptBytes } from '../lib/keyEncryption'
 import { WrongPassphraseError } from '../context/AuthContext'
-import { buildMultisigSigningIntent } from '../lib/multisigSigningIntent'
-import { classifyPendingTransactionError } from '../lib/escrowErrorClassification'
+import { buildMultisigSigningIntent, assertMultisigSigningAllowed } from '../lib/multisigSigningIntent'
+import { t } from '../i18n'
 
 const ESCROW_KEY_STORAGE_KEY = 'sails_ui_escrow_keypair'
 
@@ -73,7 +74,7 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
           // Same WrongPassphraseError AuthContext.tsx throws for the
           // identity key, so every caller (Trade.tsx) can catch both
           // with one `instanceof` check instead of string-matching.
-          throw new WrongPassphraseError('Não foi possível desbloquear sua chave de escrow — senha incorreta.')
+          throw new WrongPassphraseError(t('auth.errors.escrowWrongPassphrase'))
         }
         // reason === 'corrupt' (pre-encryption legacy entry or a
         // corrupted one) — falls through and regenerates below, same as
@@ -99,7 +100,7 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
     // escrow, or signing with a key that doesn't match what was
     // submitted. Must fail loudly, not let an unpersisted key be used as
     // if it were durable.
-    throw new Error('Não foi possível salvar sua chave de escrow neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+    throw new Error(t('auth.errors.escrowSaveFailed'))
   }
   return { privateKeyHex: bytesToHex(kp.privateKey), publicKeyHex: kp.publicKeyHex }
 }
@@ -112,17 +113,6 @@ async function loadOrCreateEscrowKeypair(encryptionKey: CryptoKey): Promise<Stor
 // (safe-guard-evm.provider.ts's own SafeGuardEvmEscrowInput comment:
 // "same as MULTISIG"), so no new key format is needed here.
 const PUBKEY_SUBMISSION_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
-
-// SAFE_GUARD_EVM added 2026-08-03 — @satsails/p2p-trading-sdk's signEscrowSafeUserOp()
-// closes the gap this comment used to describe (only parseSafeGuardBundle()
-// existed before, nothing to sign with). Produces a real ECDSA signature
-// over the ERC-4337 UserOperation hash — a different routine from
-// signEscrowPsbt()/signEscrowArkTx() (Bitcoin PSBT / Ark tx formats)
-// even though all three ultimately use the same secp256k1 curve and the
-// SAME client-held private key (no new key format needed, verified
-// against the real backend's recoverSignerAddress() per that function's
-// own doc comment).
-const CLIENT_SIGNING_ESCROW_TYPES = new Set(['MULTISIG', 'LIGHTNING_HODL', 'SAFE_GUARD_EVM'])
 
 // `encryptionKey` — the same derived key AuthContext.tsx produces from
 // the user's passphrase at login, reused here rather than prompting a
@@ -141,78 +131,24 @@ export function useEscrowKey(encryptionKey: CryptoKey | null) {
     return sailsClient.settlement.submitKey(escrowId, publicKeyHex)
   }
 
-  // Phase 2 (2026-07-27) — MULTISIG and LIGHTNING_HODL both use client
-  // signature collection now (escrow.service.ts's
-  // SIGNATURE_COLLECTION_PROVIDERS). If a release/refund round is in
-  // flight for this escrow and the current participant is one of its
-  // required signers, signs the unsigned bundle with this browser's
-  // stored escrow key and submits it — LIGHTNING_HODL via
-  // `signEscrowArkTx()` (`@arkade-os/sdk`'s `SingleKey`, a JSON bundle of
-  // Ark tx + checkpoint PSBTs — see `lightning-hodl.provider.ts`'s own
-  // header comment for why), SAFE_GUARD_EVM via `signEscrowSafeUserOp()`.
-  // All three use the SAME client-held private key (one raw secp256k1 key
-  // genuinely serves all formats). Idempotent (server upserts by
-  // participantId) and a safe no-op when no round is in flight or this
-  // participant isn't a required signer — same "call speculatively"
-  // pattern as submitEscrowKeyIfNeeded above.
-  //
-  // Missão 11 Fase 9.1.1 §3 — CTO decision: this reference UI must not
-  // blind-sign a settlement-critical PSBT. MULTISIG now routes through
-  // `verifyAndSignEscrowPsbt()` — signing is structurally unreachable
-  // until the PSBT is independently verified against an
-  // ExpectedSigningIntent assembled ONLY from public SDK data
-  // (`multisigSigningIntent.ts`'s own header comment has the full
-  // reasoning, including why SPLIT is deliberately refused rather than
-  // guessed). LIGHTNING_HODL/SAFE_GUARD_EVM keep their existing raw-sign
-  // calls — no verify-then-sign SDK primitive exists for either rail yet
-  // (a real, disclosed, out-of-scope gap — BACKLOG.md's own §11 entry).
-  const signAndSubmitPendingTransactionIfNeeded = async (escrowType: string, escrowId: string, participantId: string) => {
-    if (!CLIENT_SIGNING_ESCROW_TYPES.has(escrowType)) return null
-    let pending
-    try {
-      pending = await sailsClient.settlement.getPendingTransaction(escrowId)
-    } catch (err) {
-      // P3-F03 (Pre-M3 Reality Gate, 2026-09-13) — "no signing round in
-      // flight" is a real, legitimate absence, but it is the ONLY thing
-      // this bare catch used to mean; a 401 (P3-F01, now fixed
-      // separately — this guard stays regardless, since it's the correct
-      // behavior independent of that bug), a 403, a network failure, a
-      // timeout, or a 500 all landed here too and were silently
-      // indistinguishable from "nothing to do." Only a genuine 404
-      // (SailsNotFoundError — escrow.service.ts's getPendingTransaction()
-      // throws this specifically when no pending round exists) may become
-      // a no-op; every other error must propagate so a real caller (e.g.
-      // signAndSubmitPendingTransactionIfNeeded()'s own callers in
-      // Trade.tsx) can distinguish "nothing to sign" from "something is
-      // actually wrong" — Absence ≠ Failure ≠ Unknown.
-      //
-      // PRE-M3-REALITY-GATE-1-R1 (2026-09-13) — the actual instanceof
-      // check now lives in the pure, dependency-free
-      // classifyPendingTransactionError() (lib/escrowErrorClassification.ts)
-      // so it can be unit-tested directly (this hook can't be rendered —
-      // packages/sails-ui has no test runner configured, TD#62/#63).
-      // Behavior here is unchanged.
-      if (classifyPendingTransactionError(err) === 'absence') return null
-      throw err
-    }
-    if (!pending.requiredSigners.includes(participantId)) return null
+  // CTO 437 step 4 — the explicit, user-confirmed path (SigningRequestCard).
+  // MULTISIG only: verifyAndSignEscrowPsbt() refuses to sign unless the PSBT
+  // matches the intent built from public data. The caller passes the escrow
+  // and round it just re-read and showed, so the signed round is exactly the
+  // reviewed one. LIGHTNING_HODL/SAFE_GUARD_EVM have no verify-then-sign SDK
+  // primitive yet, so this hook has no signing path for them at all (the
+  // former speculative auto-sign, which raw-signed both, was removed).
+  const signVerifiedMultisigPending = async (escrow: Escrow, pending: EscrowPendingTransaction) => {
+    if (escrow.type !== 'MULTISIG') throw new Error('Only MULTISIG pending transactions can be signed from this interface')
+    // Despacho 033 HOLD: refuse before the escrow key is decrypted.
+    assertMultisigSigningAllowed(escrow)
     if (!encryptionKey) throw new Error('No encryption key available — user is not authenticated')
-
     const { privateKeyHex } = await loadOrCreateEscrowKeypair(encryptionKey)
-    const privateKey = hexToBytes(privateKeyHex)
-
-    let signedPsbtBase64: string
-    if (escrowType === 'LIGHTNING_HODL') {
-      signedPsbtBase64 = await signEscrowArkTx(pending.unsignedPsbtBase64, privateKey)
-    } else if (escrowType === 'SAFE_GUARD_EVM') {
-      signedPsbtBase64 = signEscrowSafeUserOp(pending.unsignedPsbtBase64, privateKey)
-    } else {
-      const escrow = await sailsClient.settlement.get(escrowId)
-      const expected = buildMultisigSigningIntent(escrow, pending)
-      signedPsbtBase64 = verifyAndSignEscrowPsbt(pending.unsignedPsbtBase64, expected, pending.requiredSigners, privateKey)
-    }
-    return sailsClient.settlement.submitTransactionSignature(escrowId, signedPsbtBase64)
+    const expected = buildMultisigSigningIntent(escrow, pending)
+    const signedPsbtBase64 = verifyAndSignEscrowPsbt(pending.unsignedPsbtBase64, expected, pending.requiredSigners, hexToBytes(privateKeyHex))
+    // pending.id binds the signature to this exact round (server refuses a different live round).
+    return sailsClient.settlement.submitTransactionSignature(escrow.id, signedPsbtBase64, pending.id)
   }
 
-  return { submitEscrowKeyIfNeeded, signAndSubmitPendingTransactionIfNeeded }
+  return { submitEscrowKeyIfNeeded, signVerifiedMultisigPending }
 }

@@ -25,6 +25,8 @@ import type { LiquidityOfferSummary } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from './sailsClient'
 import type { AssetType, Offer, PaymentMethod, TradeSide, User } from '../types'
 import { ASSETS } from '../data/mock'
+import { demoPaymentMethodsOf, demoRatingsOf } from './demoMarkers'
+import { catalogAssetTypes } from './assetCatalog'
 
 // `@satsails/p2p-trading-sdk`'s own `discover()` is typed against the *real* backend
 // AssetType (no `DEPIX` — see types.ts's own comment on why this UI's
@@ -32,9 +34,20 @@ import { ASSETS } from '../data/mock'
 // doesn't recognize would either 400 or, worse, silently mismatch —
 // neither is useful, and there provably can be no real DePix offers
 // yet regardless. Short-circuit instead of calling discover() at all.
-const REAL_ASSETS = new Set<string>(ASSETS)
+// Only the official catalog's backend assets (CTO 28, #734): the Market never asks for legacy rails
+// (LN_BTC, USDT_LIGHTNING, STACKS, RSK_BTC...). 'Todos' fans out to these only (8 requests, was 36).
+const REAL_ASSETS = new Set<string>(catalogAssetTypes().filter((a) => (ASSETS as readonly string[]).includes(a)))
 
-function summaryToOffer(s: LiquidityOfferSummary): Offer {
+// LOOSE_WIRES: offer summary needs maker displayName, totalTrades, disputeCount.
+// LiquidityOfferSummary carries only traderReputation; these optional fields are the
+// contract the list would need from the backend. Today only the demo backend fills them.
+type SummaryWithMaker = LiquidityOfferSummary & {
+  traderDisplayName?: string | null
+  traderTotalTrades?: number
+  traderDisputeCount?: number
+}
+
+function summaryToOffer(s: SummaryWithMaker): Offer {
   const price = Number(s.priceUsd)
   // GET /v1/liquidity/offers doesn't return the owning User row at all
   // (only traderReputation, mapOfferToLiquidityOffer() in
@@ -43,10 +56,10 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
   const placeholderUser: User = {
     id: 'unknown',
     publicKey: '',
-    displayName: null,
+    displayName: s.traderDisplayName ?? null,
     peerId: null,
     reputationScore: s.traderReputation ?? 0,
-    totalTrades: 0,
+    totalTrades: s.traderTotalTrades ?? 0, // placeholder for the trades sort only; display reads makerStats
     disputeCount: 0,
     totalVolumeBtc: 0,
     verified: false,
@@ -60,15 +73,18 @@ function summaryToOffer(s: LiquidityOfferSummary): Offer {
     asset: s.asset,
     side: s.side,
     priceUsd: price,
-    fiatCurrency: 'BRL', // this route doesn't return priceBrl/fiat choice — BRL is this UI's default display currency
-    priceFiat: price, // no real BRL conversion available from this endpoint; shown as USD-equivalent, not invented
+    fiatCurrency: 'USD', // discover() returns priceUsd, never a converted BRL price
+    priceFiat: price,
     minAmount: Number(s.minAmount),
     maxAmount: Number(s.maxAmount),
     paymentMethod: (s.paymentMethods[0] as PaymentMethod) ?? 'PIX',
+    demoPaymentMethods: demoPaymentMethodsOf<PaymentMethod>(s), // dev demo only; undefined for real data
+    demoRatings: demoRatingsOf(s), // dev demo only; undefined for real data (LOOSE_WIRES.readRatings)
     status: 'ACTIVE', // discover()/getAggregatedOffers() only ever returns ACTIVE offers (liquidity.service.ts's own where clause)
     country: 'BR', // not returned by this route — no real country field exists on Offer yet, same gap types.ts's own header already discloses
     tradedWithCurrentUser: false, // needs a real trade-history join this route doesn't do — see types.ts's own comment on this field
     blockedRelationship: false, // no real block-list backend yet — same as above
+    makerStats: { totalTrades: s.traderTotalTrades, disputeCount: s.traderDisputeCount },
     createdAt: new Date().toISOString(), // not returned by this route
   }
 }
@@ -128,7 +144,7 @@ export async function fetchOffers(asset: AssetType | 'Todos', side: TradeSide | 
   // this fans real network calls out to); a direct single-asset request
   // for DEPIX specifically short-circuits the same way.
   if (asset !== 'Todos' && !isRealAsset(asset)) return { offers: [], hadError: false }
-  const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? [...ASSETS] : [asset]
+  const assets: (typeof ASSETS)[number][] = asset === 'Todos' ? ([...REAL_ASSETS] as (typeof ASSETS)[number][]) : [asset]
   const sides: TradeSide[] = side === 'Todos' ? ['BUY', 'SELL'] : [side]
 
   const results = await Promise.all(

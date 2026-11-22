@@ -11,7 +11,24 @@
  * port (src/config/index.ts's PORT default, 3000).
  */
 import { SailsClient } from '@satsails/p2p-trading-sdk'
+import { recordServerDate } from './serverClock'
+import { recordNodeFailure, recordNodeResponse } from './nodeConnection'
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 
-export const sailsClient = new SailsClient({ baseUrl: BASE_URL })
+// Records each response's Date header for deadline displays (lib/serverClock.ts) and the node's reachability
+// (lib/nodeConnection.ts: any response = online, a rejected fetch = unreachable); the response is untouched.
+const fetchWithServerDate: typeof fetch = async (input, init) => {
+  let response: Response
+  try {
+    response = await fetch(input, init)
+  } catch (error) {
+    recordNodeFailure(error)
+    throw error
+  }
+  recordNodeResponse()
+  recordServerDate(response.headers.get('date'))
+  return response
+}
+
+export const sailsClient = new SailsClient({ baseUrl: BASE_URL, fetchImpl: fetchWithServerDate })

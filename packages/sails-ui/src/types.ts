@@ -203,12 +203,18 @@ export interface Offer {
   minAmount: number
   maxAmount: number
   paymentMethod: PaymentMethod
+  // Dev demo only (demoPaymentMethodsOf): real offers carry one method until issue #735. Read through offerPaymentMethods().
+  demoPaymentMethods?: PaymentMethod[]
+  // Dev demo only (demoRatingsOf): no endpoint reads ratings yet (LOOSE_WIRES.readRatings). Read through offerRatings().
+  demoRatings?: { average: number; count: number }
   paymentDetails?: string
   status: OfferStatus
   network?: string
   description?: string
   country: string // ISO 3166-1 alpha-2 — UI-only field for the country/region filter, not in the real schema yet
   tradedWithCurrentUser: boolean // UI-only demonstration flag for the "already traded with" filter — a real version needs a real trade-history join
+  // Set only for offers mapped from the list route: a counter is undefined when the route did not return it (realOffers.ts LOOSE_WIRES).
+  makerStats?: { totalTrades?: number; disputeCount?: number }
   blockedRelationship: boolean // UI-only demonstration flag for "apenas anúncios negociáveis" — a real version needs a real block-list model, which doesn't exist in the backend yet either
   createdAt: string
 }
@@ -272,14 +278,13 @@ export type PaymentTimeLimit = 'Todos' | '15' | '30' | '45' | '60' | '24h'
 export type MarketplaceSort = 'price' | 'trades' | 'reputation'
 
 // Advanced filter state — Binance P2P-style, requested directly.
-// negotiableOnly/highReputationOnly/previouslyTradedOnly filter against
+// negotiableOnly/previouslyTradedOnly filter against
 // the UI-only demonstration fields on Offer (see that type's own
 // comments) — a real implementation needs a real block-list and a real
 // trade-history join, neither of which exist in the backend yet.
 export interface MarketplaceFilters {
   saveForNext: boolean
   negotiableOnly: boolean
-  highReputationOnly: boolean
   previouslyTradedOnly: boolean
   amount: string
   paymentTimeLimit: PaymentTimeLimit
@@ -291,11 +296,10 @@ export interface MarketplaceFilters {
 export const DEFAULT_FILTERS: MarketplaceFilters = {
   saveForNext: false,
   negotiableOnly: false,
-  highReputationOnly: false,
   previouslyTradedOnly: false,
   amount: '',
   paymentTimeLimit: 'Todos',
   paymentMethods: [],
   country: 'Todos',
-  sortBy: 'price',
+  sortBy: 'reputation', // reputation is the one trust signal every listed offer carries; ties break on best price
 }

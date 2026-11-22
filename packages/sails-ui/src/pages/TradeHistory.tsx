@@ -1,21 +1,34 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import type { Trade } from '@satsails/p2p-trading-sdk'
+import { ChevronRight } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { sailsClient } from '../lib/sailsClient'
-import { AssetBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
-import { formatBrl, formatAmount, formatDateTime } from '../lib/format'
+import { errorMessage } from '../lib/errors'
+import { SideBadge, TradeStatusBadge } from '../components/ui/StatusBadges'
+import { ListSkeleton } from '../components/ui/skeleton'
+import { formatUsd, formatAmount, formatDateTime } from '../lib/format'
+import { ASSET_SHORT_LABELS } from '../lib/labels'
+import { accountDisputeRateDefinition, formatAccountDisputeRate } from '../lib/reputation'
 import { Card } from '../components/ui/card'
-import { Button } from '../components/ui/button'
-import { badgeVariants } from '../components/ui/badge'
+import { Button, buttonVariants } from '../components/ui/button'
 import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TradesTabs } from '../components/layout/TradesTabs'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
+import { StateBlock } from '../components/ui/StateBlock'
+import { TABLE_HEAD_ROW, TABLE_ROW, TABLE_ROW_INTERACTIVE } from '../components/ui/table'
+import { StatStrip } from '../components/ui/StatStrip'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
 import type { TradeStatus } from '../types'
+import { t } from '../i18n'
 
-const FILTERS: { value: TradeStatus | 'Todos'; label: string }[] = [
-  { value: 'Todos', label: 'Todos' },
-  { value: 'COMPLETED', label: 'Concluído' },
-  { value: 'DISPUTED', label: 'Em disputa' },
-  { value: 'CANCELLED', label: 'Cancelado' },
+// A function, not a constant: the labels follow the interface language.
+const filters = (): { value: TradeStatus | 'Todos'; label: string }[] => [
+  { value: 'Todos', label: t('trades.filter.all') },
+  { value: 'COMPLETED', label: t('trades.history.filter.completed') },
+  { value: 'DISPUTED', label: t('trades.history.filter.disputed') },
+  { value: 'CANCELLED', label: t('trades.history.filter.cancelled') },
 ]
 
 // Real getTrades() (openp2p.ts's own comment: "Fase 2 addition ... no
@@ -24,6 +37,10 @@ const FILTERS: { value: TradeStatus | 'Todos'; label: string }[] = [
 // in-flight statuses). DISPUTED intentionally shows in both pages —
 // see ActiveTrades.tsx's own comment on why that's not a bug.
 const HISTORY_STATUSES: ReadonlyArray<TradeStatus> = ['COMPLETED', 'DISPUTED', 'CANCELLED']
+
+// Desktop column template, shared by the header and every row so they align.
+// Same columns as ActiveTrades (Valor | Papel | Status | 1fr | Data | ›), so the two tabs line up.
+const COLS = 'lg:grid lg:grid-cols-[10rem_6.5rem_8rem_minmax(0,1fr)_7rem_1rem] lg:items-center lg:gap-4'
 
 export function TradeHistory() {
   const { user, loading: authLoading } = useAuth()
@@ -51,7 +68,7 @@ export function TradeHistory() {
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof Error ? err.message : 'Falha ao carregar histórico')
+        setError(errorMessage(err, t('trades.history.loadFailed')))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -68,89 +85,98 @@ export function TradeHistory() {
     [trades, filter]
   )
 
-  // No real BRL conversion available from Trade (totalUsd only) — same
-  // simplification Trade.tsx's own comment already discloses for this
-  // exact field; kept consistent here rather than showing USD in this
-  // one screen while every other screen shows BRL for the same trades.
+  const signedOut = !authLoading && !user
+  const busy = authLoading || loading || !user
+  // The SDK exposes totalUsd; no FX conversion is available here.
   const totalVolume = trades.reduce((sum, t) => sum + Number(t.totalUsd), 0)
   const completed = trades.filter((t) => t.status === 'COMPLETED').length
-  const disputeRate = trades.length === 0 ? 0 : Math.round((trades.filter((t) => t.status === 'DISPUTED').length / trades.length) * 100)
-
-  if (authLoading || loading) {
-    return <div className="text-center py-16 text-brand-text-muted">Carregando histórico...</div>
-  }
-
-  if (!user) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-brand-text-secondary">Conecte sua carteira para ver seu histórico de trades.</p>
-        <Link to="/login" className="text-sm text-brand-orange-accent underline mt-2 inline-block">Conectar</Link>
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="text-center py-16">
-        <p className="text-red-500 text-sm">{error}</p>
-        <Button variant="outline" onClick={load} className="mt-3 text-xs px-3 py-1.5">Tentar novamente</Button>
-      </div>
-    )
-  }
 
   return (
-    <div>
-      <h1 className="text-2xl font-display font-bold tracking-tight text-brand-text">Histórico de Trades</h1>
+    <Page>
+      <PageHeader title="Trades">
+        <TradesTabs />
+      </PageHeader>
 
-      <div className="mt-4 grid grid-cols-3 gap-3">
-        <SummaryStat value={formatBrl(totalVolume)} label="Volume total" />
-        <SummaryStat value={completed} label="Concluídos" />
-        <SummaryStat value={`${disputeRate}%`} label="Taxa de disputa" />
-      </div>
+      {signedOut ? (
+        <StateBlock
+          kind="signedOut"
+          title={t('trades.connectTitle')}
+          description={t('trades.history.signedOutDescription')}
+          action={<Link to="/login" state={{ from: TRADES_ROUTES.history }} className={cn(buttonVariants({ variant: 'secondary', className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.connect')}</Link>}
+        />
+      ) : error ? (
+        <StateBlock
+          kind="error"
+          title={t('trades.history.errorTitle')}
+          description={error}
+          action={<Button variant="outline" onClick={load} className="min-h-9 touch:min-h-11 px-4">{t('trades.retry')}</Button>}
+        />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <StatStrip
+              items={[
+                { label: t('trades.history.stat.volume'), value: busy ? '—' : formatUsd(totalVolume) },
+                { label: t('trades.history.stat.completed'), value: busy ? '—' : completed },
+                { label: t('trades.history.stat.disputeRate'), value: busy || !user ? '—' : formatAccountDisputeRate(user), info: accountDisputeRateDefinition() },
+              ]}
+            />
+            <SegmentedControl label={t('trades.history.filterLabel')} options={filters()} value={filter} onChange={setFilter} />
+          </div>
 
-      <div className="mt-4 flex gap-2">
-        {FILTERS.map((f) => (
-          <button
-            key={f.value}
-            onClick={() => setFilter(f.value)}
-            className={cn(badgeVariants({ variant: filter === f.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {filtered.map((t) => (
-          <Card key={t.id} className="p-4 flex flex-col md:flex-row md:items-center gap-2">
-            <div className="flex items-center gap-2">
-              <AssetBadge asset={t.asset} />
-              <span className="font-medium text-sm text-brand-text">{formatAmount(Number(t.amount))}</span>
-            </div>
-            <div className="flex items-center gap-2 md:ml-4">
-              <span className={`text-xs px-2 py-0.5 rounded-full ${t.buyerId === user.id ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'}`}>
-                {t.buyerId === user.id ? 'Comprador' : 'Vendedor'}
-              </span>
-              <span className="text-xs text-brand-text-muted">{formatDateTime(t.createdAt)}</span>
-            </div>
-            <div className="md:ml-auto flex items-center gap-3">
-              <span className="font-bold text-brand-text">{formatBrl(Number(t.totalUsd))}</span>
-              <TradeStatusBadge status={t.status} />
-              <Link to={`/trade/${t.id}`} className="text-xs text-brand-text-muted hover:text-brand-text">Ver Trade</Link>
-            </div>
-          </Card>
-        ))}
-        {filtered.length === 0 && <p className="text-center text-brand-text-muted py-10">Nenhum trade encontrado.</p>}
-      </div>
-    </div>
-  )
-}
-
-function SummaryStat({ value, label }: { value: string | number; label: string }) {
-  return (
-    <Card className="p-3 text-center">
-      <div className="text-lg font-display font-bold text-brand-text">{value}</div>
-      <div className="text-xs text-brand-text-muted">{label}</div>
-    </Card>
+          {busy ? (
+            <Card className="mt-4 overflow-hidden">
+              <ListSkeleton label={t('trades.history.loading')} rows={4} rowClassName="h-[4.4375rem] lg:h-[3.125rem]" />
+            </Card>
+          ) : trades.length === 0 ? (
+            <StateBlock
+              kind="empty"
+              className="mt-4"
+              title={t('trades.history.emptyTitle')}
+              description={t('trades.history.emptyDescription')}
+              action={<Link to="/" className={cn(buttonVariants({ className: 'min-h-10 touch:min-h-11 px-4' }))}>{t('trades.exploreMarket')}</Link>}
+            />
+          ) : (
+            <Card className="mt-4 overflow-hidden">
+              <div aria-hidden="true" className={cn(TABLE_HEAD_ROW, 'hidden', COLS)}>
+                <span>{t('trades.col.amount')}</span>
+                <span>{t('trades.col.role')}</span>
+                <span>{t('trades.col.status')}</span>
+                <span className="text-right">{t('trades.history.col.total')}</span>
+                <span className="text-right">{t('trades.history.col.date')}</span>
+                <span />
+              </div>
+              {filtered.length === 0 ? (
+                <StateBlock bare kind="empty" title={t('trades.history.noneWithStatus')} />
+              ) : (
+                <ul>
+                  {filtered.map((tr) => (
+                    <li key={tr.id} className={TABLE_ROW}>
+                      <Link
+                        to={`/trade/${tr.id}`}
+                        className={cn('flex flex-col gap-1 px-4 py-3', TABLE_ROW_INTERACTIVE, COLS)}
+                      >
+                        <span className="flex items-center justify-between gap-3 lg:block">
+                          <span className="money text-brand-text">{formatAmount(Number(tr.amount))} {ASSET_SHORT_LABELS[tr.asset]}</span>
+                          <span className="lg:hidden"><TradeStatusBadge status={tr.status} /></span>
+                        </span>
+                        <span className="hidden lg:block"><SideBadge side={tr.buyerId === user?.id ? 'BUY' : 'SELL'} label={t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')} /></span>
+                        <span className="hidden lg:block"><TradeStatusBadge status={tr.status} /></span>
+                        <span className="hidden lg:block text-sm text-right text-brand-text tabular-nums">{formatUsd(Number(tr.totalUsd))}</span>
+                        <span className="text-xs text-brand-text-muted tabular-nums lg:text-right">
+                          <span className="lg:hidden"><SideBadge side={tr.buyerId === user?.id ? 'BUY' : 'SELL'} label={t(tr.buyerId === user?.id ? 'trades.role.buyer' : 'trades.role.seller')} /> · {formatUsd(Number(tr.totalUsd))} USD · </span>
+                          {formatDateTime(tr.createdAt)}
+                        </span>
+                        <ChevronRight className="hidden lg:block h-4 w-4 text-brand-text-muted" aria-hidden="true" />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
+        </>
+      )}
+    </Page>
   )
 }

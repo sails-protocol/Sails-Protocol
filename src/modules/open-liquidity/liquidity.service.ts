@@ -832,7 +832,9 @@ export class LiquidityRouter {
     asset: AssetType,
     side: TradeSide,
     amount: string,
-    limits: { priceMin?: string; priceMax?: string; minReputation?: number }
+    // minReputation: legacy threshold (minReputationRating), unknown reputation counts as 0, default floor 0.
+    // minReputationScore (UX-048): canonical score threshold, may be negative; unknown reputation is excluded.
+    limits: { priceMin?: string; priceMax?: string; minReputation?: number; minReputationScore?: number }
   ): Promise<{ match: LiquidityOffer | null; counterProposal: CounterProposal | null }> {
     // Same counter-side flip matchOrder() above already applies — `side`
     // here is the Intent's own declared side (what the user wants to do),
@@ -876,7 +878,11 @@ export class LiquidityRouter {
     // whole point of "propose" is to only ever surface an offer that
     // would actually succeed, not one the approval step then rejects.
     const passesAmountAndReputation = (o: LiquidityOffer): boolean =>
-      (o.traderReputation ?? 0) >= minReputation &&
+      // UX-048: the new minReputationScore fails closed (an unknown reputation is excluded, never treated as 0); the
+      // legacy path, with or without the deprecated alias, is unchanged.
+      (limits.minReputationScore !== undefined
+        ? typeof o.traderReputation === 'number' && o.traderReputation >= limits.minReputationScore
+        : (o.traderReputation ?? 0) >= minReputation) &&
       amountNum >= Number(o.minAmount) && amountNum <= Number(o.maxAmount)
 
     const passesPrice = (o: LiquidityOffer): boolean => {

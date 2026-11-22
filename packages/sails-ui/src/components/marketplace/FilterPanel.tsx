@@ -1,13 +1,13 @@
 /**
  * Advanced filters drawer — Binance P2P-style, requested directly with
  * exact option wording and an "i" info icon per option explaining what
- * it does. `negotiableOnly`/`highReputationOnly`/`previouslyTradedOnly`
+ * it does. `negotiableOnly`/`previouslyTradedOnly`
  * filter against UI-only demonstration fields (see MarketplaceFilters'
  * own comment in types.ts) — real versions need a real block-list and
  * trade-history join, neither built in the backend yet.
  *
  * NAVIGATION-FILTER-1 §4.1 — reorganized into six labeled sections
- * (Qualidade do anunciante / Valor / Tempo de pagamento / País-Região /
+ * (Qualidade do anunciante / Valor / Tempo de pagamento [removed 2026-11-20] / País-Região /
  * Método de pagamento / Ordenação), was six blocks of equal visual
  * weight with no grouping signal beyond spacing. §4.6 — footer is now
  * sticky (outside the scrolling region) so mobile users don't have to
@@ -16,7 +16,7 @@
 import * as React from 'react'
 import type { FiatCurrency, MarketplaceFilters, PaymentMethod } from '../../types'
 import { AMOUNT_PRESETS, formatByCurrency } from '../../lib/currency'
-import { COUNTRIES, PAYMENT_METHODS_FILTERABLE } from '../../data/mock'
+import { COUNTRIES, PAYMENT_METHODS_FILTERABLE, countryLabel } from '../../data/mock'
 import { PAYMENT_METHOD_LABELS } from '../../lib/labels'
 import {
   PAYMENT_METHOD_CATEGORY,
@@ -27,15 +27,16 @@ import {
 import { countActiveFilters } from '../../lib/filters'
 import { InfoTooltip } from '../ui/InfoTooltip'
 import { Button } from '../ui/button'
-import { badgeVariants } from '../ui/badge'
 import { Input } from '../ui/input'
 import { Switch } from '../ui/switch'
 import { Checkbox } from '../ui/checkbox'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select'
-import { cn } from '../../lib/utils'
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet'
+import { IconButton } from '../ui/icon-button'
+import { FilterChip } from '../ui/filter-chip'
 import { Search, ChevronDown, ChevronUp, X, ArrowLeft, SlidersHorizontal } from 'lucide-react'
 import { DEFAULT_FILTERS } from '../../types'
+import { t } from '../../i18n'
 
 interface Props {
   open: boolean
@@ -44,15 +45,6 @@ interface Props {
   onChange: (filters: MarketplaceFilters) => void
   currency: FiatCurrency
 }
-
-const TIME_LIMITS: { value: MarketplaceFilters['paymentTimeLimit']; label: string }[] = [
-  { value: 'Todos', label: 'Todos' },
-  { value: '15', label: '15 min' },
-  { value: '30', label: '30 min' },
-  { value: '45', label: '45 min' },
-  { value: '60', label: '60 min' },
-  { value: '24h', label: '24h' },
-]
 
 // NAVIGATION-FILTER-1 §4.4 — copy audit. `trades`/`reputation` are
 // correctly "best first" regardless of context (higher totalTrades/
@@ -69,10 +61,11 @@ const TIME_LIMITS: { value: MarketplaceFilters['paymentTimeLimit']; label: strin
 // of this mission's copy-only scope for §4.4) — see
 // docs/SAILS_DESIGN_LANGUAGE.md's Filter/Discovery UX Grammar section
 // and docs/BACKLOG.md.
+// Labels are getters so they follow the interface language on every read.
 export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string }[] = [
-  { value: 'price', label: 'Menor preço' },
-  { value: 'reputation', label: 'Maior reputação' },
-  { value: 'trades', label: 'Mais trades' },
+  { value: 'price', get label() { return t('market.sort.price') } },
+  { value: 'reputation', get label() { return t('market.sort.reputation') } },
+  { value: 'trades', get label() { return t('market.sort.trades') } },
 ]
 
 // UI-POLISH-2 §2.2 — was a false "staged commit" UI: every control called
@@ -141,21 +134,13 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
               target rule; the icon stays visually 20px, only the hit
               area grows. -ml-2.5 keeps the icon itself visually aligned
               with the content below despite the larger tap target. */}
-          <button
-            onClick={cancelAndClose}
-            aria-label="Voltar"
-            className="sm:hidden -ml-2.5 h-11 w-11 flex items-center justify-center rounded-md text-brand-text-secondary hover:text-brand-text hover:bg-brand-elevated focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </button>
-          <SheetTitle className="flex-1">Filtros avançados</SheetTitle>
-          <button
-            onClick={cancelAndClose}
-            aria-label="Fechar"
-            className="hidden sm:flex h-8 w-8 items-center justify-center rounded-sm opacity-70 hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <IconButton label={t('market.filters.back')} onClick={cancelAndClose} className="sm:hidden -ml-2.5">
+            <ArrowLeft aria-hidden="true" />
+          </IconButton>
+          <SheetTitle className="flex-1">{t('market.filters.advanced')}</SheetTitle>
+          <IconButton label={t('common.close')} size="sm" onClick={cancelAndClose} className="hidden sm:inline-flex">
+            <X aria-hidden="true" />
+          </IconButton>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
@@ -169,94 +154,72 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
                   reads as "the same thing, staged" at a glance rather
                   than a disconnected line of text. */}
               <span className="flex items-center gap-1.5 text-brand-text-secondary">
-                <SlidersHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
-                {activeCount} {activeCount === 1 ? 'filtro ativo' : 'filtros ativos'}
+                <SlidersHorizontal className="size-icon-xs" aria-hidden="true" />
+                {t('market.filters.activeCount', { count: String(activeCount) })}
               </span>
-              <button onClick={clearDraft} className="text-brand-orange-accent hover:underline font-medium">
-                Limpar tudo
+              <button type="button" onClick={clearDraft} className="text-brand-link hover:underline underline-offset-4 font-medium">
+                {t('market.filters.clearAll')}
               </button>
             </div>
           )}
 
           <ToggleRow
-            label="Salvar filtro para o próximo"
-            info="Mantém essas preferências de filtro salvas para a próxima vez que você visitar o Marketplace."
+            label={t('market.filters.save')}
+            info={t('market.filters.saveInfo')}
             checked={draft.saveForNext}
             onChange={(v) => set('saveForNext', v)}
           />
 
-          <Section title="Qualidade do anunciante">
+          <Section title={t('market.filters.sellerQuality')}>
             <CheckRow
-              label="Apenas anúncios negociáveis"
-              info="Exclui usuários que você bloqueou ou que bloquearam você."
+              label={t('market.filters.negotiable')}
+              info={t('market.filters.negotiableInfo')}
               checked={draft.negotiableOnly}
               onChange={(v) => set('negotiableOnly', v)}
             />
             <CheckRow
-              label="Somente comerciantes com alta reputação"
-              info="Mostra apenas comerciantes com excelentes pontuações e avaliações de alta reputação."
-              checked={draft.highReputationOnly}
-              onChange={(v) => set('highReputationOnly', v)}
-            />
-            <CheckRow
-              label="Comerciantes com os quais você já negociou"
-              info="Comerciantes frequentes com quem você negociou nos últimos meses."
+              label={t('market.filters.previouslyTraded')}
+              info={t('market.filters.previouslyTradedInfo')}
               checked={draft.previouslyTradedOnly}
               onChange={(v) => set('previouslyTradedOnly', v)}
               last
             />
           </Section>
 
-          <Section title="Valor" info="A quantidade que você costuma negociar — usada para destacar ofertas com limites compatíveis.">
+          <Section title={t('market.filters.amount')} info={t('market.filters.amountInfo')}>
             <Input
               value={draft.amount}
               onChange={(e) => set('amount', e.target.value)}
               type="number"
+              aria-label={t('market.filters.amountLabel')}
               placeholder="0.00"
               className="w-full mb-2"
             />
             <div className="flex gap-1.5 flex-wrap">
               {AMOUNT_PRESETS[currency].map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => set('amount', String(preset))}
-                  className={cn(badgeVariants({ variant: draft.amount === String(preset) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {formatByCurrency(preset, currency)}
-                </button>
+                <FilterChip key={preset} label={formatByCurrency(preset, currency)} selected={draft.amount === String(preset)} onToggle={() => set('amount', String(preset))} />
               ))}
             </div>
           </Section>
 
-          <Section title="Tempo de pagamento" info="Tempo máximo (em minutos) que o comprador tem para confirmar o pagamento antes que a ordem expire.">
-            <div className="flex gap-1.5 flex-wrap">
-              {TIME_LIMITS.map((t) => (
-                <button
-                  key={t.value}
-                  onClick={() => set('paymentTimeLimit', t.value)}
-                  className={cn(badgeVariants({ variant: draft.paymentTimeLimit === t.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
-          </Section>
+          {/* "Tempo de pagamento" removed (CTO 437): it was never applied and described an order-expiry
+              deadline offers do not have. LOOSE_WIRES: offer payment-time window needs a contract. */}
 
-          <Section title="País/Região">
+          <Section title={t('market.filters.country')}>
             <Select value={draft.country} onValueChange={(v) => set('country', v)}>
-              <SelectTrigger aria-label="País/Região" className="w-full">
+              <SelectTrigger aria-label={t('market.filters.country')} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="Todos">Todos</SelectItem>
+                <SelectItem value="Todos">{t('market.filters.countryAll')}</SelectItem>
                 {COUNTRIES.map((c) => (
-                  <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                  <SelectItem key={c.code} value={c.code}>{countryLabel(c.code)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </Section>
 
-          <Section title="Método de pagamento" info="Métodos populares indicados primeiro pelo país selecionado — os demais continuam disponíveis em 'Ver todos'. As moedas serão liberadas imediatamente após a confirmação do pagamento.">
+          <Section title={t('market.filters.paymentMethod')} info={t('market.filters.paymentMethodInfo')}>
             <PaymentMethodSection
               country={draft.country}
               value={draft.paymentMethods}
@@ -264,16 +227,10 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             />
           </Section>
 
-          <Section title="Ordenação" last>
+          <Section title={t('market.filters.sorting')} last>
             <div className="flex gap-1.5 flex-wrap">
               {SORT_OPTIONS.map((s) => (
-                <button
-                  key={s.value}
-                  onClick={() => set('sortBy', s.value)}
-                  className={cn(badgeVariants({ variant: draft.sortBy === s.value ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-                >
-                  {s.label}
-                </button>
+                <FilterChip key={s.value} label={s.label} selected={draft.sortBy === s.value} onToggle={() => set('sortBy', s.value)} />
               ))}
             </div>
           </Section>
@@ -285,10 +242,10 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
             position — no more scrolling to the end to apply/clear. */}
         <div className="shrink-0 border-t border-brand-border-subtle p-4 flex gap-2 bg-brand-surface">
           <Button variant="outline" onClick={clearDraft} className="flex-1 py-2.5 text-sm">
-            Limpar
+            {t('market.clear')}
           </Button>
           <Button onClick={applyAndClose} className="flex-1 py-2.5 text-sm">
-            Aplicar filtros
+            {t('market.filters.apply')}
           </Button>
         </div>
       </SheetContent>
@@ -355,68 +312,86 @@ function PaymentMethodSection({
     return map
   }, [filteredRemaining])
 
-  const Chip = ({ m }: { m: PaymentMethod }) => (
-    <button
-      onClick={() => onToggle(m)}
-      className={cn(badgeVariants({ variant: selectedSet.has(m) ? 'default' : 'secondary' }), 'rounded-full px-3 py-1')}
-    >
-      {PAYMENT_METHOD_LABELS[m]}
-      {selectedSet.has(m) && <X className="h-3 w-3" />}
-    </button>
-  )
+  // FilterChip (DESIGN_SYSTEM.md 5.3): applied methods are active chips with their own remove
+  // button; every other method is a toggle chip. Selected = blue (chosen), never orange.
+  // A plain render function, not a nested component: a component defined in render remounts every
+  // chip on each update, which drops keyboard focus.
+  const selectedRef = React.useRef<HTMLDivElement>(null)
+  const toggleRef = React.useRef<HTMLButtonElement>(null)
+  // Removing an applied filter unmounts its chip: move focus to the next applied filter, or to
+  // "Ver todos os métodos" when none is left (WCAG 2.4.3).
+  const clear = (m: PaymentMethod) => {
+    const i = value.indexOf(m)
+    onToggle(m)
+    requestAnimationFrame(() => {
+      const buttons = selectedRef.current?.querySelectorAll<HTMLButtonElement>('button')
+      const next = buttons?.[Math.min(i, buttons.length - 1)]
+      ;(next ?? toggleRef.current)?.focus()
+    })
+  }
+  const chip = (m: PaymentMethod) =>
+    selectedSet.has(m) ? (
+      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onClear={() => clear(m)} clearLabel={t('market.filters.removeMethod', { method: PAYMENT_METHOD_LABELS[m] })} />
+    ) : (
+      <FilterChip key={m} label={PAYMENT_METHOD_LABELS[m]} onToggle={() => onToggle(m)} />
+    )
 
   return (
     <div>
       {value.length > 0 && (
         <div className="mb-2">
-          <span className="text-[11px] text-brand-text-muted">Selecionados</span>
-          <div className="flex gap-1.5 flex-wrap mt-1">
-            {value.map((m) => <Chip key={m} m={m} />)}
+          <span className="text-xs text-brand-text-muted">{t('market.filters.selected')}</span>
+          <div ref={selectedRef} className="flex gap-1.5 flex-wrap mt-1">
+            {value.map(chip)}
           </div>
         </div>
       )}
 
       {suggested.length > 0 && (
         <div className="mb-2">
-          <span className="text-[11px] text-brand-text-muted">
-            Sugeridos para {COUNTRIES.find((c) => c.code === country)?.label ?? country}
+          <span className="text-xs text-brand-text-muted">
+            {t('market.filters.suggestedFor', { country: countryLabel(country) })}
           </span>
           <div className="flex gap-1.5 flex-wrap mt-1">
-            {suggested.map((m) => <Chip key={m} m={m} />)}
+            {suggested.map(chip)}
           </div>
         </div>
       )}
 
       <button
+        ref={toggleRef}
+        type="button"
+        aria-expanded={expanded}
         onClick={() => setExpanded((e) => !e)}
         className="flex items-center gap-1 text-xs text-brand-text-secondary hover:text-brand-text mt-1"
       >
-        {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        {expanded ? 'Ocultar métodos' : 'Ver todos os métodos'}
+        {expanded ? <ChevronUp className="size-icon-xs" aria-hidden="true" /> : <ChevronDown className="size-icon-xs" aria-hidden="true" />}
+        {expanded ? t('market.filters.hideMethods') : t('market.filters.showAllMethods')}
       </button>
 
       {expanded && (
         <div className="mt-2">
           <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-brand-text-muted pointer-events-none" aria-hidden="true" />
             <Input
               value={search}
+              aria-label={t('market.payment.searchLabel')}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar método de pagamento..."
+              placeholder={t('market.payment.search')}
               className="w-full pl-8"
             />
           </div>
           <div className="max-h-72 overflow-y-auto pr-1 space-y-3">
             {PAYMENT_METHOD_CATEGORY_ORDER.filter((cat) => grouped.has(cat)).map((cat) => (
               <div key={cat}>
-                <span className="text-[11px] text-brand-text-muted">{PAYMENT_METHOD_CATEGORY_LABELS[cat]}</span>
+                <span className="text-xs text-brand-text-muted">{PAYMENT_METHOD_CATEGORY_LABELS[cat]}</span>
                 <div className="flex gap-1.5 flex-wrap mt-1">
-                  {grouped.get(cat)!.map((m) => <Chip key={m} m={m} />)}
+                  {grouped.get(cat)!.map(chip)}
                 </div>
               </div>
             ))}
             {filteredRemaining.length === 0 && (
-              <p className="text-xs text-brand-text-muted">Nenhum método encontrado com esse nome.</p>
+              <p className="text-xs text-brand-text-muted">{t('market.payment.empty')}</p>
             )}
           </div>
         </div>
