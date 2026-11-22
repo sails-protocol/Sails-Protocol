@@ -321,3 +321,145 @@ Where this section conflicts with §1-§12, **this section prevails**.
 
 ### 13.7 G5 note: allowed sighash types (GK)
 SF and RS members **refuse any signature request other than `SIGHASH_DEFAULT` / `SIGHASH_ALL`**, because ANYONECANPAY, NONE and SINGLE leave inputs or outputs open to change after signing. There is one negative test per sighash type.
+
+
+---
+
+## Revision 3 (CTO 28 conditioned approval of Delivery A): the four points
+
+> Status: PROPOSAL (joint opinion Principal + GK, co-signed). Not approved, not homologated, not implemented. Delivery B is not authorized; public activation stays NO-GO. All values are references pending the CTO.
+
+
+Status: Delivery A has **CONDITIONED APPROVAL** (CTO 28). Delivery B (economic) is **not** authorized. Nothing is implemented.
+
+## Point 1: T7, the late federation spend vs recovery (CRITICAL)
+**The fact:** Bitcoin script **cannot express "valid only BEFORE height H"**: CLTV and CSV only enforce *after*. There is also no signature or nonce expiry for BIP340 signatures. So **no cryptographic deadline is possible on L1/L2.** A federation-signed L1/L2 transaction, signed before the cutoff, stays valid forever and can be broadcast after T_rec, where it competes with an L3/L4 spend. **T7 is NOT eliminated by the operational cutoff.**
+
+**The required wording (GK):** "**both spends are valid on-chain; safety comes from S1, S2 and S4; R collusion is a residual**". Never write "the cutoff prevents it". The cutoff is off-chain policy and never a guarantee (this also corrects the GK's earlier R-2).
+
+**The security properties (GK S1-S4):**
+- **S1:** an honest R signs only outputs **IDENTICAL** to those of the existing decision, so the race is benign: the same beneficiary.
+- **S2:** a decision is **FINAL** once the SF's signature is complete (k). No generation g2 may follow, otherwise two different beneficiaries really conflict.
+- **S3:** R's source is the GV8 log, which records the SF's signatures by digest, never the node's database.
+- **S4:** an immediate broadcast, bumped with CPFP.
+
+**The recommendation: make the race harmless by construction, and prove it.** Both spends execute the **same decision**, so whichever confirms, the economic outcome is identical. This rests on four invariants, each a test:
+| # | Invariant | How it is enforced | Test |
+|---|---|---|---|
+| I1 | **At most one decision per escrow; it is FINAL once the SF's signature is complete (S2)** | Day 0 has no appeal (E26 `NONE_SCRIPT_FIXED`). The RL refuses to re-rule an escrow whose decision carries any SF signature in the GV8 log | T7-4: no g2 after a complete g1 (+ a mutant) |
+| I2 | **The SF and the RS sign only outputs IDENTICAL to the decision's** (S1): the decision fixes the exact outputs. **Aligned with the GK's C3:** the protocol-fee output is byte-identical, and the only allowed variation is the **miner** fee, taken from the winner's output within the committed cap. CPFP is the preferred way to bump (S4) | Each member recomputes the outputs from the committed escrow data + the decision (G2/G5); any difference is refused | T7-2: R refuses different outputs (+ a mutant) |
+| I3 | **L3/L4 can only pay the same winner as L1/L2**: L3 requires the buyer's signature and L4 the seller's. The RS executes the decision through the **winner's** leaf, so the winner co-signs both spends | The RS signs only the winner's leaf (G-b) | The RS signing the loser's leaf with a decision for the winner → refused |
+| I4 | **One UTXO:** two spends cannot both confirm, so the funds cannot be paid twice | Bitcoin consensus | T7-1: the SF and R with the same outputs, in both orders ⇒ always the same beneficiary |
+
+On top of the invariants:
+- **Policy:** after the cutoff, the SF **produces no new signatures**, but signatures already given stay valid (I1/I2 make that harmless).
+- **On-chain monitoring:** before signing, the RS checks the chain and the mempool for any L1/L2 spend of the outpoint. If one is seen, the RS does not sign, and the case is recorded.
+- **The only remaining risk is not T7 but collusion** (residual 3): m RS members + the **loser** signing the loser's leaf after T_rec, against an honest late SF spend. That is bounded by m, R9 and the RS's independence. The timing does not change it.
+
+**Rejected alternatives:**
+- An absolute "upper bound" on L1/L2 is impossible in script.
+- Pre-signed transactions with nLockTime do not help, because a lower nLockTime can always be signed again.
+- Expiring the leaf by moving the funds before the cutoff would require an intermediate "kick-off" transaction (a covenant-like pattern), which adds complexity and fee risk. **Not for Day 0.**
+
+**Regtest PoCs and tests (GK):**
+- T7-1: same outputs, both orders.
+- T7-2: R refuses different outputs (+ a mutant).
+- **T7-3: collusion wins through the mempool/RBF.** This test DOCUMENTS the residual; it does not hide it.
+- T7-4: no g2 after a complete g1 (+ a mutant).
+- T7-5: R reads the GV8 log, not the node's database (+ a mutant).
+- T7-6: the CSV boundary.
+- T7-7: broadcast and alert.
+
+**The conclusion to put before the CTO:** T7 is a race between two spends **of the same decision**, harmless under I1-I4. Those four are proven by tests. The risk that remains is the collusion bound (residual 3), not timing.
+
+## Point 2: parameters and independence (the final recommendation)
+**Federation (SF): 3-of-5.**
+- It tolerates **2** unavailable members (availability), and stealing needs **3** colluding members + the losing party (collusion).
+- 2-of-3 would tolerate only 1 absence and fall to 2 colluders. 4-of-7 is stronger but needs 7 independent entities, which is not realistic for Day 0.
+- Recommendation: **3-of-5 for Day 0**, raised only by a new set version.
+
+**Recovery (RS): 2-of-3**, disjoint from the SF. It tolerates 1 absence and needs 2 colluders + a party.
+
+**The EFFECTIVE k (GK):** the number of members with **PROVEN** independence (G3/GV5). Without the dossier, the federation's k is **not** 3, and the caps of point 3 use the effective k only.
+
+**Composition:**
+- 5 SF entities and 3 RS entities, all **distinct legal entities**.
+- **Sails at most 1 SF seat, 0 RS seats.**
+- Recommended: ≥ 3 jurisdictions across the SF, and ≥ 2 across the RS. This depends on legal validation.
+- **No common controller, beneficial owner, host provider account, administrator or key custodian** across the 8 entities.
+
+**Substitution:** by a new set version only (new pubkeys, new escrows only), plus the tail obligation on funded escrows.
+
+**Evidence of independence, per entity** (verifiable; the GK checks it before publication):
+- a corporate registry extract with beneficial owners;
+- a signed key-ceremony log (entropy source, hardware or equivalent, operator, date, pubkey);
+- an infrastructure attestation (provider and account ids, admin roster) cross-checked against the other members for overlap;
+- a conflict declaration;
+- an R1-R5 and R15 dossier.
+
+**Proven vs dependent on validation:**
+- The scripts and quorum arithmetic are proven by tests (G1).
+- The independence of the entities and the jurisdictions **depend on validation** (dossiers, legal).
+
+## Point 3: R9 caps and individual acceptance of the residuals
+**Caps (R9), functions of the collusion numbers:**
+- **Per escrow:** `cap_escrow ≤ C₀`. Ramp: C₀ low in phase 1.
+- **Per federation set version (aggregate locked):** `cap_set ≤ A₀ · g(k_eff)`, where `k_eff` = the number of **independently verified** members needed to collude (3 for the SF; 2 for the RS **after T_rec**). `g` grows only when k_eff grows through a new set version.
+- **Aggregate across sets:** capped by the CTO.
+- **Collusion rule (GK):** the cap per escrow stays **≤ the cost of corrupting k_eff entities**.
+- **For each residual, the R9 matrix records** its trigger, control, effect on the cap, evidence and owner (below).
+- **The values (C₀, A₀, g) are the CTO's** (the economics). Proposed ramp: phase 1 = 90 days at the lowest caps, then a raise only after an external audit, a clean quarterly reconciliation and no incidents.
+
+**Individual acceptance matrix (§13.5):**
+| # | Residual (trigger) | Can funds be locked indefinitely? | Collusion? | Control / mitigation | Recommendation to the CTO (the cap effect, evidence and owner are in the GK file) |
+|---|---|---|---|---|---|
+| 1 | SF + RS both lost, or no decision while the SF is lost | **Yes** (only K remains) | no | independence and disjointness (low joint probability), D_max SLA, pre-designated substitute, monitoring | **Accept with conditions:** the caps of point 3 + quarterly availability drills |
+| 2 | T14, the winner loses their key | **Yes** for the winner's share (the other party's path remains) | no | mandatory key backup + a UI warning (R10); recovery-phrase check before funding | **Accept** (user custody, disclosed) |
+| 3 | k SF + the loser, or m RS + a party after T_rec | no (theft, not a lock) | **yes** | k=3 / m=2 independent, R9 caps, GV8 log reconciliation, removal | **Accept, bounded by R9** |
+| 4 | A valid but wrong decision | no | possible (resolver) | recusal, 2 resolvers above the cap, audit | **Accept with conditions:** the 2-resolver threshold value is set by the CTO |
+| 5 | The CSV ceiling ≈ 455 days | no | no | T_rec = 26 weeks is far below it | **Accept** |
+
+**Residuals 1 and 2 are the only paths to indefinitely locked funds.** Both need a joint failure (1) or a user's own key loss (2). Neither is triggered by a single operator.
+
+## Point 4: governance and continuity
+| Item | Recommendation | Status |
+|---|---|---|
+| Governance Council | 3 seats: 2 appointed by the Sails board + 1 independent (outside Sails management). Simple majority; 2/3 to remove. **No council member holds an SF, RS or RL seat** (GV1) | design; **depends on validation** (corporate) |
+| Pre-designated substitute resolvers | ≥ 2 named substitutes **per set version**, committed at funding (E26), with recusal rules. A substitute takes over when the assigned resolver misses half of D_max | design, testable (an assignment test) |
+| Automatic dispute opening (Gen-2 only) | at `latestDisputeOpenAt` = t0 + 14 weeks, a state transition with no fund movement; the Gen-1 and #740 F0 behaviour is unchanged | design, testable; needs a #740 compatibility test |
+| Legal requirements per entity | a legal analysis per entity and jurisdiction (the custody characterisation of the signer and recovery roles; the dispute-resolution role; licensing), a **prerequisite of accreditation (GV5)**, done **before** admission. #121's "regulatory benchmark" stays open | **depends on legal validation** (none exists today) |
+| Continuity | n−k tolerance, the tail obligation, availability drills, compromise response (§12.5) | design; drills **depend on validation** |
+
+**Proven vs dependent on validation, in summary:**
+- **Proven or provable by tests:** the scripts, the quorums, the cutoff and auto-open logic, invariants I1-I4, the refusals.
+- **Dependent on validation:** entity independence, jurisdictions, legal analysis, council composition, the cap values.
+
+---
+
+## GK co-signature (2026-11-21), with 3 corrections
+The GK co-signs this document as the JOINT opinion. It converges with the GK's adversarial test annex (S1-S4, T7-1..T7-7), to be published with Delivery B. Where the two differ, this document prevails, with the corrections below.
+
+**C1. I1 is accepted, and it is STRONGER than the GK's S2.** Irrevocability on the FIRST member's signature, rather than on a complete set of k, is better: it closes the case where k−1 members sign g1 and later sign g2. It needs a second half on the Resolution Layer side, because of point 4 (the substitute resolver taking over at D_max/2):
+- **I1-RL:** at most **one decision per escrow**: the FIRST one recorded in the GV8 log. Any later decision for the same escrow, from the original resolver arriving late or from a substitute, is refused by the RL and by every SF/RS member. A substitute may rule only if GV8 shows **no** decision for that escrow.
+- Tests: (a) the original resolver and the substitute race to rule → exactly one decision is recorded, and the second is refused; (b) a mutant "accept a second decision" → red.
+- Combined with I1-SF (irrevocable on the first signature), this removes the real two-beneficiary conflict (g1 × g2).
+
+**C2. The RS's mempool and chain check is NOT a safety guarantee, and it does not need to be one.**
+- The mempool is local and incomplete. A beneficiary can hold an already SF-signed tx offline and broadcast it later, and no check can see it.
+- Safety comes from **I1 + I2 + I3** (one decision; outputs derived from it; the RS goes through the winner's leaf). With these, two valid spends pay the **same** winner, so the race is harmless whatever the RS sees.
+- The check stays as **hygiene only** (it avoids a duplicate broadcast and wasted fees). The documents must describe it that way, never as protection.
+
+**C3. I2 must be exact on the fee leg.**
+- "The amounts differ only by the fee within the committed cap" applies to the **miner fee** (the bump) only. The **protocol-fee output** (destination and amount) is identical across all spends of the same decision.
+- Each SF/RS member checks the beneficiary and the fee-leg outputs **byte for byte** against the decision. The only variance it accepts is the winner's output being reduced by the miner fee, up to the cap.
+- Test: a spend with a fee leg altered by 1 sat is refused.
+
+**The other points:**
+- **Point 1:** agreed. The rejected options (an "upper bound" leaf, nLockTime, a kick-off tx) are rightly rejected. The residual of T7 is **collusion (residual 3), not timing**.
+- **Point 2:** agreed, with one rule from the GK: **k_eff counts only members whose independence evidence the GK has checked**. A member whose evidence is pending counts as not independent.
+- **Point 3:** agreed. The matrix is correct: only residuals 1 and 2 can lock funds indefinitely, and neither through a single operator.
+- **Point 4:** agreed with C1 (the substitute rules only if there is no decision). The legal analysis per entity is a precondition of admission (GV5). The GK checks that it exists, not its legal merits.
+
+Document changes go in the documentary PR that follows the #757 GO.
+
+— GK
