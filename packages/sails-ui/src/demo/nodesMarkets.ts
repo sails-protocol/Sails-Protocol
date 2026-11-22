@@ -25,42 +25,46 @@ export interface DemoMarketFixture {
   preset: 'vitrine' | 'comunidade'
   infrastructure?: 'network' | 'own'
   stats?: DemoMarketStats
+  /** Public communities: open to join, or admin approval. Private markets are by invite. */
+  entry?: 'open' | 'approval'
+  /** Fictional "negociações em 30 dias" (Explore sorts by it, "Mais ativas"). */
+  activity30d?: number
 }
 
 export const DEMO_MARKET_FIXTURES: readonly DemoMarketFixture[] = [
   {
-    market: { id: 'demo-market-clube', name: 'Clube Exemplo', description: 'Comunidade fictícia aberta, em que todos os membros publicam', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 312, adminIdentity: key('5be90dfe1d'), createdAt: '2026-03-02T12:00:00Z', entryPolicy: { kyc: 'none', social: [] }, listed: true, state: 'PUBLISHED' },
-    preset: 'comunidade',
+    market: { id: 'demo-market-clube', name: 'Clube Exemplo', description: 'Comunidade fictícia para pagar contas do dia a dia com cripto', category: 'BILL_PAY', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 312, adminIdentity: key('5be90dfe1d'), createdAt: '2026-03-02T12:00:00Z', entryPolicy: { kyc: 'none', social: [] }, listed: true, state: 'PUBLISHED' },
+    preset: 'comunidade', entry: 'open', activity30d: 64,
   },
   {
-    market: { id: 'demo-market-traders', name: 'Traders P2P Exemplo', description: 'Traders fictícios que negociam BTC e USDT entre si', category: 'P2P_TRADER', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 540, adminIdentity: key('c41d9e73a2'), createdAt: '2025-11-18T12:00:00Z', entryPolicy: { kyc: 'none', social: ['X', 'GITHUB'] }, listed: true, state: 'PUBLISHED' },
-    preset: 'comunidade', stats: { rating: 4.8, ratings: 212, trades: 1340, volumeUsd: 480_000 },
+    market: { id: 'demo-market-traders', name: 'Traders P2P Exemplo', description: 'Traders fictícios que negociam BTC e USDT entre si', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 540, adminIdentity: key('c41d9e73a2'), createdAt: '2025-11-18T12:00:00Z', entryPolicy: { kyc: 'none', social: ['X', 'GITHUB'] }, listed: true, state: 'PUBLISHED' },
+    preset: 'comunidade', stats: { rating: 4.8, ratings: 212, trades: 1340, volumeUsd: 480_000 }, entry: 'open', activity30d: 212,
   },
   {
-    market: { id: 'demo-market-loja', name: 'Loja Exemplo', description: 'Vitrine de uma loja fictícia que vende e compra BTC e USDT', category: 'BUSINESS_OTC', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 128, adminIdentity: key('9a0b7c61'), createdAt: '2026-06-10T12:00:00Z', entryPolicy: { kyc: 'above_threshold', thresholdUsd: 10_000, providerUrl: 'https://kyc.example/loja-exemplo', social: [] }, listed: true, state: 'PUBLISHED' },
-    preset: 'vitrine', stats: { rating: 4.6, ratings: 31, trades: 88, volumeUsd: 61_000 },
+    market: { id: 'demo-market-loja', name: 'Loja Exemplo', description: 'Vitrine de uma loja fictícia que vende e compra BTC e USDT', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 128, adminIdentity: key('9a0b7c61'), createdAt: '2026-06-10T12:00:00Z', entryPolicy: { kyc: 'above_threshold', thresholdUsd: 10_000, providerUrl: 'https://kyc.example/loja-exemplo', social: [] }, listed: true, state: 'PUBLISHED' },
+    preset: 'vitrine', stats: { rating: 4.6, ratings: 31, trades: 88, volumeUsd: 61_000 }, entry: 'approval', activity30d: 18,
   },
   {
     // The only fixture with an admin-supplied media link: shows the click-to-load rule (GK, 2026-11-22).
-    market: { id: 'demo-market-boreal', name: 'Boreal OTC', description: 'Mesa OTC fictícia para volumes maiores, atendida pela própria empresa', category: 'BUSINESS_OTC', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 86, adminIdentity: key('7e2f40d9b1'), createdAt: '2025-08-01T12:00:00Z', bannerRef: { url: 'https://media.example/boreal-otc/banner.png', sha256: key('0f') }, entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/boreal-otc', social: ['LINKEDIN'] }, listed: true, state: 'PUBLISHED' },
-    preset: 'vitrine', stats: { rating: 4.9, ratings: 74, trades: 402, volumeUsd: 2_350_000 },
+    market: { id: 'demo-market-boreal', name: 'Boreal OTC', description: 'Mesa OTC fictícia para volumes maiores, atendida pela própria empresa', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 86, adminIdentity: key('7e2f40d9b1'), createdAt: '2025-08-01T12:00:00Z', bannerRef: { url: 'https://media.example/boreal-otc/banner.png', sha256: key('0f') }, entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/boreal-otc', social: ['LINKEDIN'] }, listed: true, state: 'PUBLISHED' },
+    preset: 'vitrine', stats: { rating: 4.9, ratings: 74, trades: 402, volumeUsd: 2_350_000 }, entry: 'approval', activity30d: 41,
   },
   {
     market: { id: 'demo-market-sul', name: 'Bitcoin Sul Exemplo', description: 'Comunidade regional fictícia de quem negocia em reais no sul do Brasil', category: 'REGIONAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 97, adminIdentity: key('b50ee0e9'), createdAt: '2026-09-21T12:00:00Z', entryPolicy: { kyc: 'none', social: ['X'] }, listed: true, state: 'PUBLISHED' },
-    preset: 'comunidade',
+    preset: 'comunidade', entry: 'open', activity30d: 9,
   },
   {
     market: { id: 'demo-market-amigos', name: 'Bitcoin Amigos PY', description: 'Grupo fechado de amigos', category: 'GENERAL', profile: 'P2P', visibility: 'PRIVATE', participantsCount: 24, adminIdentity: key('2d6a91'), createdAt: '2026-01-15T12:00:00Z', entryPolicy: { kyc: 'none', social: [] }, listed: false, state: 'PUBLISHED' },
     preset: 'comunidade',
   },
   {
-    market: { id: 'demo-market-abc', name: 'Clientes Empresa ABC', description: 'Mercado exclusivo para parceiros', category: 'BUSINESS_OTC', profile: 'EMPRESA_OTC', visibility: 'PRIVATE', participantsCount: 41, adminIdentity: key('e83c05'), createdAt: '2026-04-04T12:00:00Z', entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/empresa-abc', social: [] }, listed: false, state: 'PUBLISHED' },
+    market: { id: 'demo-market-abc', name: 'Clientes Empresa ABC', description: 'Mercado exclusivo para parceiros', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PRIVATE', participantsCount: 41, adminIdentity: key('e83c05'), createdAt: '2026-04-04T12:00:00Z', entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/empresa-abc', social: [] }, listed: false, state: 'PUBLISHED' },
     preset: 'vitrine', infrastructure: 'own',
   },
   {
     // Administered by the demo user: its page shows the admin's member list (public keys only).
-    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Mercado privado fictício que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PRIVATE', participantsCount: 4, adminIdentity: key('a7d3'), createdAt: '2026-11-01T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: false, state: 'PUBLISHED' },
-    preset: 'comunidade',
+    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Comunidade fictícia, com aprovação, que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 4, adminIdentity: key('a7d3'), createdAt: '2026-11-01T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: true, state: 'PUBLISHED' },
+    preset: 'comunidade', entry: 'approval', activity30d: 6,
   },
 ]
 
@@ -81,20 +85,5 @@ export const DEMO_MY_MARKETS: readonly MyMarketEntry[] = [
 /** Fictional members of the market the demo user administers (the admin sees public keys only, GK 2026-11-22). */
 export const DEMO_MEMBER_KEYS: readonly string[] = [key('a7d3'), key('5be90dfe1d'), key('c41d9e73a2'), key('b50ee0e9')]
 
-/** Fictional offers per market (the liquidity.discover({ marketId }) answer is not defined yet). */
-export interface DemoMarketOffer { id: string; marketId: string; side: 'BUY' | 'SELL'; asset: string; priceUsd: number; method: string; advertiser: string }
-export const DEMO_MARKET_OFFERS: readonly DemoMarketOffer[] = [
-  { id: 'mo-1', marketId: 'demo-market-clube', side: 'SELL', asset: 'BTC', priceUsd: 97_800, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-2', marketId: 'demo-market-clube', side: 'BUY', asset: 'USDT', priceUsd: 1, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-3', marketId: 'demo-market-traders', side: 'SELL', asset: 'BTC', priceUsd: 97_650, method: 'TED', advertiser: 'Bob' },
-  { id: 'mo-4', marketId: 'demo-market-traders', side: 'BUY', asset: 'BTC', priceUsd: 97_200, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-5', marketId: 'demo-market-loja', side: 'SELL', asset: 'USDT', priceUsd: 1.01, method: 'Pix', advertiser: 'Loja Exemplo' },
-  { id: 'mo-6', marketId: 'demo-market-boreal', side: 'SELL', asset: 'BTC', priceUsd: 97_900, method: 'TED', advertiser: 'Boreal OTC' },
-  { id: 'mo-7', marketId: 'demo-market-boreal', side: 'BUY', asset: 'USDC', priceUsd: 0.99, method: 'TED', advertiser: 'Boreal OTC' },
-  { id: 'mo-8', marketId: 'demo-market-sul', side: 'SELL', asset: 'BTC', priceUsd: 97_700, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-9', marketId: 'demo-market-amigos', side: 'SELL', asset: 'BTC', priceUsd: 97_500, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-10', marketId: 'demo-market-abc', side: 'SELL', asset: 'USDT', priceUsd: 1, method: 'TED', advertiser: 'Kestrel Câmbio' },
-  { id: 'mo-11', marketId: 'demo-market-convite', side: 'SELL', asset: 'BTC', priceUsd: 97_400, method: 'Pix', advertiser: 'Alice' },
-  { id: 'mo-12', marketId: 'demo-market-convite', side: 'BUY', asset: 'USDT', priceUsd: 1, method: 'Pix', advertiser: 'Bob' },
-  { id: 'mo-13', marketId: 'demo-market-meu', side: 'SELL', asset: 'BTC', priceUsd: 97_600, method: 'Pix', advertiser: 'Alice' },
-]
+/** Fictional join requests on the market the demo user administers ("Pedidos"). */
+export const DEMO_JOIN_REQUEST_KEYS: readonly string[] = [key('6c0ffee1'), key('d00dfeed')]

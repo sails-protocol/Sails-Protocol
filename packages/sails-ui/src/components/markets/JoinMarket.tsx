@@ -51,7 +51,7 @@ export interface JoinMarketCopy extends InviteStatusCopy {
   another: string
 }
 
-export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote, qrEntry, demoControls, grantedAction, onSubmit, onReset }: {
+export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote, qrEntry, demoControls, grantedAction, primarySolid = true, onSubmit, onReset }: {
   copy: JoinMarketCopy
   state: InviteState
   /** False = no contract: submit stays disabled and `unavailableNote` says why. */
@@ -63,6 +63,8 @@ export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote
   demoControls?: ReactNode
   /** Shown inside the "Acesso concedido" block (e.g. a link to the market page). */
   grantedAction?: ReactNode
+  /** One solid orange per screen: false without a session (the topbar holds it). */
+  primarySolid?: boolean
   onSubmit: (invite: string) => void
   onReset: () => void
 }) {
@@ -94,13 +96,15 @@ export function JoinMarketForm({ copy, state, contractAvailable, unavailableNote
         />
         <p id={`${id}-invite-help`} className="mt-1 text-caption text-brand-text-muted">{copy.inviteHelp}</p>
       </div>
-      {qrEntry}
+      {/* Once checking starts, the status and the demo answers come right under the field (no scrolling). */}
+      {state === 'idle' && qrEntry}
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
         {final ? (
           <Button type="button" variant="secondary" onClick={reset} className="touch:min-h-11">{copy.another}</Button>
         ) : (
           <Button
             type="submit"
+            variant={primarySolid ? 'default' : 'secondary'}
             disabled={!canSubmit}
             loading={state === 'validating'}
             aria-describedby={!contractAvailable && unavailableNote ? `${id}-unavailable` : undefined}
