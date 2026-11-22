@@ -16,6 +16,7 @@ import type { NodeListCopy } from '../markets/NodeList'
 import { NetworkSummary, type NetworkSummaryCopy } from '../markets/NetworkSummary'
 import { AddNodeForm, type AddNodeCopy } from '../markets/AddNodeForm'
 import { demoNodes } from '../../lib/demoMarkers'
+import { LOOSE_WIRES } from '../../lib/looseWires'
 import type { NodeView } from '../../lib/sailsNode'
 import { cn } from '../../lib/utils'
 import { WireNote, WirePlanned } from '../../pages/markets/shared'
@@ -101,6 +102,8 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
     <>
       <SettingsRow icon={BadgeCheck} label={t('settings.network.operator')} description={t('settings.network.operatorDescription')} plannedLabel={t('common.soon')} />
       <SettingsRow icon={Plus} label={t('settings.network.addNode')} description={t('settings.network.addNodeDescription')} onClick={() => setAdding(true)} />
+      {/* Not in Day 0 (DECISIONS.md "Nó Sails gerenciado"): no provisioning, price or availability promise. */}
+      <SettingsRow icon={LOOSE_WIRES.managedNode.icon} label={LOOSE_WIRES.managedNode.label} description={t('spaces.managedNode.description')} plannedLabel={t('common.soon')} />
       <li className="px-4 py-3">
         <Alert tone="info" size="sm" title={t('settings.network.notMarketTitle')}>
           {t('settings.network.notMarketBody')}

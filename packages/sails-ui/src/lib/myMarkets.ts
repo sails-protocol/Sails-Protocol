@@ -5,6 +5,7 @@
  * (a company storefront on Rede Sails); the Sails default public market always comes first. Pure, no I/O.
  */
 import { getLocale } from './locale'
+import type { EntryPolicy, MarketCategory, MarketProfile } from './marketContract'
 export type MarketVisibility = 'public' | 'private'
 /** How the person relates to the market: the default one, one they follow, administer or belong to, or none (discoverable only). */
 export type MarketRelation = 'default' | 'follows' | 'admin' | 'member' | 'none'
@@ -29,6 +30,15 @@ export interface MarketView {
   joinedByInvite?: boolean
   /** Demo/illustrative entry: the screen marks it so it is never read as real membership. */
   illustrative?: boolean
+  /** Market Spaces (lib/marketContract.ts draft): demo fixtures only until the contract exists. */
+  category?: MarketCategory
+  profile?: MarketProfile
+  /** The 3:1 banner: an object URL of the person's own local file (preview only). */
+  bannerImage?: string
+  /** Links supplied by the admin (iconRef/bannerRef): shown only after the person asks to load them (AdminImage). */
+  remoteIcon?: string
+  remoteBanner?: string
+  entryPolicy?: EntryPolicy
 }
 
 /**

@@ -5,23 +5,23 @@ const run = (events: InviteEvent[], from: InviteState = 'idle') => events.reduce
 describe('Sails Market Invite state machine', () => {
   it('walks every outcome from a submitted invite', () => {
     expect(run([{ type: 'submit' }])).toBe('validating')
-    for (const outcome of ['pending', 'granted', 'expired', 'revoked'] as const) {
+    for (const outcome of ['pending', 'granted', 'failed'] as const) {
       expect(run([{ type: 'submit' }, { type: 'validated', outcome }])).toBe(outcome)
     }
   })
 
-  it('pending becomes granted only when authorized, and can be revoked', () => {
+  it('pending becomes granted only when authorized; refusal and removal are the same generic failure', () => {
     expect(run([{ type: 'authorized' }], 'pending')).toBe('granted')
-    expect(run([{ type: 'revoked' }], 'pending')).toBe('revoked')
-    expect(run([{ type: 'revoked' }], 'granted')).toBe('revoked')
+    expect(run([{ type: 'failed' }], 'pending')).toBe('failed')
+    expect(run([{ type: 'failed' }], 'granted')).toBe('failed')
+    expect(INVITE_STATES).toEqual(['idle', 'validating', 'pending', 'granted', 'failed'])
   })
 
   it('ignores events that do not apply (no skipping validation, no reviving a final state)', () => {
     expect(run([{ type: 'authorized' }])).toBe('idle')
     expect(run([{ type: 'validated', outcome: 'granted' }])).toBe('idle')
     expect(run([{ type: 'submit' }], 'validating')).toBe('validating')
-    expect(run([{ type: 'authorized' }], 'expired')).toBe('expired')
-    expect(run([{ type: 'authorized' }], 'revoked')).toBe('revoked')
+    expect(run([{ type: 'authorized' }], 'failed')).toBe('failed')
     expect(run([{ type: 'submit' }], 'granted')).toBe('granted')
   })
 

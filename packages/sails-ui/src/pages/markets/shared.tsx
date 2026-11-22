@@ -6,34 +6,120 @@
  * fictional markets and lets an invite walk through its states. All copy of the prototype lives in Layer C (`markets.*`,
  * built at render so it follows the interface language); NODES_MARKETS_SCREENS is dev-gallery text and stays pt-BR.
  */
-import { useEffect, useReducer, useSyncExternalStore } from 'react'
-import { KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'lucide-react'
+import { useEffect, useReducer, useSyncExternalStore, type ReactNode } from 'react'
+import { BadgeCheck, KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'lucide-react'
+import { Link } from 'react-router'
 import { Badge } from '../../components/ui/badge'
-import { Button } from '../../components/ui/button'
+import { Button, buttonVariants } from '../../components/ui/button'
+import { marketPath } from '../../components/layout/navMatch'
+import { cn } from '../../lib/utils'
 import { PlannedItem } from '../../components/ui/PlannedItem'
+import { ExplanationPopover } from '../../components/ui/ExplanationPopover'
+import type { MarketCardCopy } from '../../components/markets/MarketCard'
+import type { AdminImageCopy } from '../../components/markets/AdminImage'
+import { DEMO_VERIFIED_CRITERIA, kycSummary, type KycSummary } from '../../lib/marketSpaces'
+import type { EntryPolicy, SocialLogin } from '../../lib/marketContract'
+import { formatUsd } from '../../lib/format'
+import { getLocale } from '../../lib/locale'
 import { InviteStatus, JoinMarketForm, type JoinMarketCopy } from '../../components/markets/JoinMarket'
 import type { MarketListCopy } from '../../components/markets/MarketList'
 import type { Fact } from '../../components/markets/FactList'
 import { LOOSE_WIRES, type LooseWireId } from '../../lib/looseWires'
-import { demoMarkets, isDemoMode, setDemoInviteGranted, subscribeDemoMarkets } from '../../lib/demoMarkers'
+import { DEMO_INVITED_MARKET_ID, demoMarkets, isDemoMode, setDemoInviteGranted, subscribeDemoMarkets } from '../../lib/demoMarkers'
 import { composeMyMarkets, type MarketView } from '../../lib/myMarkets'
 import { INVITE_STATES, nextInviteState, type InviteEvent, type InviteOutcome, type InviteState } from '../../lib/marketInvite'
 import { t } from '../../i18n'
 
-/** "Em breve" + the loose wires a disabled control waits for (each wire's label; the contract is in LOOSE_WIRES). */
-export function WireNote({ ids }: { ids: readonly LooseWireId[] }) {
+/** "Em breve" (or `badge`, e.g. "Em preparação") + the loose wires a disabled control waits for (the contract is in LOOSE_WIRES). */
+export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: string }) {
   return (
     <p className="text-caption text-brand-text-secondary">
-      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{t('common.soon')}</Badge>
+      <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{badge ?? t('common.soon')}</Badge>
       {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
     </p>
   )
 }
 
 /** A planned item backed by a loose wire; `label` overrides the wire's label when the screen names the feature differently. */
-export function WirePlanned({ id, label, description, className }: { id: LooseWireId; label?: string; description?: string; className?: string }) {
+export function WirePlanned({ id, label, description, badge, className }: { id: LooseWireId; label?: string; description?: string; badge?: string; className?: string }) {
   const wire = LOOSE_WIRES[id]
-  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={t('common.soon')} description={description} className={className} />
+  return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={badge ?? t('common.soon')} description={description} className={className} />
+}
+
+// --- Market Spaces (Comunidades, Mercados privados): copy shared by Explore, Meus mercados and the market page. ---
+
+/**
+ * Where a private market runs (PO 2026-11-22): the Satsails-managed Sails node is "Em breve" (never selectable, no
+ * provisioning, no availability promise); the person's own node is the choice that exists. `own` is the caller's line.
+ */
+export function PrivateHostingNote({ own }: { own: ReactNode }) {
+  return (
+    <div className="space-y-2 rounded-lg bg-brand-elevated p-3">
+      <p className="text-sm font-medium text-brand-text">{t('spaces.hosting.title')}</p>
+      <WirePlanned id="managedNode" label={t('spaces.hosting.managed')} description={t('spaces.hosting.managedNote')} />
+      {own}
+    </div>
+  )
+}
+
+export const categoryLabel = (m: Pick<MarketView, 'category'>) => (m.category ? t(`spaces.category.${m.category}`) : null)
+export const profileLabel = (m: Pick<MarketView, 'profile'>) => (m.profile ? t(`spaces.profile.${m.profile}`) : null)
+const SOCIAL_NAME: Record<SocialLogin, string> = { X: 'X', LINKEDIN: 'LinkedIn', GITHUB: 'GitHub' }
+export const socialNames = (list: readonly SocialLogin[]) => list.map((s) => SOCIAL_NAME[s]).join(', ')
+export const SOCIAL_OPTIONS = (Object.keys(SOCIAL_NAME) as SocialLogin[]).map((value) => ({ value, label: SOCIAL_NAME[value] }))
+
+export function kycText(k: KycSummary): string {
+  return k.kind === 'none' ? t('spaces.kyc.none') : k.kind === 'all' ? t('spaces.kyc.all') : t('spaces.kyc.above', { amount: formatUsd(k.thresholdUsd) })
+}
+export const entryText = (p: EntryPolicy | undefined) => {
+  const kyc = kycText(kycSummary(p))
+  return p && p.social.length > 0 ? t('spaces.create.summarySocial', { kyc, list: socialNames(p.social) }) : kyc
+}
+
+export function marketCardCopy(): MarketCardCopy {
+  const list = marketListCopy()
+  return {
+    illustrative: list.illustrative,
+    category: categoryLabel,
+    profile: profileLabel,
+    meta: (m) => {
+      const parts = [m.relation === 'default' ? list.relation.default : list.visibility[m.visibility]]
+      if (m.relation !== 'default' && m.relation !== 'none') parts.push(list.relation[m.relation])
+      if (m.participants !== undefined) parts.push(t('spaces.participants', { count: m.participants }))
+      return parts.join(' · ')
+    },
+  }
+}
+
+export const adminImageCopy = (): AdminImageCopy => ({
+  load: t('spaces.image.load'), privacy: t('spaces.image.privacy'), failed: t('spaces.image.failed'), linkLabel: t('spaces.adminLink'),
+})
+
+/** Demo only: the "Verificado" seal by fictional goals (DECISIONS.md "Perfil do mercado"); real mode never renders it. */
+export function DemoVerifiedSeal({ explain = false }: { explain?: boolean }) {
+  if (!isDemoMode()) return null
+  const c = DEMO_VERIFIED_CRITERIA
+  return (
+    <span className="relative z-10 inline-flex items-center gap-1">
+      <Badge variant="outline" className="gap-1 border-transparent bg-brand-info-bg font-medium text-brand-info-fg">
+        <BadgeCheck aria-hidden="true" className="size-icon-xs" />{t('spaces.verified')}
+      </Badge>
+      {explain && (
+        <ExplanationPopover
+          label={t('spaces.verified.trigger')}
+          explanation={{
+            title: t('spaces.verified.title'),
+            lines: [
+              t('spaces.verified.rating', { rating: c.minRating.toLocaleString(getLocale(), { minimumFractionDigits: 1 }), ratings: c.minRatings }),
+              t('spaces.verified.trades', { trades: c.minTrades }),
+              t('spaces.verified.volume', { volume: formatUsd(c.minVolumeUsd) }),
+            ],
+            footer: t('spaces.verified.footer'),
+          }}
+        />
+      )}
+    </span>
+  )
 }
 
 /** The Sails default public market, "Mercado aberto" (DECISIONS.md "Modelo mundo aberto"): the only real one today. */
@@ -94,23 +180,22 @@ function inviteCopy(): JoinMarketCopy {
     submit: t('markets.invite.submit'),
     another: t('markets.invite.another'),
     states: {
-      validating: inviteState('validating'), pending: inviteState('pending'), granted: inviteState('granted'),
-      expired: inviteState('expired'), revoked: inviteState('revoked'),
+      validating: inviteState('validating'), pending: inviteState('pending'), granted: inviteState('granted'), failed: inviteState('failed'),
     },
   }
 }
 
-// Each demo answer is labelled with the title of the state it leads to.
-const DEMO_OUTCOMES: readonly InviteOutcome[] = ['pending', 'granted', 'expired', 'revoked']
+// Each demo answer is labelled with the title of the state it leads to; 'failed' stands for invalid, expired or revoked.
+const DEMO_OUTCOMES: readonly InviteOutcome[] = ['pending', 'granted', 'failed']
 
 /** Demo only: the viewer answers for the protocol, step by step. Clearly fictional, never rendered in real mode. */
 function DemoInviteControls({ state, dispatch }: { state: InviteState; dispatch: (e: InviteEvent) => void }) {
   const buttons = state === 'validating'
     ? DEMO_OUTCOMES.map((o) => ({ key: o, label: inviteState(o).title, run: () => dispatch({ type: 'validated', outcome: o }) }))
     : state === 'pending'
-      ? [{ key: 'auth', label: t('markets.invite.demo.authorize'), run: () => dispatch({ type: 'authorized' }) }, { key: 'rev', label: t('markets.invite.demo.revoke'), run: () => dispatch({ type: 'revoked' }) }]
+      ? [{ key: 'auth', label: t('markets.invite.demo.authorize'), run: () => dispatch({ type: 'authorized' }) }, { key: 'fail', label: t('markets.invite.demo.refuse'), run: () => dispatch({ type: 'failed' }) }]
       : state === 'granted'
-        ? [{ key: 'rev', label: t('markets.invite.demo.revoke'), run: () => dispatch({ type: 'revoked' }) }]
+        ? [{ key: 'fail', label: t('markets.invite.demo.revoke'), run: () => dispatch({ type: 'failed' }) }]
         : []
   return (
     <div className="rounded-lg bg-brand-elevated p-3">
@@ -134,16 +219,20 @@ export function JoinMarketPanel() {
   // Demo only: a granted fictional invite adds its market to the portal (right after Mercado aberto); revoked removes it.
   useEffect(() => {
     if (state === 'granted') setDemoInviteGranted(true)
-    else if (state === 'revoked') setDemoInviteGranted(false)
+    else if (state === 'failed') setDemoInviteGranted(false)
   }, [state])
   return (
     <JoinMarketForm
       copy={inviteCopy()}
       state={state}
       contractAvailable={demo}
-      unavailableNote={<WireNote ids={['marketInvite', 'marketMembership']} />}
+      // Private markets have no access-control contract yet: "Em preparação", not just "Em breve" (CTO 31).
+      unavailableNote={<WireNote ids={['marketInvite', 'marketMembership']} badge={t('spaces.preparing')} />}
       qrEntry={<WirePlanned id="marketInviteQr" description={t('markets.invite.qrPlanned')} />}
       demoControls={demo && state !== 'idle' ? <DemoInviteControls state={state} dispatch={dispatch} /> : undefined}
+      grantedAction={demo ? (
+        <Link to={marketPath(DEMO_INVITED_MARKET_ID)} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('spaces.page.openInvited')}</Link>
+      ) : undefined}
       onSubmit={() => dispatch({ type: 'submit' })}
       onReset={() => dispatch({ type: 'reset' })}
     />
@@ -163,6 +252,15 @@ export const NODES_MARKETS_SCREENS: readonly { screen: string; where: string; wi
   { screen: 'Rede Sails e conexão', where: 'Configurações → Rede e nós', wires: ['nodeCatalog'] },
   { screen: 'Adicionar nó manualmente', where: 'Configurações → Rede e nós', wires: ['nodeCatalog', 'manualServer'] },
   { screen: 'Avançado: nós, operadores e diagnóstico', where: 'Configurações → Rede e nós', wires: ['nodeCatalog', 'nodeStateSync', 'connectionDiagnostics'] },
+  // Market Spaces (Principal contract draft, lib/marketContract.ts; proposal pending the CTO's Day 0 cut). Each wire's
+  // contract names the SDK call: this table is the screen -> endpoint/field map for the Principal.
+  { screen: 'Comunidades (filtro por categoria, paginação)', where: 'Market → Mercados (/markets)', wires: ['marketDiscovery', 'marketBranding'] },
+  { screen: 'Meus mercados em grade ou lista', where: 'Market → Mercados (/markets/mine)', wires: ['marketMembership'] },
+  { screen: 'Página do mercado (identidade, regras, ofertas, participantes)', where: '/markets/:id', wires: ['marketPage', 'marketEntryPolicy', 'marketMembership', 'marketVerification'] },
+  { screen: 'Chat do grupo (demonstração)', where: '/markets/:id', wires: ['marketGroupChat'] },
+  { screen: 'Criar mercado: categoria, perfil, ícone, banner, KYC e login social', where: 'Market → Mercados (/markets/new)', wires: ['createMarket', 'marketBranding', 'marketEntryPolicy'] },
+  { screen: 'Comprar espaço (serviço Satsails, só demonstração)', where: '/markets/space', wires: ['spacePurchase'] },
+  { screen: 'Nó Sails gerenciado', where: 'Configurações → Rede e nós', wires: ['managedNode'] },
 ]
 
 /** Every invite state, static, for the dev gallery. */

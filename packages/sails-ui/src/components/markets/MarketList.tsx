@@ -43,7 +43,8 @@ export function MarketList({ markets, copy, action, className }: {
                 {m.illustrative && <Badge variant="outline" className={TAG}>{copy.illustrative}</Badge>}
               </div>
               <p className="mt-0.5 text-caption text-brand-text-secondary">
-                {copy.visibility[m.visibility]}{m.relation !== 'none' && <> · {copy.relation[m.relation]}</>}
+                {/* The open market is the whole network, not one of the public markets: no "Público" label. */}
+                {m.relation === 'default' ? copy.relation.default : <>{copy.visibility[m.visibility]}{m.relation !== 'none' && <> · {copy.relation[m.relation]}</>}</>}
                 {m.preset && <> · {copy.presetLabel} {copy.preset[m.preset]}</>}
               </p>
               <p className="text-caption text-brand-text-muted">{copy.infrastructureLabel} {copy.infrastructure[m.infrastructure]}</p>
