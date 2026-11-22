@@ -450,7 +450,11 @@ body {
    Never `outline-none` on a focusable element without a replacement. */
 /* `touch:` = coarse pointer (any width) or a phone-width window: 44px targets.
    Fine pointer at >= 768px keeps the dense 36/40 controls. Provisório. */
-@custom-variant touch (@media (pointer: coarse), (max-width: 767.98px));
+/* Block form: the one-line form with a comma media list compiled to (pointer: coarse) only, dropping the width rule. */
+@custom-variant touch {
+  @media (pointer: coarse) { @slot; }
+  @media (max-width: 767.98px) { @slot; }
+}
 
 /* Enter/exit motion for overlays (no plugin): the shadcn-style classes
    animate-in/out, fade-*, zoom-*, slide-* set per-element variables these

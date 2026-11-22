@@ -14,6 +14,7 @@ import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
 import { deadlineMilestone, escrowDeadlineView, MILESTONE_ANNOUNCEMENT } from '../../lib/escrowDeadline'
 import { useMilestoneAnnouncement, useTickingNow } from './useDeadlineClock'
+import { serverNow } from '../../lib/serverClock'
 import type { EscrowStatus } from '../../types'
 
 export function EscrowCountdown({
@@ -27,7 +28,8 @@ export function EscrowCountdown({
 }) {
   // The view's kind does not depend on the time; only an active one ticks.
   const active = escrowDeadlineView({ expiresAt, timelockHours, status }, 0)?.kind === 'active'
-  const now = useTickingNow(active && expiresAt ? Date.parse(expiresAt) : null)
+  // Server clock (Date header offset), like the dispute countdown: a wrong device clock must not move the deadline.
+  const now = useTickingNow(active && expiresAt ? Date.parse(expiresAt) : null, serverNow)
   const view = escrowDeadlineView({ expiresAt, timelockHours, status }, now)
 
   // Announce only when a later milestone is reached while the page is open (never on load).

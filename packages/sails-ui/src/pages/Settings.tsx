@@ -253,7 +253,7 @@ export function Settings() {
               icon={Link2}
               label={t('settings.network.address')}
               value={<span className="font-mono text-xs">{nodeHost()}</span>}
-              control={<CopyButton value={BASE_URL} className="min-h-9 touch:min-h-11 px-3" />}
+              control={<CopyButton value={BASE_URL} ariaLabel={t('settings.network.copyAddress')} className="min-h-9 touch:min-h-11 px-3" />}
             />
             <SettingsRow icon={Activity} label={t('settings.network.connection')} value={<ConnectionStatus status={nodeStatus} />} />
             {/* "Nós públicos e privados" and "Nó manual" are covered by the node catalogue (nodeCatalog, under Avançado) and
@@ -271,7 +271,7 @@ export function Settings() {
                   icon={ShieldCheck}
                   label={t('settings.wallet.publicKey')}
                   value={<span className="font-mono text-xs">{shortKey(user.publicKey)}</span>}
-                  control={<CopyButton value={user.publicKey} className="min-h-9 touch:min-h-11 px-3" />}
+                  control={<CopyButton value={user.publicKey} ariaLabel={t('settings.wallet.copyKey')} className="min-h-9 touch:min-h-11 px-3" />}
                 />
                 <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={disconnect} />
               </>
