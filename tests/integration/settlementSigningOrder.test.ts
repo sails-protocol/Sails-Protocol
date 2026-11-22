@@ -81,7 +81,7 @@ describe('MULTISIG disputed settlement signing order (real PostgreSQL, real PSBT
     expect(await prisma.escrowPendingTransaction.count({ where: { escrowId: f.escrow.id } })).toBe(0)
   })
 
-  it('2: a RESOLVED ruling round carries NO signature; the beneficiary alone cannot complete it outside Sails; the in-Sails execution adds the arbiter signature and settles once', async () => {
+  it('2: a RESOLVED ruling round carries no signature; one party alone cannot complete it; execution adds the arbiter signature and settles once', async () => {
     pg.requirePostgres('2')
     const f = await funded('ruled')
     const dispute = await getDisputeService().raiseDispute(f.trade.id, f.buyer.id, 'sso')
@@ -108,22 +108,22 @@ describe('MULTISIG disputed settlement signing order (real PostgreSQL, real PSBT
     await expect(escrowService.initiateRelease(f.escrow.id, undefined, ARBITER_ID)).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
   })
 
-  it('4: legacy rounds: a stored partial signature never leaves the server in any response, and is accepted at execution only if valid', async () => {
+  it('4: a stored partial signature never leaves the server in any response, and is accepted at execution only if valid', async () => {
     pg.requirePostgres('4')
-    const f = await funded('legacy')
+    const f = await funded('stored-sig')
     const dispute = await getDisputeService().raiseDispute(f.trade.id, f.buyer.id, 'sso')
     await resolve(f, dispute.id, 'RELEASE')
     const r = await round(f.escrow.id)
-    // Simulate a round persisted before the fix: the arbiter's signature embedded in the stored PSBT.
+    // A stored round whose PSBT already carries the arbiter's signature.
     const keys = await loadParticipantPubkeys(f.escrow.id)
-    const legacy = multisigProvider.signAsArbiterAtExecution(
+    const withSig = multisigProvider.signAsArbiterAtExecution(
       { tradeId: f.trade.id, lockedAmount: '0.001', ...keys, status: 'DISPUTED', triggeredBy: ARBITER_ID }, r.unsignedPsbtBase64)
-    await prisma.$executeRaw`UPDATE escrow_pending_transactions SET "unsignedPsbtBase64" = ${legacy} WHERE id = ${r.id}`
+    await prisma.$executeRaw`UPDATE escrow_pending_transactions SET "unsignedPsbtBase64" = ${withSig} WHERE id = ${r.id}`
     const stored = await round(f.escrow.id)
     expect(partialSigs(stored.unsignedPsbtBase64)).toBe(1)
     expect(partialSigs(toPendingTransactionResponse(stored).unsignedPsbtBase64)).toBe(0)
     expect(partialSigs(withoutPartialSignatures(stored).unsignedPsbtBase64)).toBe(0)
-    // Execution accepts the valid legacy signature (no duplicate is added) and settles once.
+    // Execution accepts the valid stored signature (no duplicate is added) and settles once.
     const done = await escrowService.submitTransactionSignature(f.escrow.id, f.buyer.id, signRound(stored.unsignedPsbtBase64, buyerKey), r.id)
     expect(done.complete).toBe(true)
     expect(chain.broadcasts).toHaveLength(1)

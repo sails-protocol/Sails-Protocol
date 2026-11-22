@@ -581,7 +581,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     // not just this input) by construction. Asserted directly here rather
     // than only inferred: the arbiter's own pre-signature's DER-encoded
     // signature bytes must end in the SIGHASH_ALL byte (0x01).
-    // The round itself carries no signature at all: a disputed round is never pre-signed by the arbiter.
+    // The round itself carries no signature at all; the arbiter signs only at execution.
     expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig ?? []).toHaveLength(0)
     // The buyer's signature alone cannot complete it (2-of-3).
     const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })

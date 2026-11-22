@@ -820,8 +820,8 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     await resolve(c, dispute.id, 'REFUND')
     const ruling = (await liveRound(c.escrow.id))!
     expect(ruling.disputeId).toBe(dispute.id)
-    // The round carries no arbiter signature any more. A pre-fix (legacy) round did, so the outside spend that such a
-    // round allowed is simulated with the arbiter signature produced directly; the property under test is unchanged.
+    // The round itself carries no arbiter signature; this case needs a completed external spend, built here with the
+    // arbiter signature produced directly. The property under test is unchanged.
     const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
     const { loadParticipantPubkeys } = require('../../src/modules/open-settlement/escrow-lifecycle')
     const keys = await loadParticipantPubkeys(c.escrow.id)
