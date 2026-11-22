@@ -70,7 +70,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
         <Badge variant="outline" className="shrink-0 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{plannedLabel}</Badge>
       ) : (
         <>
-          {value !== undefined && <span className="text-sm text-brand-text-secondary text-right shrink-0 max-w-[50%] truncate">{value}</span>}
+          {value !== undefined && <span className="text-sm text-brand-text-secondary text-right shrink-0 max-w-[50%] break-words">{value}</span>}
           {control}
           {(onClick || to) && !control && <ChevronRight className="h-4 w-4 text-brand-text-muted shrink-0" aria-hidden="true" />}
         </>

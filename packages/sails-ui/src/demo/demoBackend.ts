@@ -21,7 +21,7 @@ import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
 import type { DisputeAppealView } from '../lib/disputeAppeal'
 
 const FLAG_KEY = DEMO_FLAG_KEY
-const STATE_KEY = 'sails_demo_state_v5'
+const STATE_KEY = 'sails_demo_state_v6'
 // The encrypted identity/escrow keypairs AuthContext/useEscrowKey keep in
 // localStorage. In demo mode they are never stored or handed back, so every
 // login generates a fresh key and any passphrase works. Every other
@@ -128,7 +128,8 @@ function seed(): DemoState {
     offer('demo-offer-3', m, { asset: 'USDT_TRC20', side: 'SELL', priceUsd: '1.002', minAmount: '50', maxAmount: '2000', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: mare-mansa@exemplo.invalid', description: null }, 3),
     offer('demo-offer-4', a, { asset: 'USDT_ERC20', side: 'BUY', priceUsd: '0.998', minAmount: '100', maxAmount: '5000', paymentMethod: 'TED', demoPaymentMethods: ['TED', 'PIX', 'BANK_TRANSFER'], paymentDetails: null, description: 'Compro USDT — exemplo fictício.' }, 5),
     offer('demo-offer-5', a, { asset: 'BTC', side: 'SELL', priceUsd: '97800', minAmount: '0.0005', maxAmount: '0.01', paymentMethod: 'TED', paymentDetails: 'Banco Fictício 000, ag. 0001, conta 12345-6', description: null }, 4),
-    offer('demo-offer-6', g, { asset: 'USDT_LIQUID', side: 'SELL', priceUsd: '1.004', minAmount: '20', maxAmount: '1500', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Dados bancários fictícios combinados pelo chat (exemplo).', description: null }, 6),
+    // Official catalog pair (CTO 28, #734): the demo never offers a legacy rail such as USDT on Liquid.
+    offer('demo-offer-6', g, { asset: 'USDT_TRC20', side: 'SELL', priceUsd: '1.004', minAmount: '20', maxAmount: '1500', paymentMethod: 'BANK_TRANSFER', paymentDetails: 'Dados bancários fictícios (exemplo).', description: null }, 6),
     offer('demo-offer-me-1', ME, { asset: 'BTC', side: 'SELL', priceUsd: '97600', minAmount: '0.001', maxAmount: '0.02', paymentMethod: 'PIX', paymentDetails: 'Chave PIX fictícia: voce-demo@exemplo.invalid', description: 'Minha oferta de exemplo (modo demonstração).' }, 3),
     { ...offer('demo-offer-me-2', ME, { asset: 'USDT_TRC20', side: 'BUY', priceUsd: '0.999', minAmount: '100', maxAmount: '1000', paymentMethod: 'TED', paymentDetails: null, description: null }, 9), status: 'PAUSED' },
   ]
@@ -516,7 +517,7 @@ function parseGoal(goal: string) {
   const g = goal.toLowerCase()
   const numbers = (goal.match(/\d+(?:[.,]\d+)?/g) ?? []).map((n) => n.replace(',', '.'))
   return {
-    asset: /liquid/.test(g) ? 'USDT_LIQUID' : /usdt|tether|d[oó]lar/.test(g) ? 'USDT_TRC20' : 'BTC',
+    asset: /usdt|tether|d[oó]lar/.test(g) ? 'USDT_TRC20' : /liquid/.test(g) ? 'LIQUID_BTC' : 'BTC',
     side: /vend|sell/.test(g) ? 'SELL' as const : 'BUY' as const,
     minValue: numbers[0] ?? '100',
     maxValue: numbers[numbers.length - 1] ?? '1000',
