@@ -9,7 +9,7 @@
  * Payment details never appear here: they exist only inside the trade. Everything lives in memory and every send says
  * "Simulado: nada foi enviado ao nó Sails" (LOOSE_WIRES.marketGroupChat, marketDirectMessage, marketIntentPost).
  */
-import { useId, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { AlertTriangle, ArrowLeft, MessageCircle, MessagesSquare, ShieldAlert } from 'lucide-react'
 import { Tabs, tabPanelProps } from '../../components/ui/tabs'
@@ -120,19 +120,27 @@ function IntentForm({ onPost, onCancel }: { onPost: (i: Intent) => void; onCance
 }
 
 /** `membersSlot` renders the admin's member list (public keys only) with a way into a private conversation. */
-export function MarketChats({ membersSlot }: { membersSlot?: (openPrivate: (peer: Peer) => void) => ReactNode }) {
+export interface OpenPrivateRequest { peer: Peer; context?: string; side?: 'BUY' | 'SELL'; key: number }
+
+export function MarketChats({ membersSlot, openWith }: {
+  membersSlot?: (openPrivate: (peer: Peer) => void) => ReactNode
+  /** Opens (or reopens) a private conversation from outside, e.g. "Conversar" on an offer; `context` is shown on top. */
+  openWith?: OpenPrivateRequest | null
+}) {
   const idBase = useId()
   const [tab, setTab] = useState<Tab>('group')
   const [group, setGroup] = useState<readonly Msg[]>(SEED_GROUP)
   const [posting, setPosting] = useState(false)
-  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; msgs: readonly Msg[] }>>({})
+  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; msgs: readonly Msg[] }>>({})
   const [open, setOpen] = useState<string | null>(null)
 
-  const openPrivate = (peer: Peer, intent?: Intent) => {
-    setThreads((th) => (th[peer.seed] ? { ...th, [peer.seed]: { ...th[peer.seed], intent: intent ?? th[peer.seed].intent } } : { ...th, [peer.seed]: { peer, intent, msgs: [] } }))
+  const openPrivate = (peer: Peer, intent?: Intent, context?: string, side?: 'BUY' | 'SELL') => {
+    setThreads((th) => ({ ...th, [peer.seed]: { peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side } }))
     setOpen(peer.seed)
     setTab('private')
   }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (openWith) openPrivate(openWith.peer, undefined, openWith.context, openWith.side) }, [openWith?.key])
   const sendGroup = (text: string) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }]); simulatedToast() }
   const postIntent = (intent: Intent) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }]); setPosting(false); simulatedToast() }
   const sendPrivate = (seed: string, text: string) => {
@@ -198,12 +206,13 @@ export function MarketChats({ membersSlot }: { membersSlot?: (openPrivate: (peer
               {/* Fixed at the top of every private conversation (PO). */}
               <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')} />
               {thread.intent && <IntentCard intent={thread.intent} />}
+              {thread.context && <p className="rounded-md bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">{thread.context}</p>}
               <ul className="space-y-2" aria-label={t('spaces.chat.privateWith', { name: thread.peer.author })}>
                 {thread.msgs.length === 0 && <li className="text-caption text-brand-text-secondary">{t('spaces.chat.privateNew')}</li>}
                 {thread.msgs.map((m) => <Bubble key={m.id} m={m} />)}
               </ul>
               <Composer label={t('spaces.chat.privatePlaceholder')} onSend={(v) => sendPrivate(thread.peer.seed, v)} warn />
-              <Link to={`${TRADES_ROUTES.newOffer}?side=${thread.intent ? ANSWER_SIDE[thread.intent.type] : 'SELL'}`} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
+              <Link to={`${TRADES_ROUTES.newOffer}?side=${thread.side ?? (thread.intent ? ANSWER_SIDE[thread.intent.type] : 'SELL')}`} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
             </>
           )}
         </div>

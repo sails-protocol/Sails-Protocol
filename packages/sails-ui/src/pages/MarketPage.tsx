@@ -6,7 +6,7 @@
  * (404): "não encontrado ou sem acesso", never confirming that it exists. The group chat is demonstration/roadmap,
  * apart from the per-trade chat (the only real chat).
  */
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useParams } from 'react-router'
 import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
@@ -19,16 +19,22 @@ import { MarketBanner } from '../components/markets/MarketBanner'
 import { MarketIcon } from '../components/markets/MarketIcon'
 import { AdminImage } from '../components/markets/AdminImage'
 import { IconButton } from '../components/ui/icon-button'
-import { MarketChats } from './markets/MarketChats'
+import { MarketChats, type OpenPrivateRequest } from './markets/MarketChats'
+import { Tabs, tabPanelProps } from '../components/ui/tabs'
+import { SegmentedControl } from '../components/ui/SegmentedControl'
+import { FilterChip } from '../components/ui/filter-chip'
+import { Button } from '../components/ui/button'
 import { demoMarketPage, demoMarkets, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
 import { canSeeOffers, kycSummary } from '../lib/marketSpaces'
 import { formatMonthYear, formatUsd } from '../lib/format'
 import { cn } from '../lib/utils'
-import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, socialNames, WireNote, WirePlanned } from './markets/shared'
+import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote, WirePlanned } from './markets/shared'
 import { t } from '../i18n'
 
 const SECTION = 'rounded-lg bg-brand-surface p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
+// The viewer's side, as in the Market list: a sell offer is bought.
+const viewerSide = (offerSide: 'BUY' | 'SELL'): 'BUY' | 'SELL' => (offerSide === 'SELL' ? 'BUY' : 'SELL')
 
 /** Start and end always visible, the whole key for screen readers (DECISIONS.md "Chave pública no Perfil"). */
 function MonoKey({ value }: { value: string }) {
@@ -76,6 +82,11 @@ function NotFound() {
 export function MarketPage() {
   const { id = '' } = useParams()
   const snapshot = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
+  const idBase = useId()
+  const [tab, setTab] = useState<'offers' | 'chat' | 'about'>('offers')
+  const [side, setSide] = useState<'all' | 'BUY' | 'SELL'>('all')
+  const [asset, setAsset] = useState<string | null>(null)
+  const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(null)
   if (id === 'public') return <Navigate to="/" replace />
   const demo = isDemoMode()
   const page = demo ? demoMarketPage(id, snapshot) : null
@@ -119,6 +130,18 @@ export function MarketPage() {
   // Keeps 3:1 in the detail column; capped on wide screens so it never pushes the content below the fold.
   const banner = <MarketBanner market={m} image={m.bannerImage} className="md:max-h-64" />
 
+  const offers = page.offers.filter((o) => (side === 'all' || viewerSide(o.side) === side) && (!asset || o.asset === asset))
+  const assets = [...new Set(page.offers.map((o) => o.asset))]
+  const talk = (o: (typeof page.offers)[number]) => {
+    setChatRequest({
+      peer: { author: o.advertiser, seed: `demo-member-${o.advertiser.toLowerCase().replace(/\s+/g, '-')}` },
+      context: t('spaces.offers.context', { side: viewerSide(o.side) === 'BUY' ? t('labels.side.buy') : t('labels.side.sell'), asset: o.asset, price: formatUsd(o.priceUsd), method: o.method }),
+      side: viewerSide(o.side),
+      key: Date.now(),
+    })
+    setTab('chat')
+  }
+
   return (
     <Page width="detail">
       <PageHeader title={m.name} meta={m.visibility === 'private' ? list.visibility.private : list.visibility.public} back={back} />
@@ -134,84 +157,121 @@ export function MarketPage() {
                 {m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
               </div>
               {m.description && <p className="mt-1 break-words text-body-sm text-brand-text-secondary">{m.description}</p>}
+              <p className="mt-1 tabular-nums text-caption text-brand-text-muted">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : ''}{m.relation !== 'none' ? ` · ${list.relation[m.relation]}` : ''}</p>
             </div>
           </div>
-          <dl className="mt-3 divide-y divide-brand-border-subtle">
-            {category && <Fact k={t('spaces.create.category')}>{category}</Fact>}
-            <Fact k={t('spaces.page.participants')}><span className="tabular-nums">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : t('common.soon')}</span></Fact>
-            {m.preset && <Fact k={t('spaces.page.model')}>{list.preset[m.preset]}</Fact>}
-            <Fact k={t('spaces.page.createdAt')}>{formatMonthYear(page.createdAt)}</Fact>
-            <Fact k={list.infrastructureLabel.replace(/:$/, '')}>{list.infrastructure[m.infrastructure]}</Fact>
-          </dl>
-          {m.visibility === 'private' && <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.singleNode')}</p>}
         </section>
 
-        <section aria-labelledby="market-rules" className={SECTION}>
-          <h2 id="market-rules" className="text-section-title">{t('spaces.page.rulesTitle')}</h2>
-          <dl className="mt-2 divide-y divide-brand-border-subtle">
-            <Fact k={t('markets.preview.publishes')}>{presetRules.publishes}</Fact>
-            <Fact k={t('markets.preview.trades')}>{presetRules.trades}</Fact>
-            <Fact k={t('spaces.page.kyc')}>
-              {kycText(kyc)}
-              {kyc.kind !== 'none' && kyc.formUrl && <div><ExternalAdminLink href={kyc.formUrl} label={t('spaces.page.kycForm')} /></div>}
-            </Fact>
-            <Fact k={t('spaces.page.social')}>{social.length > 0 ? socialNames(social) : t('spaces.page.socialNone')}</Fact>
-          </dl>
-          <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
-        </section>
+        {/* Offers first (PO 2026-11-22): what is available, at once; the chat is optional. */}
+        <Tabs
+          idBase={idBase}
+          label={m.name}
+          value={tab}
+          onChange={setTab}
+          items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.chat.title') }, { value: 'about', label: t('spaces.page.tabAbout') }]}
+        />
 
-        <section aria-labelledby="market-offers" className={SECTION}>
-          <h2 id="market-offers" className="text-section-title">{t('spaces.page.offersTitle')}</h2>
+        <div {...tabPanelProps(idBase, 'offers')} hidden={tab !== 'offers'} className={cn(SECTION, 'space-y-3 outline-none')}>
           {page.offers.length === 0 ? (
-            <p className="mt-2 text-body-sm text-brand-text-secondary">{t('spaces.page.offersEmpty')}</p>
+            <div className="space-y-3 py-4 text-center">
+              <p className="text-body-sm text-brand-text">{t('spaces.offers.empty')}</p>
+              <Button type="button" variant="secondary" onClick={() => simulatedToast(t('spaces.offers.publishSimulated'))} className="touch:min-h-11">{t('spaces.offers.publishHere')}</Button>
+            </div>
           ) : (
             <>
-              <p className="mt-1 text-caption text-brand-text-muted">{t('spaces.page.offersDemo')}</p>
-              {m.visibility === 'private' && <p className="mt-1 text-caption text-brand-text-muted">{t('spaces.page.privateAccess')}</p>}
-              <ul className="mt-2 divide-y divide-brand-border-subtle">
-                {page.offers.map((o) => (
-                  <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 py-2">
-                    {/* The viewer's action, as in the Market list: a sell offer is bought. */}
-                    <SideBadge side={o.side === 'SELL' ? 'BUY' : 'SELL'} />
-                    <span className="text-body-sm font-medium text-brand-text">{o.asset}</span>
-                    <span className="tabular-nums text-body-sm text-brand-text">{formatUsd(o.priceUsd)}</span>
-                    <span className="text-caption text-brand-text-secondary">{o.method}</span>
-                    <span className="ml-auto text-caption text-brand-text-secondary">{o.advertiser}</span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-
-        <section aria-label={t('spaces.chat.sectionTitle')} className={SECTION}>
-          <MarketChats
-            membersSlot={m.relation === 'admin' ? (openPrivate) => (
-              <div className="pt-2">
-                <h3 className="text-sm font-medium text-brand-text">{t('spaces.page.membersTitle')}</h3>
-                <p className="mt-0.5 text-caption text-brand-text-secondary">{t('spaces.page.membersLead')}</p>
-                {page.memberKeys.length === 0 ? (
-                  <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
-                ) : (
-                  <ul aria-label={t('spaces.page.membersTitle')} className="mt-1 divide-y divide-brand-border-subtle">
-                    {page.memberKeys.map((k) => (
-                      <li key={k} className="flex items-center gap-2 py-1">
-                        <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
-                        <IconButton label={t('spaces.chat.privateWith', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => openPrivate({ author: `${k.slice(0, 10)}…${k.slice(-8)}`, seed: k })}>
-                          <MessageCircle aria-hidden="true" />
-                        </IconButton>
-                      </li>
-                    ))}
-                  </ul>
+              <div className="flex flex-wrap items-center gap-2">
+                <SegmentedControl label={t('spaces.offers.sideLabel')} value={side} onChange={setSide} options={[{ value: 'all', label: t('spaces.offers.all') }, { value: 'BUY', label: t('labels.side.buy') }, { value: 'SELL', label: t('labels.side.sell') }]} />
+                {assets.length > 1 && (
+                  <div role="group" aria-label={t('spaces.offers.assetLabel')} className="flex flex-wrap gap-2">
+                    {assets.map((a) => <FilterChip key={a} label={a} selected={asset === a} onToggle={() => setAsset(asset === a ? null : a)} />)}
+                  </div>
                 )}
               </div>
-            ) : undefined}
-          />
+              <p className="text-caption text-brand-text-muted">{t('spaces.page.offersDemo')}</p>
+              {m.visibility === 'private' && <p className="text-caption text-brand-text-muted">{t('spaces.page.privateAccess')}</p>}
+              {offers.length === 0 ? <p className="text-body-sm text-brand-text-secondary">{t('spaces.offers.noMatch')}</p> : (
+                <ul className="divide-y divide-brand-border-subtle">
+                  {offers.map((o) => (
+                    <li key={o.id} className="flex flex-wrap items-center gap-x-4 gap-y-2 py-2">
+                      {/* The viewer's action, as in the Market list: a sell offer is bought. */}
+                      <SideBadge side={viewerSide(o.side)} />
+                      <span className="text-body-sm font-medium text-brand-text">{o.asset}</span>
+                      <span className="tabular-nums text-body-sm text-brand-text">{formatUsd(o.priceUsd)}</span>
+                      <span className="text-caption text-brand-text-secondary">{o.method} · {o.advertiser}</span>
+                      <span className="ml-auto flex gap-2">
+                        <Button type="button" size="sm" variant="ghost" onClick={() => talk(o)} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.offers.talk')}</Button>
+                        <Button type="button" size="sm" variant={viewerSide(o.side) === 'BUY' ? 'buy-tonal' : 'sell-tonal'} onClick={() => simulatedToast(t('spaces.offers.tradeSimulated'))} className="touch:min-h-11">
+                          {viewerSide(o.side) === 'BUY' ? t('labels.side.buy') : t('labels.side.sell')}
+                        </Button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+
+        <div {...tabPanelProps(idBase, 'chat')} hidden={tab !== 'chat'} className={cn(SECTION, 'outline-none')}>
+          <MarketChats openWith={chatRequest} />
           <div className="mt-4 space-y-2">
             <WirePlanned id="marketGroupChat" description={t('spaces.chat.planned')} />
             <WirePlanned id="marketDirectMessage" description={t('spaces.chat.privatePlanned')} />
           </div>
-        </section>
+        </div>
+
+        <div {...tabPanelProps(idBase, 'about')} hidden={tab !== 'about'} className="space-y-4 outline-none">
+          <section aria-labelledby="market-facts" className={SECTION}>
+            <h2 id="market-facts" className="sr-only">{t('spaces.page.tabAbout')}</h2>
+            <dl className="divide-y divide-brand-border-subtle">
+              {category && <Fact k={t('spaces.create.category')}>{category}</Fact>}
+              <Fact k={t('spaces.page.participants')}><span className="tabular-nums">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : t('common.soon')}</span></Fact>
+              {m.preset && <Fact k={t('spaces.page.model')}>{list.preset[m.preset]}</Fact>}
+              <Fact k={t('spaces.page.createdAt')}>{formatMonthYear(page.createdAt)}</Fact>
+              <Fact k={list.infrastructureLabel.replace(/:$/, '')}>{list.infrastructure[m.infrastructure]}</Fact>
+            </dl>
+            {m.visibility === 'private' && <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.singleNode')}</p>}
+          </section>
+
+          <section aria-labelledby="market-rules" className={SECTION}>
+            <h2 id="market-rules" className="text-section-title">{t('spaces.page.rulesTitle')}</h2>
+            <dl className="mt-2 divide-y divide-brand-border-subtle">
+              <Fact k={t('markets.preview.publishes')}>{presetRules.publishes}</Fact>
+              <Fact k={t('markets.preview.trades')}>{presetRules.trades}</Fact>
+              <Fact k={t('spaces.page.kyc')}>
+                {kycText(kyc)}
+                {kyc.kind !== 'none' && kyc.formUrl && <div><ExternalAdminLink href={kyc.formUrl} label={t('spaces.page.kycForm')} /></div>}
+              </Fact>
+              <Fact k={t('spaces.page.social')}>{social.length > 0 ? socialNames(social) : t('spaces.page.socialNone')}</Fact>
+            </dl>
+            <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
+          </section>
+
+          {m.relation === 'admin' && (
+            <section aria-labelledby="market-members" className={SECTION}>
+              <h2 id="market-members" className="text-section-title">{t('spaces.page.membersTitle')}</h2>
+              <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.page.membersLead')}</p>
+              {page.memberKeys.length === 0 ? (
+                <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
+              ) : (
+                <ul aria-label={t('spaces.page.membersTitle')} className="mt-2 divide-y divide-brand-border-subtle">
+                  {page.memberKeys.map((k) => (
+                    <li key={k} className="flex items-center gap-2 py-1">
+                      <span className="min-w-0 flex-1"><MonoKey value={k} /></span>
+                      <IconButton
+                        label={t('spaces.chat.privateWith', { name: `${k.slice(0, 10)}…` })}
+                        size="sm"
+                        onClick={() => { setChatRequest({ peer: { author: `${k.slice(0, 10)}…${k.slice(-8)}`, seed: k }, key: Date.now() }); setTab('chat') }}
+                      >
+                        <MessageCircle aria-hidden="true" />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+        </div>
       </div>
     </Page>
   )
