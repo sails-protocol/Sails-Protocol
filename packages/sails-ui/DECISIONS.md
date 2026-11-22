@@ -374,14 +374,15 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
   - **Três papéis, três casas** (reaproveitando componentes, sem página nova): possuir um mercado (Mercados › Criar mercado / Meus mercados › "Seu espaço"), atuar como comerciante (Perfil › Programa Merchant) e operar infraestrutura (Configurações › Rede e nós). Cada casa tem uma linha com links para as outras duas.
   - **"Mercado ativo" mede atividade, não identidade** (critérios do CTO 33 acima).
 
-## Pendente de decisão (não tratar como fechado)
-
-- **Nomenclatura do ecossistema (sugestão do CTO/GPT trazida pelo PO, 2026-11-23; PENDENTE, nada aplicado):** quatro áreas "Sails Markets", "Sails Merchant" (Merchant, Pro e Prime ou Elite), "Sails Nodes" (Public, Self-Hosted, Managed; white label como atributo do Managed) e "Sails Economy"; Market Spaces como os espaços (Comunidade, Privado, Enterprise/OTC); nomes técnicos (`sails.markets`, `marketId`) preservados. Observações da UI:
+- **Nomenclatura do ecossistema (sugestão do CTO/GPT; DECIDIDO pelo PO em 2026-11-23: nível mais alto "Merchant Elite"; nomes de área "Sails Markets / Merchant / Nodes / Economy" só em documentação e páginas comerciais, nunca na navegação do app; white label é característica do nó gerenciado, que passa a se chamar "Nó gerenciado"):** quatro áreas "Sails Markets", "Sails Merchant" (Merchant, Pro e Prime ou Elite), "Sails Nodes" (Public, Self-Hosted, Managed; white label como atributo do Managed) e "Sails Economy"; Market Spaces como os espaços (Comunidade, Privado, Enterprise/OTC); nomes técnicos (`sails.markets`, `marketId`) preservados. Observações da UI:
   - "Sails Markets" fica a uma letra de "Sails Market" (a marca do app, no logo e no título): confunde na fala e na busca. Na interface em português a pessoa vê "Mercados"; o nome comercial ficaria só em documentação e páginas comerciais.
   - Quatro marcas em inglês na navegação criam uma camada a mais para aprender. A interface continua com palavras simples nos três lugares já definidos (Mercados; Perfil › Programa Merchant; Configurações › Rede e nós); a marca pode aparecer como subtítulo da seção, não como item de menu.
   - White label como atributo do nó gerenciado simplifica a escolha: "Rede pública Sails / Nó próprio / Nó gerenciado", com "com a sua marca (white label)" como opção do gerenciado.
   - "Sails Economy" como rótulo sugere uma economia ativa, e a política está em HOLD: na interface, "Economia do protocolo (proposta)".
   - Elite x Prime: "Prime" lembra assinatura paga (Amazon Prime), o que contradiz "sem mensalidade" e "nível não se compra"; "Pro" e "Prime" começam igual e se confundem na leitura rápida. "Elite" comunica nível conquistado por desempenho. Recomendação da UI: Elite.
   - Tipos de espaço: na interface em português, manter "Comunidade pública / Mercado privado / Mercado empresarial / OTC" (sem "Enterprise").
+
+
+## Pendente de decisão (não tratar como fechado)
 
 - Itens do `DESIGN_SYSTEM.md` ainda marcados como provisórios e que não entraram no pacote de 21/11 seguem provisórios.
