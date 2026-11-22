@@ -10,6 +10,7 @@ import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
 import { StateBlock } from '../ui/StateBlock'
 import { MarketIcon } from './MarketIcon'
+import { MarketBanner } from './MarketBanner'
 import type { MarketPreviewModel } from '../../lib/createMarket'
 import type { MarketInfrastructure, MarketVisibility } from '../../lib/myMarkets'
 
@@ -44,10 +45,14 @@ export interface MarketPreviewCopy {
 
 const SECTION = 'rounded-lg bg-brand-elevated p-4'
 
-export function MarketPreview({ preview, copy, banner, onEdit, onDiscard }: {
+export function MarketPreview({ preview, copy, banner, extraFacts = [], confirm, onEdit, onDiscard }: {
   preview: MarketPreviewModel
   copy: MarketPreviewCopy
   banner: ReactNode
+  /** More rows after the name (category, profile, entry rules), already in the interface language. */
+  extraFacts?: readonly [string, ReactNode][]
+  /** Demo only: the action that turns the preview into a fictional created market (the layer's one solid orange). */
+  confirm?: ReactNode
   onEdit: () => void
   onDiscard: () => void
 }) {
@@ -57,6 +62,7 @@ export function MarketPreview({ preview, copy, banner, onEdit, onDiscard }: {
   const preset = copy.preset[preview.preset]
   const facts: readonly [string, ReactNode][] = [
     [copy.facts.marketId, <span className="text-brand-text-secondary">{copy.facts.marketIdPending}</span>],
+    ...extraFacts,
     [copy.facts.brand, <span className="text-brand-text-secondary">{copy.facts.brandPending}</span>],
     [copy.facts.participation, preset.label],
     [copy.facts.publishes, preset.publishes],
@@ -69,8 +75,9 @@ export function MarketPreview({ preview, copy, banner, onEdit, onDiscard }: {
       {banner}
 
       <section aria-labelledby="market-preview-name" className={SECTION}>
+        <MarketBanner market={{ id: preview.name, relation: 'admin', visibility: preview.visibility }} image={preview.bannerUrl} className="mb-3 bg-brand-surface" />
         <div className="flex items-start gap-3">
-          <MarketIcon market={{ relation: 'admin', visibility: preview.visibility }} size="lg" className="bg-brand-surface" />
+          <MarketIcon market={{ relation: 'admin', visibility: preview.visibility, brandImage: preview.iconUrl ?? undefined }} size="lg" className="bg-brand-surface" />
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h3 id="market-preview-name" className="min-w-0 break-words text-sm font-medium text-brand-text">{preview.name}</h3>
@@ -126,9 +133,12 @@ export function MarketPreview({ preview, copy, banner, onEdit, onDiscard }: {
         <Button type="button" variant="ghost" onClick={onDiscard} className="touch:min-h-11">
           <Trash2 aria-hidden="true" />{copy.discard}
         </Button>
-        <Button type="button" variant="secondary" onClick={onEdit} className="touch:min-h-11">
-          <Pencil aria-hidden="true" />{copy.edit}
-        </Button>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          <Button type="button" variant="secondary" onClick={onEdit} className="touch:min-h-11">
+            <Pencil aria-hidden="true" />{copy.edit}
+          </Button>
+          {confirm}
+        </div>
       </div>
     </div>
   )

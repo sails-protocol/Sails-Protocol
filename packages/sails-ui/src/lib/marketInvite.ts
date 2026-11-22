@@ -5,19 +5,24 @@
  * format (formats are pending the Principal) and never treats a public identifier as access.
  */
 
-export type InviteState = 'idle' | 'validating' | 'pending' | 'granted' | 'expired' | 'revoked'
-/** What validating can answer. 'granted' straight away is possible when the inviter pre-authorized the holder. */
-export type InviteOutcome = 'pending' | 'granted' | 'expired' | 'revoked'
+export type InviteState = 'idle' | 'validating' | 'pending' | 'granted' | 'failed'
+/**
+ * What validating can answer. 'granted' straight away is possible when the inviter pre-authorized the holder.
+ * 'failed' is ONE generic answer for invalid, expired or revoked alike (GK, 2026-11-22): the screen never tells which,
+ * so it never confirms that a market or an invite exists.
+ */
+export type InviteOutcome = 'pending' | 'granted' | 'failed'
 
 export type InviteEvent =
   | { type: 'submit' }
   | { type: 'validated'; outcome: InviteOutcome }
   | { type: 'authorized' }
-  | { type: 'revoked' }
+  /** The admin refused (pending) or removed the access (granted): same generic failure. */
+  | { type: 'failed' }
   | { type: 'reset' }
 
 /** Every state, in the order the flow reaches them (dev gallery, tests). */
-export const INVITE_STATES: readonly InviteState[] = ['idle', 'validating', 'pending', 'granted', 'expired', 'revoked']
+export const INVITE_STATES: readonly InviteState[] = ['idle', 'validating', 'pending', 'granted', 'failed']
 
 /** One transition. Events that do not apply to the current state leave it unchanged. */
 export function nextInviteState(state: InviteState, event: InviteEvent): InviteState {
@@ -28,11 +33,11 @@ export function nextInviteState(state: InviteState, event: InviteEvent): InviteS
     case 'validating':
       return event.type === 'validated' ? event.outcome : state
     case 'pending':
-      return event.type === 'authorized' ? 'granted' : event.type === 'revoked' ? 'revoked' : state
+      return event.type === 'authorized' ? 'granted' : event.type === 'failed' ? 'failed' : state
     case 'granted':
-      return event.type === 'revoked' ? 'revoked' : state
+      return event.type === 'failed' ? 'failed' : state
     default:
-      // expired and revoked are final for this invite: only reset (a new invite) leaves them.
+      // failed is final for this invite: only reset (a new invite) leaves it.
       return state
   }
 }
