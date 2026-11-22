@@ -333,7 +333,7 @@ describe('LIGHTNING_HODL — disputed RELEASE (signature-collection binding)', (
     // generation this call committed before reverting it — never a bare
     // update() by id alone.
     expect(mockDisputeUpdate).toHaveBeenLastCalledWith({
-      where: { id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', arbiterId: ARBITER_ID, appealRound: undefined, authoritySignature: sig },
+      where: { id: DISPUTE_ID, status: 'RESOLVED', ruling: 'RELEASE', arbiterId: ARBITER_ID, appealRound: 0, authoritySignature: sig },
       data: { status: 'OPENED', ruling: null, resolvedAt: null, authoritySignature: null, authorityIssuedAt: null, authorityBuyerBps: null },
     })
   })
