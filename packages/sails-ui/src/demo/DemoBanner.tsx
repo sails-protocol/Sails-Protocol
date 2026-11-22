@@ -5,7 +5,7 @@ import { useT } from '../i18n'
 export function DemoBanner() {
   // Own React root (demo/install.tsx), outside the remounted routed tree: useT re-renders it on a language change.
   const t = useT()
-  const link = 'underline font-semibold inline-flex items-center min-h-[44px] md:min-h-0 px-1'
+  const link = 'underline font-semibold inline-flex items-center justify-center min-h-[44px] min-w-[44px] md:min-h-0 px-1'
   return (
     <div role="region" aria-label={t('shell.demo.region')} className="bg-primary text-primary-foreground text-xs md:text-sm font-medium px-4 md:py-2 flex items-center justify-center gap-x-3 text-center whitespace-nowrap">
       {/* One line on mobile: the short notice; the full sentence from md. */}

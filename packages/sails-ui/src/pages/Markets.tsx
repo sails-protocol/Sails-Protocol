@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
-import { ArrowLeft, UsersRound } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, UsersRound } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, marketPath } from '../components/layout/navMatch'
 import { TabLinks } from '../components/ui/tabs'
@@ -293,7 +293,8 @@ function ExploreView() {
 function MineView() {
   const markets = ownMarkets(useVisibleMarkets())
   const demo = isDemoMode()
-  const [mode, setMode] = useState<ViewMode>(() => readViewMode(safeLocalStorage()))
+  // Nothing stored: list on phones (< 640 px), grid above.
+  const [mode, setMode] = useState<ViewMode>(() => readViewMode(safeLocalStorage(), typeof window !== 'undefined' && window.innerWidth < 640 ? 'list' : 'grid'))
   const choose = (m: ViewMode) => { setMode(m); saveViewMode(safeLocalStorage(), m) }
   const cardCopy = marketCardCopy()
   return (
@@ -318,6 +319,7 @@ function MineView() {
       ) : (
         <Card className={SURFACE}>
           <MarketList
+            compact
             markets={markets}
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
@@ -397,9 +399,15 @@ function CreateView() {
     [t('spaces.create.review.category'), categoryLabel(p) ?? ''],
     [t('spaces.create.review.profile'), profileLabel(p) ?? ''],
     [t('spaces.create.review.entry'), entryText({ kyc: p.entry.kyc, thresholdUsd: p.entry.thresholdUsd ?? undefined, providerUrl: p.entry.providerUrl ?? undefined, social: p.entry.social })],
+    [t('markets.create.review.participation'), marketListCopy().preset[p.preset]],
+    [t('markets.create.step.infrastructure'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
   ]
   const primary = user ? 'default' : 'secondary'
   const space = spaceProduct(product)
+  const [pick, setPick] = useState<SpaceProductId | null>(product)
+  // One counter for the whole demo flow: Tipo, Configurar, Pagar, Pronto.
+  const FLOW = ['spaces.create.flow.type', 'spaces.create.flow.configure', 'spaces.create.flow.pay', 'spaces.create.flow.done'] as const
+  const flowStep = (n: 1 | 2 | 3 | 4) => t('markets.create.progress', { at: String(n), total: '4', title: t(FLOW[n - 1]) })
   const wizard = (simple: boolean) => (
     <div ref={wizardRef} hidden={preview !== null || paying !== null}>
       {simple && space && (
@@ -414,6 +422,7 @@ function CreateView() {
         initial={initial}
         simple={simple}
         createLabel={simple ? t('spaces.create.reviewAndPay') : undefined}
+        flow={simple ? { at: 2, total: 4, title: t('spaces.create.flow.configure') } : undefined}
         retainUrl={isRetainedPreview}
         privateHostingSlot={<PrivateHostingNote own={<p className="text-caption text-brand-text-secondary"><span className="font-medium text-brand-text">{t('spaces.hosting.own')}.</span> {t(simple ? 'spaces.hosting.ownNote' : 'spaces.hosting.ownInWizard')}</p>} />}
         brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
@@ -433,22 +442,31 @@ function CreateView() {
         {demo ? (
           created ? (
             <div className="space-y-4">
-              <h2 ref={createdRef} tabIndex={-1} className="text-section-title outline-none">{t('spaces.created.title')}</h2>
-              <Alert tone="info" title={t('spaces.demo')}>{t('spaces.created.body', { name: created.name })}</Alert>
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <p className="text-caption text-brand-text-secondary">{flowStep(4)}</p>
+              {/* A real success state: icon, title, one primary action (it is the interface's own confirmation). */}
+              <div className="flex flex-col items-center gap-2 py-4 text-center">
+                <CheckCircle2 aria-hidden="true" className="size-icon-lg text-brand-success" />
+                <h2 ref={createdRef} tabIndex={-1} className="text-section-title outline-none">{t('spaces.created.title')}</h2>
+                <p className="max-w-prose text-body-sm text-brand-text-secondary">{t('spaces.created.body', { name: created.name })}</p>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
                 <Link to={marketPath(created.id)} className={cn(buttonVariants({ variant: primary }), 'touch:min-h-11')}>{t('spaces.created.open')}</Link>
                 <Button type="button" variant="ghost" onClick={startOver} className="touch:min-h-11">{t('spaces.created.another')}</Button>
               </div>
             </div>
           ) : !space ? (
             <div className="space-y-4">
-              <h2 className="text-section-title">{t('spaces.create.chooseType')}</h2>
-              <SpaceTypePicker value={null} onPick={(id) => { setProduct(id); setDraftKey((k) => k + 1) }} />
+              <h2 className="text-section-title">{flowStep(1)}</h2>
+              {/* Select, then Continuar: choosing never advances by itself. */}
+              <SpaceTypePicker value={pick} onPick={setPick} />
+              <div className="flex justify-end">
+                <Button type="button" variant={primary} disabled={!pick} onClick={() => { setProduct(pick); setDraftKey((k) => k + 1) }} className="touch:min-h-11">{t('markets.create.next')}</Button>
+              </div>
             </div>
           ) : (
             <>
               {wizard(true)}
-              {paying && <SpaceCheckout product={space} rows={facts(paying)} primary={primary} onBack={backToWizard} onPaid={createDemo} />}
+              {paying && <SpaceCheckout product={space} rows={facts(paying)} primary={primary} stepLabel={flowStep(3)} onBack={backToWizard} onPaid={createDemo} />}
             </>
           )
         ) : (
@@ -508,12 +526,13 @@ function CreateView() {
 }
 
 function JoinView() {
+  const { user } = useAuth()
   return (
     <div className="space-y-6">
       <Card className={SURFACE}>
         <p className="mb-4 text-body-sm text-brand-text-secondary">{t('markets.join.intro')}</p>
         {isDemoMode() && <p className="-mt-2 mb-4 text-caption text-brand-text-muted">{t('spaces.page.privateAccess')}</p>}
-        <JoinMarketPanel />
+        <JoinMarketPanel primarySolid={!!user} />
       </Card>
       <FactList title={t('markets.guarantees.title')} facts={guarantees()} />
     </div>

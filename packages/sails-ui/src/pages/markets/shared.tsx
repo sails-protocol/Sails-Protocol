@@ -41,7 +41,8 @@ export function WireNote({ ids, badge }: { ids: readonly LooseWireId[]; badge?: 
   return (
     <div className="text-caption text-brand-text-secondary">
       <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{label}</Badge>
-      {t('markets.wireNote', { wires: ids.map((id) => LOOSE_WIRES[id].label).join(', ') })}
+      {/* Plain words on screen; which contracts are missing lives in the wiring map (/dev/wiring), not here. */}
+      {t('spaces.wireNotePlain')}
     </div>
   )
 }
@@ -147,7 +148,7 @@ export function useVisibleMarkets(): MarketView[] {
 }
 
 /** The value line of the markets approach (DECISIONS.md "Modelo mundo aberto"); "nó próprio", never "servidor". */
-export const marketsValueLine = () => t('markets.valueLine')
+export const marketsValueLine = () => (isDemoMode() ? t('markets.valueLine') : t('spaces.valueLineSoon'))
 
 export function marketListCopy(): MarketListCopy {
   return {
@@ -204,7 +205,7 @@ const DEMO_OUTCOMES: readonly InviteOutcome[] = ['pending', 'granted', 'failed']
 /** Demo only: the viewer answers for the protocol, step by step. Clearly fictional, never rendered in real mode. */
 function DemoInviteControls({ state, dispatch }: { state: InviteState; dispatch: (e: InviteEvent) => void }) {
   const buttons = state === 'validating'
-    ? DEMO_OUTCOMES.map((o) => ({ key: o, label: inviteState(o).title, run: () => dispatch({ type: 'validated', outcome: o }) }))
+    ? DEMO_OUTCOMES.map((o) => ({ key: o, label: o === 'failed' ? t('markets.invite.demo.refuse') : inviteState(o).title, run: () => dispatch({ type: 'validated', outcome: o }) }))
     : state === 'pending'
       ? [{ key: 'auth', label: t('markets.invite.demo.authorize'), run: () => dispatch({ type: 'authorized' }) }, { key: 'fail', label: t('markets.invite.demo.refuse'), run: () => dispatch({ type: 'failed' }) }]
       : state === 'granted'
@@ -212,10 +213,11 @@ function DemoInviteControls({ state, dispatch }: { state: InviteState; dispatch:
         : []
   return (
     <div className="rounded-lg bg-brand-elevated p-3">
-      <p className="text-caption text-brand-text-secondary">
+      {/* A div: Badge renders a div, which a p cannot contain. */}
+      <div className="text-caption text-brand-text-secondary">
         <Badge variant="outline" className="mr-1.5 border-transparent bg-brand-tonal font-medium text-brand-text">{t('markets.invite.demo.badge')}</Badge>
         {t('markets.invite.demo.note')}
-      </p>
+      </div>
       {buttons.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-2">
           {buttons.map((b) => <Button key={b.key} type="button" size="sm" variant="secondary" onClick={b.run} className="touch:min-h-11">{b.label}</Button>)}
@@ -226,7 +228,7 @@ function DemoInviteControls({ state, dispatch }: { state: InviteState; dispatch:
 }
 
 /** The Sails Market Invite flow. State lives in memory; leaving the page starts over at 'idle'. */
-export function JoinMarketPanel() {
+export function JoinMarketPanel({ primarySolid = true }: { primarySolid?: boolean }) {
   const demo = isDemoMode()
   const [state, dispatch] = useReducer(nextInviteState, 'idle')
   // Demo only: a granted fictional invite adds its market to the portal (right after Mercado aberto); revoked removes it.
@@ -246,6 +248,7 @@ export function JoinMarketPanel() {
       grantedAction={demo ? (
         <Link to={marketPath(DEMO_INVITED_MARKET_ID)} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('spaces.page.openInvited')}</Link>
       ) : undefined}
+      primarySolid={primarySolid}
       onSubmit={() => dispatch({ type: 'submit' })}
       onReset={() => dispatch({ type: 'reset' })}
     />

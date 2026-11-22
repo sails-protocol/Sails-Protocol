@@ -31,7 +31,7 @@ import { t } from '../../i18n'
 
 type IntentType = 'payBill' | 'buyUsdt' | 'buyBtc' | 'sellBtc'
 interface Intent { type: IntentType; min: number; max?: number; method: string }
-interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean }
+interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean; risky?: boolean }
 interface Peer { author: string; seed: string }
 type Tab = 'group' | 'private'
 
@@ -90,6 +90,8 @@ function Bubble({ m, onPrivate }: { m: Msg; onPrivate?: (m: Msg) => void }) {
         <p className={cn('text-caption font-medium', m.own ? 'text-brand-on-info' : 'text-brand-text')}>{m.author}</p>
         {m.text && <p className="break-words text-body-sm">{m.text}</p>}
         {m.intent && <IntentCard intent={m.intent} onPrivate={onPrivate && !m.own ? () => onPrivate(m) : undefined} />}
+        {/* Stays on the sent message too (a soft reminder, never a block). */}
+        {m.risky && <p className="mt-1 flex items-start gap-1 text-caption"><AlertTriangle aria-hidden="true" className="mt-px size-icon-xs shrink-0" />{t('spaces.chat.offTrade')}</p>}
       </div>
       {onPrivate && !m.own && !m.intent && (
         <IconButton label={t('spaces.chat.privateWith', { name: m.author })} size="sm" onClick={() => onPrivate(m)} className="mt-1 shrink-0">
@@ -184,7 +186,7 @@ export function MarketChats({ membersSlot, openWith, backTo }: {
   const sendGroup = (text: string) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }]); simulatedToast() }
   const postIntent = (intent: Intent) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }]); setPosting(false); simulatedToast() }
   const sendPrivate = (seed: string, text: string) => {
-    setThreads((th) => ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, ...ME, text, own: true }] } }))
+    setThreads((th) => ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, ...ME, text, own: true, risky: looksOffTrade(text) }] } }))
     simulatedToast()
   }
   const thread = open ? threads[open] : null

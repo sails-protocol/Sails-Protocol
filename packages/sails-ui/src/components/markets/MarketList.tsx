@@ -23,11 +23,13 @@ export interface MarketListCopy {
 
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 
-export function MarketList({ markets, copy, action, className }: {
+export function MarketList({ markets, copy, action, compact = false, className }: {
   markets: readonly MarketView[]
   copy: MarketListCopy
   /** Trailing control for a row (e.g. a link to open it); null for none. */
   action?: (market: MarketView) => ReactNode
+  /** Meus mercados: no technical hosting line, and no participation model on private markets. */
+  compact?: boolean
   className?: string
 }) {
   return (
@@ -45,9 +47,9 @@ export function MarketList({ markets, copy, action, className }: {
               <p className="mt-0.5 text-caption text-brand-text-secondary">
                 {/* The open market is the whole network, not one of the public markets: no "Público" label. */}
                 {m.relation === 'default' ? copy.relation.default : <>{copy.visibility[m.visibility]}{m.relation !== 'none' && <> · {copy.relation[m.relation]}</>}</>}
-                {m.preset && <> · {copy.presetLabel} {copy.preset[m.preset]}</>}
+                {m.preset && !(compact && m.visibility === 'private') && <> · {copy.presetLabel} {copy.preset[m.preset]}</>}
               </p>
-              <p className="text-caption text-brand-text-muted">{copy.infrastructureLabel} {copy.infrastructure[m.infrastructure]}</p>
+              {!compact && <p className="text-caption text-brand-text-muted">{copy.infrastructureLabel} {copy.infrastructure[m.infrastructure]}</p>}
             </div>
             {trailing && <div className="shrink-0 self-center">{trailing}</div>}
           </li>

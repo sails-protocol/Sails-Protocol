@@ -28,6 +28,7 @@ import { t } from '../../i18n'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 export const spaceName = (id: SpaceProductId) => t(`shop.product.${id}`)
 
+/** `disabled` (real mode): the kinds as "Em breve", without prices (none is defined). */
 export function SpaceTypePicker({ value, onPick, disabled = false }: { value: SpaceProductId | null; onPick: (id: SpaceProductId) => void; disabled?: boolean }) {
   return (
     <div>
@@ -37,14 +38,18 @@ export function SpaceTypePicker({ value, onPick, disabled = false }: { value: Sp
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-2">{spaceName(p.id)}{disabled && <Badge variant="outline" className={TAG}>{t('common.soon')}</Badge>}</span>
               <span className="mt-0.5 block text-caption font-normal text-brand-text-secondary">{t(`shop.product.${p.id}Description`)}</span>
-              <span className="mt-2 block text-caption font-normal text-brand-text-muted">{t('shop.priceLabel')}</span>
-              <span className="block tabular-nums text-subheading">{formatUsd(p.demoPriceUsd)}</span>
-              <span className="block text-caption font-normal text-brand-text-secondary">{t('shop.oneTime')}</span>
+              {!disabled && (
+                <>
+                  <span className="mt-2 block text-caption font-normal text-brand-text-muted">{t('shop.priceLabel')}</span>
+                  <span className="block tabular-nums text-subheading">{formatUsd(p.demoPriceUsd)}</span>
+                  <span className="block text-caption font-normal text-brand-text-secondary">{t('shop.oneTime')}</span>
+                </>
+              )}
             </span>
           </RadioCard>
         ))}
       </RadioGroup>
-      <p className="mt-2 text-caption text-brand-text-muted">{t('shop.notFinal')}</p>
+      {!disabled && <p className="mt-2 text-caption text-brand-text-muted">{t('shop.notFinal')}</p>}
       <p className="mt-1 text-body-sm text-brand-text-secondary">{t('shop.developers')}</p>
     </div>
   )
@@ -64,11 +69,13 @@ function Facts({ rows }: { rows: readonly (readonly [string, string])[] }) {
 }
 
 /** `rows` = the market summary (name, type, rules…) shown above the payment. */
-export function SpaceCheckout({ product, rows, primary, onBack, onPaid }: {
+export function SpaceCheckout({ product, rows, primary, stepLabel, onBack, onPaid }: {
   product: SpaceProduct
   rows: readonly (readonly [string, string])[]
   /** Solid orange only with a session (the topbar holds it otherwise). */
   primary: 'default' | 'secondary'
+  /** The outer flow's counter ("Passo 3 de 4: Pagar"). */
+  stepLabel?: string
   onBack: () => void
   onPaid: () => void
 }) {
@@ -91,7 +98,7 @@ export function SpaceCheckout({ product, rows, primary, onBack, onPaid }: {
   const amount = demoEquivalent(product.demoPriceUsd, asset, DEMO_QUOTE_USD[asset])
   const amountText = amount === null ? t('common.soon') : `${formatAmount(amount, asset === 'BTC' ? 8 : 2)} ${asset}`
   const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, ASSET_CATALOG)[0]?.id ?? '') }
-  const title = t(step === 'payment' ? 'spaces.create.reviewAndPay' : 'shop.step.awaiting')
+  const title = t(step === 'payment' ? 'spaces.create.reviewAndPay' : step === 'confirmed' ? 'shop.status.confirmedShort' : 'shop.step.awaiting')
   const back = (label = t('markets.create.back')) => (
     <Button type="button" variant="ghost" onClick={() => dispatch({ type: 'back' })} className="touch:min-h-11"><ArrowLeft aria-hidden="true" />{label}</Button>
   )
@@ -99,6 +106,7 @@ export function SpaceCheckout({ product, rows, primary, onBack, onPaid }: {
   return (
     <div className="space-y-4">
       {/* One counter only: the wizard already numbered its steps, so the paid part is titled, not numbered again. */}
+      {stepLabel && <p className="text-caption text-brand-text-secondary">{stepLabel}</p>}
       <h2 ref={headingRef} tabIndex={-1} className="text-section-title outline-none">{title}</h2>
       {/* Visible on every paid step (PO). */}
       <Alert tone="warning" title={t('shop.demoNotice')} />

@@ -101,7 +101,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
+export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, flow, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
@@ -113,6 +113,8 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   createLabel?: string
   /** A preview URL the caller still uses after the wizard closes (not revoked on unmount). */
   retainUrl?: (url: string) => boolean
+  /** The outer flow's step (the wizard is one step of it): one counter instead of two. */
+  flow?: { at: number; total: number; title: string }
   /** Logo and colors (planned item until branding exists). */
   brandingSlot?: ReactNode
   /** Participants and invites for a private market (planned item until invites exist). */
@@ -334,14 +336,16 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
     }
   }
 
+  // One counter for the whole flow when the caller has one (e.g. "Passo 2 de 4: Configurar · Nome…").
+  const heading = flow ? `${copy.progress(flow.at, flow.total, flow.title)} · ${copy.steps[step]}` : copy.progress(index + 1, steps.length, copy.steps[step])
   const finalAction = simple ? last : (step === 'review' && draft.visibility !== 'private') || step === 'invites'
   return (
     <div className="space-y-4">
       <div>
         <h2 ref={headingRef} tabIndex={-1} className="text-section-title outline-none">
-          {copy.progress(index + 1, steps.length, copy.steps[step])}
+          {heading}
         </h2>
-        <Progress className="mt-2" value={((index + 1) / steps.length) * 100} label={copy.progress(index + 1, steps.length, copy.steps[step])} />
+        <Progress className="mt-2" value={flow ? ((flow.at - 1 + (index + 1) / steps.length) / flow.total) * 100 : ((index + 1) / steps.length) * 100} label={heading} />
       </div>
       {body}
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">

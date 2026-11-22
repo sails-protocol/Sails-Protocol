@@ -167,16 +167,17 @@ export function MarketPage() {
       <PageHeader title={m.name} meta={m.visibility === 'private' ? list.visibility.private : list.visibility.public} back={back} />
       <div className="space-y-4">
         <section aria-label={m.name} className={SECTION}>
-          {m.remoteBanner ? <AdminImage url={m.remoteBanner} placeholder={banner} copy={adminImageCopy()} alt="" /> : banner}
-          <div className="mt-3 flex items-start gap-3">
+          {/* Phones (< 640 px): a compact hero without the banner, so the first offers fit above the fold. */}
+          <div className="hidden sm:block">{m.remoteBanner ? <AdminImage url={m.remoteBanner} placeholder={banner} copy={adminImageCopy()} alt="" /> : banner}</div>
+          <div className="flex items-start gap-3 sm:mt-3">
             <MarketIcon market={m} size="lg" />
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-1.5">
+              <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] sm:flex-wrap">
                 {profile && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{profile}</Badge>}
                 {page.verified && <DemoVerifiedSeal explain />}
                 {m.ownedByYou ? <Badge variant="outline" className={TAG}>{t('spaces.ownedByYou')}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
               </div>
-              {m.description && <p className="mt-1 break-words text-body-sm text-brand-text-secondary">{m.description}</p>}
+              {m.description && <p className="mt-1 line-clamp-1 break-words text-body-sm text-brand-text-secondary sm:line-clamp-none">{m.description}</p>}
               <p className="mt-1 tabular-nums text-caption text-brand-text-muted">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : ''}{m.relation !== 'none' ? ` · ${list.relation[m.relation]}` : ''}</p>
             </div>
           </div>

@@ -24,9 +24,12 @@ export type ViewMode = 'grid' | 'list'
 export const VIEW_MODE_KEY = 'sails_my_markets_view'
 type Store = Pick<Storage, 'getItem' | 'setItem'>
 
-/** Grid by default; anything unreadable (private window, blocked storage, junk value) falls back to grid. */
-export function readViewMode(store: Store | undefined): ViewMode {
-  try { return store?.getItem(VIEW_MODE_KEY) === 'list' ? 'list' : 'grid' } catch { return 'grid' }
+/** The stored choice; nothing stored or unreadable (private window, blocked storage, junk) → `fallback` (list on phones). */
+export function readViewMode(store: Store | undefined, fallback: ViewMode = 'grid'): ViewMode {
+  try {
+    const v = store?.getItem(VIEW_MODE_KEY)
+    return v === 'list' || v === 'grid' ? v : fallback
+  } catch { return fallback }
 }
 
 export function saveViewMode(store: Store | undefined, mode: ViewMode): boolean {

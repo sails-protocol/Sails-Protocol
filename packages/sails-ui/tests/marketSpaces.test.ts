@@ -31,6 +31,8 @@ describe('Meus mercados: grid or list, remembered', () => {
     expect(readViewMode(store())).toBe('grid')
     expect(readViewMode(store({ [VIEW_MODE_KEY]: 'list' }))).toBe('list')
     expect(readViewMode(store({ [VIEW_MODE_KEY]: 'table' }))).toBe('grid')
+    expect(readViewMode(store(), 'list')).toBe('list')
+    expect(readViewMode(store({ [VIEW_MODE_KEY]: 'grid' }), 'list')).toBe('grid')
   })
 
   it('saves, and survives storage that throws', () => {
