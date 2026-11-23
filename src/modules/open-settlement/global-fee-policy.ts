@@ -74,3 +74,34 @@ export function verifySignedFeePolicy(doc: SignedFeePolicy, authority: { keys: s
   if (valid.size < authority.threshold) return { ok: false, reason: `needs ${authority.threshold} authority signatures, has ${valid.size}` }
   return { ok: true, digest }
 }
+
+/** Where the node keeps the signed document of a policy row. A port, so the storage choice changes nothing here. */
+export interface SignedFeePolicyStore {
+  load(feePolicyVersionId: string): Promise<SignedFeePolicy | null>
+}
+
+/** The economic fields of a fee policy row, as stored by the node. */
+export interface FeePolicyRowFields {
+  railScope: string
+  protocolFeeRate: string
+  payerModel: string
+  economicBasis: string
+  requiredConfirmations: number | null
+  smallTradeRule: unknown
+}
+
+/**
+ * A validly signed document is not enough: it must be the document OF THIS ROW. Otherwise a valid document of another
+ * policy could be pasted next to different economic fields. Compares every economic field and the rail; the destination
+ * exists only in the document, which is why the document (not the row) is what the escrow freezes it from.
+ */
+export function signedDocumentMatchesRow(doc: SignedFeePolicy, row: FeePolicyRowFields): { ok: true } | { ok: false; field: string } {
+  const p = doc.policy
+  if (p.rail !== row.railScope) return { ok: false, field: 'rail' }
+  if (p.protocolFeeRate !== row.protocolFeeRate) return { ok: false, field: 'protocolFeeRate' }
+  if (p.payerModel !== row.payerModel) return { ok: false, field: 'payerModel' }
+  if (p.economicBasis !== row.economicBasis) return { ok: false, field: 'economicBasis' }
+  if (p.requiredConfirmations !== row.requiredConfirmations) return { ok: false, field: 'requiredConfirmations' }
+  if (canonicalJson(p.smallTradeRule) !== canonicalJson(row.smallTradeRule)) return { ok: false, field: 'smallTradeRule' }
+  return { ok: true }
+}

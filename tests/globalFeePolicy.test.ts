@@ -49,3 +49,23 @@ describe('signed V2 fee policy', () => {
     expect(verifySignedFeePolicy(noDest, authority, now)).toMatchObject({ ok: false, reason: 'missing fee destination' })
   })
 })
+
+describe('the signed document must be the document of this row', () => {
+  const { signedDocumentMatchesRow } = require('../src/modules/open-settlement/global-fee-policy')
+  const row = { railScope: 'MULTISIG', protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, smallTradeRule: {} }
+  const doc = signFeePolicy(policy, [keys[0].secretKey, keys[1].secretKey])
+
+  it('matching fields pass', () => {
+    expect(signedDocumentMatchesRow(doc, row)).toEqual({ ok: true })
+  })
+
+  it.each([
+    ['railScope', { railScope: 'LIGHTNING_HODL' }, 'rail'],
+    ['protocolFeeRate', { protocolFeeRate: '0.003' }, 'protocolFeeRate'],
+    ['requiredConfirmations', { requiredConfirmations: 1 }, 'requiredConfirmations'],
+    ['smallTradeRule', { smallTradeRule: { fixtureOnlyMinimum: '0.001' } }, 'smallTradeRule'],
+  ])('a valid document of another policy pasted next to a row with a different %s is refused', (_n, change, field) => {
+    expect(verifySignedFeePolicy(doc, authority, now).ok).toBe(true) // the signature alone would pass
+    expect(signedDocumentMatchesRow(doc, { ...row, ...change })).toEqual({ ok: false, field })
+  })
+})
