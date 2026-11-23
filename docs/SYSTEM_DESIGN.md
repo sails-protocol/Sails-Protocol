@@ -644,19 +644,22 @@ Separate keys. No arrow below is a derivation between them, except an escrow key
 flowchart LR
   WDK["Wallet: WDK seed and financial keys, moves the funds<br/>Implementado"]
   P["Sails participant economic key P<br/>Implementado"]
-  ES["Escrow seed, Gen-1<br/>Implementado"]
-  EK["Escrow keys<br/>Implementado"]
+  ES["Optional client escrow seed (sails-escrow-v1)<br/>Implementado"]
+  EK["Buyer/seller escrow keys: random per escrow or derived from the optional seed<br/>Implementado"]
+  AK["Arbiter key, server-side, from MULTISIG_SEED<br/>Implementado"]
   PR["Pubky root, held by the signer, e.g. Ring<br/>Aprovado (direção)"]
   DK["Delegated app key, scoped grant<br/>Aprovado (direção)"]
-  PK["Pear transport key (ephemeral today)<br/>Implementado"]
+  PK["Pear transport key, today in the Sails node, ephemeral per start<br/>Implementado"]
+  PKI["Pear transport key per installation, on the client<br/>Aprovado (direção)"]
   K["Registry key K, random, never derived<br/>Aprovado (direção)"]
   N["Sails node and SDK: records and verifies<br/>Implementado"]
   PEER["Pears / HyperDHT: carries messages<br/>Implementado"]
-  ES -->|"own derivation: Implementado"| EK
+  ES -->|"optional own derivation: Implementado"| EK
   P -->|"economic participation: Implementado"| N
   EK -->|"escrow signing: Implementado"| N
+  AK -->|"arbiter signing: Implementado"| N
   PK -->|"transport only: Implementado"| PEER
-  PK -.->|"new key per installation, never imported: Aprovado (direção)"| PEER
+  PKI -.->|"new key per installation, never imported: Aprovado (direção)"| PEER
   PR -.->|"signer issues grant: Aprovado (direção)"| DK
   DK -.->|"scoped authorisation: Aprovado (direção)"| N
 ```
@@ -673,7 +676,7 @@ flowchart TD
   B["SDK configures a Pear transport key automatically, per installation<br/>Aprovado (direção)"]
   C["Pubky identity through the signer; app receives a scoped grant, never the root<br/>Aprovado (direção)"]
   D["Sails participant registered and verified by the node<br/>Implementado"]
-  E["Random registry key K created once, kept on the device and included in the encrypted backup file<br/>Aprovado (direção)"]
+  E["Random registry key K, created once; kept on the device and in the backup file, never on the server<br/>Aprovado (direção)"]
   X["Not required: Sails seed, derivation from the wallet, P2P BIP-39 phrase<br/>Aprovado (direção)"]
   A -->|"first use: Implementado"| D
   A -.->|"automatic: Aprovado (direção)"| B
@@ -704,7 +707,7 @@ flowchart TD
   S -.->|"Aprovado (direção)"| F
   F -.->|"Aprovado (direção)"| K
   K -.->|"locate and decrypt: Aprovado (direção)"| R
-  C -.->|"identity reaches the homeserver; the opaque path comes from K: Aprovado (direção)"| R
+  C -.->|"identity locates the homeserver; K gives the path: Aprovado (direção)"| R
   R -.->|"Aprovado (direção)"| L
   A -.->|"blocked: no signer API today: Dependência não homologada"| PK
   PK -.->|"Dependência não homologada"| K
@@ -726,6 +729,7 @@ No arrow copies messages or economic data into the social record.
 ```mermaid
 flowchart LR
   subgraph M["1. Local messages only"]
+    M0["Today: chat stored in the node database (Message)<br/>Implementado"]
     M1["Device storage; not synced and not restored<br/>Aprovado (direção)"]
   end
   subgraph S["2. Encrypted social record, opaque path in the Pubky public area"]
@@ -736,7 +740,7 @@ flowchart LR
     E1["Commitments, escrows, events<br/>Implementado"]
   end
   APP["Client / SDK<br/>Implementado"]
-  APP -->|"chat messages stay local: Aprovado (direção)"| M1
+  APP -.->|"chat messages stay local: Aprovado (direção)"| M1
   APP -.->|"writes the allow-listed fields only: Aprovado (direção)"| S1
   APP -->|"economic facts go to the node: Implementado"| E1
 ```
