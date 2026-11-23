@@ -141,8 +141,7 @@ history.
 
 ## 2. Six Security Principles
 
-1. **Non-Custodial by Design** — Sails never holds funds. No hot wallet,
-   cold wallet, or treasury exists anywhere in the architecture. See the custody caveat under principle 2 below. In Gen-1 (P2WSH 2-of-3, the only real Bitcoin rail) the arbiter key is held by the node server; see `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`.
+1. **Non-Custodial by Design (normative)** — the protocol must not custody user funds. This is a design requirement, **not a blanket claim about every implementation**: the server-seed `WDK_USDT_EVM` reference provider has a treasury and can unilaterally move escrow funds; it is production-ineligible (RFC-019). Bitcoin Gen-1 uses P2WSH 2-of-3, but its arbiter key remains on the node server; independent Signing Federation is not implemented. See principle 2 below and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`.
 2. **User Always Signs** — every action that moves funds requires the
    user's own WDK signature. No server can initiate a transaction on a
    user's behalf.
