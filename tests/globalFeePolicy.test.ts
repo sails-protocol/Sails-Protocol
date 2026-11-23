@@ -69,3 +69,22 @@ describe('the signed document must be the document of this row', () => {
     expect(signedDocumentMatchesRow(doc, { ...row, ...change })).toEqual({ ok: false, field })
   })
 })
+
+describe('trust anchor, canonical form and the whole content in the digest', () => {
+  const doc = signFeePolicy(policy, [keys[0].secretKey, keys[1].secretKey])
+  it('a single-key or threshold-1 authority is refused, as are duplicated keys', () => {
+    expect(verifySignedFeePolicy(doc, { keys: [authority.keys[0]], threshold: 1 }, now)).toMatchObject({ ok: false })
+    expect(verifySignedFeePolicy(doc, { keys: authority.keys, threshold: 1 }, now)).toMatchObject({ ok: false, reason: 'invalid authority threshold' })
+    expect(verifySignedFeePolicy(doc, { keys: [authority.keys[0], authority.keys[0], authority.keys[1]], threshold: 2 }, now)).toMatchObject({ ok: false, reason: 'invalid authority keys' })
+  })
+  it('a non-canonical timestamp is refused even when signed', () => {
+    const odd = signFeePolicy({ ...policy, validFrom: '2026-11-01T00:00:00Z' }, [keys[0].secretKey, keys[1].secretKey])
+    expect(verifySignedFeePolicy(odd, authority, now)).toMatchObject({ ok: false, reason: 'invalid validity window' })
+  })
+  it.each([['network', { network: 'testnet' }], ['rail', { rail: 'SAFE_GUARD_EVM' }], ['version-independent fields', { requiredConfirmations: 6 }]])('%s is inside the digest', (_n, change) => {
+    expect(feePolicyDigestV2({ ...policy, ...change } as FeePolicyV2)).not.toBe(feePolicyDigestV2(policy))
+  })
+  it('the digest does not depend on any local row id', () => {
+    expect(feePolicyDigestV2(policy)).toBe(feePolicyDigestV2(JSON.parse(JSON.stringify(policy))))
+  })
+})

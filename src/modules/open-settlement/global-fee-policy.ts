@@ -61,9 +61,13 @@ export function verifySignedFeePolicy(doc: SignedFeePolicy, authority: { keys: s
   if (!p || p.version !== 2) return { ok: false, reason: 'not a V2 fee policy' }
   if (p.destination?.kind !== 'address' || typeof p.destination.value !== 'string' || p.destination.value.length === 0) return { ok: false, reason: 'missing fee destination' }
   if (typeof p.rail !== 'string' || typeof p.network !== 'string' || !p.rail || !p.network) return { ok: false, reason: 'missing rail or network' }
-  if (Number.isNaN(Date.parse(p.validFrom)) || (p.validUntil !== null && Number.isNaN(Date.parse(p.validUntil)))) return { ok: false, reason: 'invalid validity window' }
+  // Canonical timestamps only (one spelling per instant, so the digest is unambiguous).
+  const TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/
+  if (!TS.test(p.validFrom) || (p.validUntil !== null && !TS.test(p.validUntil)) || Number.isNaN(Date.parse(p.validFrom)) || (p.validUntil !== null && Date.parse(p.validUntil) <= Date.parse(p.validFrom))) return { ok: false, reason: 'invalid validity window' }
   if (now < new Date(p.validFrom) || (p.validUntil !== null && now >= new Date(p.validUntil))) return { ok: false, reason: 'outside its validity window' }
-  if (!Number.isSafeInteger(authority.threshold) || authority.threshold < 1 || authority.threshold > authority.keys.length) return { ok: false, reason: 'invalid authority threshold' }
+  // The trust anchor: at least 2 distinct, well-formed keys (never a single operator-held key), threshold >= 2.
+  if (new Set(authority.keys).size !== authority.keys.length || !authority.keys.every((k) => /^[0-9a-f]{64}$/.test(k))) return { ok: false, reason: 'invalid authority keys' }
+  if (!Number.isSafeInteger(authority.threshold) || authority.threshold < 2 || authority.threshold > authority.keys.length) return { ok: false, reason: 'invalid authority threshold' }
 
   const digest = feePolicyDigestV2(p)
   const valid = new Set<string>()
