@@ -1,130 +1,130 @@
-# CTO 28 — Sails Signing Federation: governança e diagramas (proposta Day 0)
+# CTO 28 — Sails Signing Federation: Governance and Diagrams (Day 0 Proposal)
 
-> **Status:** registro de direção do proprietário e **proposta para revisão Principal/GK**; **não** é homologação de arquitetura criptográfica, GO de merge ou ativação econômica. 2026-11-21. **Entrega A: aprovada condicionalmente como direção/proposta (CTO 28); Entrega B NÃO autorizada; ativação Gen-2 NO-GO.** Três classificações, sempre separadas: (1) *decisão aprovada* = só a direção da Entrega A, condicionada, com parâmetros pendentes; (2) *implementação comprovada* = só o Gen-1; (3) *homologação operacional* = nenhuma.
+> **Status:** Record of the project owner's direction and a **proposal for Principal/GK review**; **not** cryptographic architecture homologation, merge authorization, or economic activation. 2026-11-21. **Delivery A: conditionally approved as a direction/proposal (CTO 28); Delivery B NOT authorized; Gen-2 activation NO-GO.** Three distinct classifications: (1) *approved decision* = only the direction of Delivery A, conditional, with parameters pending; (2) *proven implementation* = Gen-1 only; (3) *operational homologation* = none.
 >
-> **Legenda única:** *Implementado* = existe em código e prova (hoje: Gen-1 P2WSH 2-de-3, único rail Bitcoin real). *Proposto* = desenho da Entrega A (recomendação conjunta Principal + GK, **aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes**; texto integral em [`ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md`](ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md), resumo em [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-7070868210)). *Aprovado* = apenas a **direção** da Entrega A (aprovação condicionada, CTO 28); **nada** está implementado ou homologado além do Gen-1, e nenhum parâmetro foi decidido. Nenhuma frase deste documento deve ser lida acima do seu rótulo.
+> **Single status legend:** *Implemented* = exists in code with evidence (currently: Gen-1 P2WSH 2-of-3, the only real Bitcoin rail). *Proposed* = Delivery A design (joint Principal + GK recommendation, **conditionally approved (CTO 28) as a direction; parameters pending**; full text in [`ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md`](ENTREGA_A_GEN2_TAPROOT_SIGNING_FEDERATION.md), summary in [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-7070868210)). *Approved* = only the **direction** of Delivery A (CTO 28 conditional approval); **nothing** beyond Gen-1 is implemented or homologated, and no parameters have been decided. No statement in this document may be interpreted beyond its status label.
 >
-> **Rastreabilidade:** [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619) (DDR, proposta), [#121](https://github.com/sails-protocol/Sails-Protocol/issues/121) (Taproot), [#438](https://github.com/sails-protocol/Sails-Protocol/issues/438), [#237](https://github.com/sails-protocol/Sails-Protocol/issues/237) (indisponibilidade do árbitro), [#293](https://github.com/sails-protocol/Sails-Protocol/issues/293) (timers), RFC-021 (Proposed; D2/D3 fora do caminho Day 0, CTO 25, [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-6831637336)), RFC-024 (Proposed; **mantida candidata**: a diretriz do CTO mudou a *prioridade*, não o status; a árvore da RFC-024 não é afirmada equivalente à da Entrega A). #121: análise regulatória por jurisdição é **lacuna aberta**. #438: pesquisa, **sem bond/slashing no Day 0**. E26 (#105): homologação documental em HOLD; o compromisso Gen-2 (versão, F, R, T_rec, Δ, `latestDisputeOpenAt`) é proposta da Entrega A.
+> **Traceability:** [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619) (DDR, proposal), [#121](https://github.com/sails-protocol/Sails-Protocol/issues/121) (Taproot), [#438](https://github.com/sails-protocol/Sails-Protocol/issues/438), [#237](https://github.com/sails-protocol/Sails-Protocol/issues/237) (arbiter unavailability), [#293](https://github.com/sails-protocol/Sails-Protocol/issues/293) (timers), RFC-021 (Proposed; D2/D3 outside the Day 0 path, CTO 25, [#619](https://github.com/sails-protocol/Sails-Protocol/issues/619#issuecomment-6831637336)), RFC-024 (Proposed; **remains a candidate**: the CTO direction changed its *priority*, not its status; the RFC-024 tree is not claimed to be equivalent to the Delivery A tree). #121: jurisdiction-specific regulatory analysis remains **an open gap**. #438: research, **no bond/slashing on Day 0**. E26 (#105): documentary homologation on HOLD; the Gen-2 commitment (version, F, R, T_rec, Δ, `latestDisputeOpenAt`) is a Delivery A proposal.
 
-## 1. Direção de produto e fronteiras
+## 1. Product Direction and Boundaries
 
-O protocolo/SDK de coordenação econômica continua aberto à integração. **O poder de resolver disputas e o poder de assinar liquidações não são permissionless por padrão.** A governança Sails deverá poder constituir entidades federadas e selecionar, credenciar, eleger/nomear, supervisionar, suspender e substituir profissionais com mandato e política verificáveis.
+The economic coordination protocol/SDK remains open to integration. **The authority to resolve disputes and the authority to sign settlements are not permissionless by default.** Sails governance must be able to constitute federated entities and select, accredit, elect/appoint, supervise, suspend, and replace professionals under verifiable mandates and policies.
 
-Uma entidade de **resolução** (= a Resolution Layer da #619; decisões registradas como rulings Sails) decide com base em evidências, consentimento e regras vinculadas ao escrow; uma entidade de **assinatura** verifica autorização e só então exerce sua capacidade criptográfica. Governança, resolução e assinatura devem ter funções, chaves, permissões e trilhas de auditoria distintas. O modelo não torna a Sails imune a obrigações regulatórias.
+A **resolution** entity (= the Resolution Layer in #619; decisions recorded as Sails rulings) decides based on evidence, consent, and escrow-bound rules; a **signing** entity verifies authorization before exercising its cryptographic signing capability. Governance, resolution, and signing must have distinct roles, keys, permissions, and audit trails. This model does not exempt Sails from regulatory obligations.
 
-### Diagrama A — Separação institucional (arquitetura-alvo)
+### Diagram A — Institutional Separation (Target Architecture)
 
 ```mermaid
 flowchart TD
-  G["Sails Federation Governance<br/>constituição, credenciamento, mandatos e destituição"]
-  I["Integradores + usuários<br/>política e consentimento vinculados ao trade"]
-  R["Resolution Entity (proposto)<br/>profissionais habilitados, evidências, decisão assinada"]
-  V["Signing Entity / Federation (proposto)<br/>verificação independente de autorização"]
-  RS["Recovery Set (disjunto; proposto)<br/>executa decisão existente após T_rec"]
-  S["Bitcoin settlement<br/>Gen-1 P2WSH (implementado) / Gen-2 P2TR (candidata, não implementada)"]
-  P["Sails Nodes + SDK<br/>coordenação econômica aberta"]
-  G -->|"nomeia, audita, substitui"| R
-  G -->|"credencia, audita, substitui"| V
-  G -->|"credencia, audita, substitui"| RS
-  I -->|"política aceita"| R
-  P -->|"eventos e evidências"| R
-  R -->|"outcome verificável; não entrega segredo"| V
-  V -->|"assinatura sob regras do escrow"| S
-  RS -->|"assinatura só após T_rec"| S
-  P -->|"estado e provas"| S
+  G["Sails Federation Governance<br/>constitution, accreditation, mandates, and removal"]
+  I["Integrators + users<br/>trade-bound policy and consent"]
+  R["Resolution Entity (proposed)<br/>qualified professionals, evidence, signed ruling"]
+  V["Signing Entity / Federation (proposed)<br/>independent authorization verification"]
+  RS["Recovery Set (disjoint; proposed)<br/>executes an existing ruling after T_rec"]
+  S["Bitcoin settlement<br/>Gen-1 P2WSH (implemented) / Gen-2 P2TR (candidate, not implemented)"]
+  P["Sails Nodes + SDK<br/>open economic coordination"]
+  G -->|"appoints, audits, replaces"| R
+  G -->|"accredits, audits, replaces"| V
+  G -->|"accredits, audits, replaces"| RS
+  I -->|"accepted policy"| R
+  P -->|"events and evidence"| R
+  R -->|"verifiable outcome; no secret disclosure"| V
+  V -->|"signature under escrow rules"| S
+  RS -->|"signature only after T_rec"| S
+  P -->|"state and proofs"| S
 ```
 
-**Invariante:** o resultado arbitral não equivale a autorização irrestrita para mover fundos; a assinatura válida deve estar restrita ao destino, montantes, geração, outpoint, fee e política comprometidos. Cada membro recalcula o sighash BIP341 a partir de dados comprometidos; só `SIGHASH_DEFAULT`/`ALL` (ANYONECANPAY, NONE e SINGLE recusados). A autorização lógica atual é insuficiente se o nó também controla o segredo da assinatura: a verificação Ed25519 roda no mesmo processo que detém o seed e **não protege os fundos contra o comprometimento do nó ou do seed**. Vários operadores com o **mesmo** seed são a mesma autoridade, não federação; `TRUSTED_ARBITRATORS` não é independência. A **governança não tem chave, não assina e não decide**; nenhum membro do conselho ou resolvedor ocupa assento na federação ou na recuperação; ato de governança só afeta escrows novos. A **recuperação executa uma decisão já emitida e nunca decide**.
+**Invariant:** An arbitration outcome is not unrestricted authorization to move funds; a valid signature must be constrained to the committed destination, amounts, generation, outpoint, fee, and policy. Each member recomputes the BIP341 sighash from committed data; only `SIGHASH_DEFAULT`/`ALL` are accepted (ANYONECANPAY, NONE, and SINGLE are rejected). Current logical authorization is insufficient if the node also controls the signing secret: Ed25519 verification runs in the same process that holds the seed and **does not protect funds against compromise of the node or seed**. Multiple operators using the **same** seed constitute one authority, not a federation; `TRUSTED_ARBITRATORS` does not establish independence. **Governance holds no key, does not sign, and does not rule**; no council member or resolver occupies a federation or recovery seat; governance actions affect only new escrows. **Recovery executes an already issued ruling and never decides.**
 
-## 2. Modelo de governança a especificar e homologar
+## 2. Governance Model to Specify and Homologate
 
-| Domínio | Requisito de decisão Day 0 |
+| Domain | Day 0 Decision Requirement |
 | --- | --- |
-| Entidade | Identidade, escopo de atuação, responsável, isolamento por integrador e registro verificável |
-| Seleção | Critérios objetivos de qualificação, credenciamento e eleição/nomeação; quem pode votar/aprovar |
-| Mandato | Duração, renovação, suspensão, revogação, substituição e recurso |
-| Integridade | Impedimento por conflito de interesses, segregação de funções, auditoria e registro imutável |
-| Resolução | Evidências, cadeia de custódia, quorum decisório, contestação, fallback e SLAs |
-| Assinatura | Quórum criptográfico independente, operadores e hosts separados, limites de autorização |
-| Segurança | Backup **da chave de cada membro** (sem segredo comum), restauração testada por membro, perda de quórum, compromisso de chave, contenção e rotação |
-| Consentimento | Identidade da entidade, versão/hash da política e autoridade efetiva conhecidos antes do escrow; sem troca unilateral após compromisso |
-| Continuidade | Tratamento de operador indisponível, revogado, comprometido e de parte não cooperativa |
-| Poderes | Governança não pode reescrever retroativamente as condições de gasto de um escrow |
+| Entity | Identity, scope of authority, accountable party, per-integrator isolation, and verifiable registry |
+| Selection | Objective qualification, accreditation, and election/appointment criteria; who may vote/approve |
+| Mandate | Term, renewal, suspension, revocation, replacement, and appeal |
+| Integrity | Conflict-of-interest exclusions, separation of duties, audit, and immutable record |
+| Resolution | Evidence, chain of custody, decision quorum, challenge, fallback, and SLAs |
+| Signing | Independent cryptographic quorum, separate operators and hosts, authorization limits |
+| Security | Backup **of each member's key** (no shared secret), member-tested restoration, quorum loss, key compromise, containment, and rotation |
+| Consent | Entity identity, policy version/hash, and effective authority known before escrow; no unilateral replacement after commitment |
+| Continuity | Handling unavailable, revoked, or compromised operators and non-cooperative parties |
+| Powers | Governance cannot retroactively rewrite the spending conditions of an existing escrow |
 
-**Quórum arbitral e quórum de assinatura são diferentes.** Um exemplo 3-de-5 (federação) e 2-de-3 (recuperação, conjunto **disjunto**) é apenas hipótese de avaliação, não parâmetro aprovado. **k membros + a parte perdedora = roubo daquele escrow.** Conluio é tratado como ameaça técnica mesmo com profissionais de confiança; confiança operacional não substitui controles criptográficos.
+**The arbitration quorum and signing quorum are different.** An example of 3-of-5 (federation) and 2-of-3 (recovery, a **disjoint** set) is an evaluation hypothesis only, not an approved parameter. **k members + the losing party can steal that escrow.** Collusion is treated as a technical threat even with trusted professionals; operational trust is no substitute for cryptographic controls.
 
-### Diagrama B — Constituição e ciclo de vida da entidade
+### Diagram B — Entity Constitution and Lifecycle
 
 ```mermaid
 flowchart LR
-  A["Candidatura / indicação"] --> B["Verificação de elegibilidade e conflito"]
-  B --> C{"Aprovação segundo política?"}
-  C -->|"não"| X["Rejeitar e registrar"]
-  C -->|"sim"| D["Mandato + política versionada"]
-  D --> E["Operação com auditoria"]
-  E --> F{"Revisão, falha ou incidente?"}
-  F -->|"não"| E
-  F -->|"sim"| G["Suspensão / substituição / recuperação"]
-  G --> H["Revalidação de quórum e continuidade"]
+  A["Application / nomination"] --> B["Eligibility and conflict-of-interest verification"]
+  B --> C{"Approval under policy?"}
+  C -->|"no"| X["Reject and record"]
+  C -->|"yes"| D["Mandate + versioned policy"]
+  D --> E["Audited operation"]
+  E --> F{"Review, failure, or incident?"}
+  F -->|"no"| E
+  F -->|"yes"| G["Suspension / replacement / recovery"]
+  G --> H["Quorum and continuity revalidation"]
   H --> E
 ```
 
-**Proposto (Entrega A), sem reshare na Gen-2 Day 0:** toda troca de membro = nova versão do conjunto, com **novas pubkeys só para escrows novos**; escrows existentes mantêm as chaves comprometidas até ficarem terminais. Reshare/FROST é resíduo declarado (G9) e não é usado. A troca da chave pública nunca transfere controle de UTXOs antigos.
+**Proposed (Delivery A), without resharing in Gen-2 Day 0:** each membership change creates a new set version, with **new public keys for new escrows only**; existing escrows retain their committed keys until terminal. Resharing/FROST is a declared residual (G9) and is not used. Changing a public key never transfers control of old UTXOs.
 
-## 3. Assinatura e recuperação — Gen-1 versus Gen-2
+## 3. Signing and Recovery — Gen-1 versus Gen-2
 
-**Estado atual:** Gen-1 P2WSH 2-de-3 por escrow; o nó detém o `MULTISIG_SEED` que deriva a terceira chave. O árbitro é derivado do seed (`multisig.provider.ts:462-512`, `688-698`) e a decisão Ed25519 (`arbitration-authority.ts:107-125`) roda no mesmo processo: **não protege contra o operador**. Separação de decisão: **parcial** em lógica — guardas de assinatura no fluxo de disputa da Gen-1 estão **em correção** — e **não** há separação operacional/criptográfica do signatário. A federação ainda **não está implementada**.
+**Current state:** Gen-1 P2WSH 2-of-3 per escrow; the node holds `MULTISIG_SEED`, which derives the third key. The arbiter key derives from that seed (`multisig.provider.ts:462-512`, `688-698`), and Ed25519 ruling verification (`arbitration-authority.ts:107-125`) runs in the same process: **it does not protect against the operator**. Decision separation is **partial** in application logic — Gen-1 dispute-path signing guards are **under correction** — and the signer has **no operational or cryptographic separation**. The federation is **not implemented**.
 
-**P1 (Tier 3):** fronteira `SettlementSigner` sem alteração econômica, compatível com Gen-1. **P2 (Tier 3):** signatário externo que nunca compartilha segredo com o nó, reconstrói independentemente a transação e recusa destino/valor/outpoint adulterados. **Federação distribuída:** desenho **proposto** na Entrega A (recomendação conjunta Principal + GK, **aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes**; não homologada, não implementada); exige testes, recuperação e independência; signatário externo único não é federação.
+**P1 (Tier 3):** `SettlementSigner` boundary without economic changes, compatible with Gen-1. **P2 (Tier 3):** external signer that never shares its secret with the node, independently reconstructs the transaction, and refuses tampered destinations, amounts, or outpoints. **Distributed federation:** design **proposed** in Delivery A (joint Principal + GK recommendation, **conditionally approved (CTO 28) as a direction; parameters pending**; not homologated or implemented); requires tests, recovery, and independence; a single external signer is not a federation.
 
-**Gen-2 Day 0 — nova prioridade do proprietário:** arquitetura P2TR com caminhos de gasto e recuperação especificados, testados e homologados **antes da ativação econômica pública**. RFC-024 permanece candidata até revisão e decisão expressa CTO; nenhum código econômico irreversível autorizado por este registro. Ativação Gen-2: **NO-GO** até homologação; não implementada. **Proposto:** MuSig2 **só** no key path comprador+vendedor; folhas de disputa e de recuperação com k-de-n nativo (`OP_CHECKSIGADD`), chaves independentes, sem DKG; FROST adiado (otimização futura, exige auditoria). Gen-1 (ECDSA) e Gen-2 (Schnorr) exigem análise separada; não presumir que o mesmo esquema serve aos dois.
+**Gen-2 Day 0 — new owner priority:** specify, test, and homologate P2TR architecture with spending and recovery paths **before public economic activation**. RFC-024 remains a candidate pending review and an express CTO decision; this record authorizes no irreversible economic code. Gen-2 activation: **NO-GO** until homologation; not implemented. **Proposed:** MuSig2 **only** in the buyer+seller key path; dispute and recovery leaves use native k-of-n (`OP_CHECKSIGADD`), independent keys, no DKG; FROST deferred (future optimization requiring audit). Gen-1 (ECDSA) and Gen-2 (Schnorr) require separate analysis; do not assume one scheme works for both.
 
-### Diagrama C — Árvore candidata da Entrega A (recomendação conjunta, aprovada condicionalmente (CTO 28) como direção; parâmetros pendentes; NÃO homologada, NÃO implementada)
+### Diagram C — Candidate Delivery A Tree (joint recommendation, conditionally approved by CTO 28 as a direction; parameters pending; NOT homologated, NOT implemented)
 
 ```mermaid
 flowchart TD
-  E["Escrow Gen-2 P2TR<br/>compromisso E26: versão, F k-de-n, R m-de-r, T_rec, Δ, latestDisputeOpenAt"]
-  E --> K["K: key path<br/>MuSig2(comprador, vendedor)<br/>cooperativo / acordo mútuo"]
-  E --> L1["L1: comprador + federação k-de-n<br/>executa decisão a favor do comprador"]
-  E --> L2["L2: vendedor + federação k-de-n<br/>executa decisão a favor do vendedor"]
-  E --> L3["L3: comprador + recuperação m-de-r<br/>só após CSV T_rec"]
-  E --> L4["L4: vendedor + recuperação m-de-r<br/>só após CSV T_rec"]
-  L1 --> C1{"Decisão válida da geração atual<br/>antes de T_rec − Δ?"}
+  E["Gen-2 P2TR escrow<br/>E26 commitment: version, F k-of-n, R m-of-r, T_rec, Δ, latestDisputeOpenAt"]
+  E --> K["K: key path<br/>MuSig2(buyer, seller)<br/>cooperative / mutual agreement"]
+  E --> L1["L1: buyer + federation k-of-n<br/>executes ruling in favor of buyer"]
+  E --> L2["L2: seller + federation k-of-n<br/>executes ruling in favor of seller"]
+  E --> L3["L3: buyer + recovery m-of-r<br/>only after CSV T_rec"]
+  E --> L4["L4: seller + recovery m-of-r<br/>only after CSV T_rec"]
+  L1 --> C1{"Valid ruling for current generation<br/>before T_rec − Δ?"}
   L2 --> C1
-  L3 --> C2{"Decisão já emitida, não executada pela<br/>federação em Δ (prova: registro append-only)?"}
+  L3 --> C2{"Ruling already issued, not executed by<br/>federation within Δ (proof: append-only log)?"}
   L4 --> C2
-  C1 -->|"sim; cada membro recalcula o sighash"| Z["Liquidação"]
-  C2 -->|"sim"| Z
-  C1 -->|"não"| X["Recusa"]
-  C2 -->|"não"| X
+  C1 -->|"yes; each member recomputes sighash"| Z["Settlement"]
+  C2 -->|"yes"| Z
+  C1 -->|"no"| X["Refuse"]
+  C2 -->|"no"| X
   K --> Z
 ```
 
-**Nenhuma folha de uma parte só nem só da federação; o nó não detém chave; k, n, m, r, T_rec e Δ são referências; parâmetros pendentes (aprovação condicionada, CTO 28).** Resíduos declarados da Entrega A (5, §13.5) permanecem abertos, inclusive reshare/FROST futuro e perda da chave do vencedor.
+**No single-party or federation-only leaves; the node holds no key; k, n, m, r, T_rec, and Δ are reference values; parameters pending (CTO 28 conditional approval).** The five declared Delivery A residuals (§13.5) remain open, including future resharing/FROST and loss of the winner's key.
 
-**Proibição de inferência:** um timelock unilateral para o vendedor pode violar a proteção do comprador após pagamento fiat; não é mecanismo aprovado. Um novo quorum ou nova chave não consegue gastar escrows cujos scripts antigos não o autorizam. Escrows Gen-1 existentes não migram automaticamente.
+**Prohibited inference:** A unilateral seller timelock may violate buyer protection after fiat payment; it is not an approved mechanism. A new quorum or key cannot spend escrows whose old scripts do not authorize it. Existing Gen-1 escrows do not migrate automatically.
 
-## 4. Falhas e respostas obrigatórias
+## 4. Failures and Required Responses
 
-| Evento | Propriedade a demonstrar |
+| Event | Property to Demonstrate |
 | --- | --- |
-| Um operador desaparece | Quórum permanece disponível ou recuperação segura comprovada |
-| Chave de membro perdida | Tolerada até n−k; backup por membro; nova versão do conjunto só para escrows novos |
-| Quórum perdido | Depois de T_rec, o conjunto de recuperação **executa a decisão já emitida** (nunca decide), com prova do registro append-only e não do banco do nó; sem decisão, é resíduo declarado |
-| Operador comprometido | Revogação operacional, contenção, análise dos escrows existentes e rotação segura |
-| Nó malicioso | Signatário rejeita PSBT/destino/fee/outpoint manipulados, recalculando de fontes independentes |
-| Parte paga fiat e contraparte não coopera | Sem timeout que permita saque indevido; corte T_rec−Δ; abertura automática da disputa em `latestDisputeOpenAt` (linha do CTO pendente); definir prova e recurso |
-| Vencedor perde a chave | Resíduo declarado; backup obrigatório e aviso na UI |
-| Decisão arbitral adulterada | Verificação de assinatura, política, consentimento, quórum, prazo e vínculo ao trade |
-| Federação em conluio com uma parte | Modelagem adversarial e controles técnicos; registrar risco residual |
-| Mudança de membros ou política | Nunca alterar retroativamente autoridade de escrow existente |
+| An operator disappears | Quorum remains available or safe recovery is demonstrated |
+| Member key lost | Tolerated up to n−k; per-member backup; new set version for new escrows only |
+| Quorum lost | After T_rec, the recovery set **executes the ruling already issued** (never decides), with proof from the append-only log rather than the node database; no ruling is a declared residual |
+| Compromised operator | Operational revocation, containment, analysis of existing escrows, and safe rotation |
+| Malicious node | Signer rejects manipulated PSBT/destination/fee/outpoint by independently recomputing from independent sources |
+| Party pays fiat and counterparty does not cooperate | No timeout enabling improper withdrawal; T_rec−Δ cutoff; automatic dispute opening at `latestDisputeOpenAt` (CTO decision pending); define proof and appeal |
+| Winner loses their key | Declared residual; mandatory backup and UI warning |
+| Tampered arbitration ruling | Verify signature, policy, consent, quorum, deadline, and trade binding |
+| Federation colludes with a party | Adversarial modeling and technical controls; record residual risk |
+| Member or policy changes | Never retroactively change authority over existing escrows |
 
-## 5. Execução, revisão e gates
+## 5. Execution, Review, and Gates
 
-1. **EPM:** relacionar este registro a #619, #121, #438 e Project #3 sem backlog paralelo; manter M-1b P0 e correções Arkade em andamento.
-2. **Principal:** propor parâmetros e protocolo(s) exatos, matriz de autoridade por spending path, modelo de chaves, compatibilidade Gen-1/Gen-2, fee-reserve/Payjoin e migração apenas para **novos** escrows versionados.
-3. **GK:** revisar ameaças, independência, conluio, no-show, recovery, restauração e testes adversariais; especificar evidência e gates por SHA.
-4. **Principal + GK (função de auditoria documental):** localizar decisões históricas e distinguir registro de intenção, proposta, homologação e implementação.
-5. **CTO:** homologar separadamente governança, parâmetros de quórum, caminhos de gasto, política de recuperação, rollout e merges Tier 3/4.
+1. **EPM:** link this record to #619, #121, #438, and Project #3 without a parallel backlog; keep M-1b P0 and Arkade corrections in progress.
+2. **Principal:** propose exact parameters and protocol(s), spending-path authority matrix, key model, Gen-1/Gen-2 compatibility, fee-reserve/Payjoin, and migration for **new** versioned escrows only.
+3. **GK:** review threats, independence, collusion, no-shows, recovery, restoration, and adversarial tests; specify evidence and SHA-based gates.
+4. **Principal + GK (documentary-audit function):** locate historical decisions and distinguish intent records, proposals, homologation, and implementation.
+5. **CTO:** separately homologate governance, quorum parameters, spending paths, recovery policy, rollout, and Tier 3/4 merges.
 
-**Estado:** registro documental e diagramas explicativos **em revisão**. **NO-GO** para ativação pública, migração e implementação econômica sem aprovação específica. Entrega A: aprovada condicionalmente como direção/proposta (CTO 28); Entrega B NÃO autorizada; ativação Gen-2 NO-GO.
+**Status:** Documentary record and explanatory diagrams **under review**. **NO-GO** for public activation, migration, or economic implementation without specific approval. Delivery A: conditionally approved as a direction/proposal (CTO 28); Delivery B NOT authorized; Gen-2 activation NO-GO.
