@@ -110,9 +110,9 @@ arbitrated action.
 Score tied to the Ed25519 keypair — not to a platform account. Built from
 completed trades, settlement speed, dispute history, and volume over time.
 
-- **Trade Score** — mutual ratings, 1-5
-- **Volume Score** — BTC-equivalent volume over time
-- **Dispute Rate** — inversely proportional; penalizes bad-faith disputes
+- **Trade ratings (1–5)** — informational feedback; `rate()` does not mutate `ReputationScore` (RFC-007).
+- **Volume and settlement outcomes** — historical signals; `recordOutcome()` is the documented score-mutating entrypoint, not proof that all BTC-equivalent volume is independently verified.
+- **Dispute history** — a risk signal, not automatic proof of bad faith or a guaranteed penalty.
 
 ### 1.3 Verifiable Identity
 
@@ -126,16 +126,17 @@ levels unlock higher trust limits.
 
 ### 1.4 Trade Limits by Trust
 
-Higher-value trades unlock as reputation score increases. New or
-low-reputation peers can only trade small amounts until they build real
-history.
+The following tiers describe a **proposed trust-limit policy**, not verified
+protocol-wide enforcement. Applications and settlement providers must
+separately demonstrate actual limits, scoring inputs, and bypass resistance;
+reputation alone does not establish a safe trade size.
 
-| Reputation | Max trade size |
+| Illustrative reputation tier | Proposed maximum trade size |
 |---|---|
 | New peer (score 0-20) | 0.001 BTC |
 | Score 21-50 | 0.01 BTC |
 | Score 51-89 | 0.05 BTC |
-| Score 90+ (verified) | No protocol-imposed limit |
+| Score 90+ (verified) | No limit in this illustrative policy; not a production safety guarantee |
 
 ---
 
