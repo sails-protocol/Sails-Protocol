@@ -671,7 +671,7 @@ flowchart TD
   B["2. User scans the code with the Pubky signer and approves<br/>Approved (direction)"]
   G["Pubky identity linked to P by a grant signed by the signer<br/>Approved (direction)"]
   M["Creating a market names the owner's Pubky identity as recovery authority<br/>Approved (direction)"]
-  X["Not required: a Sails seed, a backup file, derivation from the wallet<br/>Approved (direction)"]
+  X["Not required at activation: a Sails seed or a backup file, or derivation from the wallet<br/>Approved (direction)"]
   E["Escrow backup requested only while an escrow is open<br/>Approved (direction)"]
   A -->|"first use: Implemented"| P
   P -.->|"link identity: Approved (direction)"| B
@@ -693,7 +693,7 @@ flowchart TD
   V["Old device can veto in that period; a veto cancels it for good<br/>Approved (direction)"]
   OK["No veto after the period: P2 administers the market<br/>Approved (direction)"]
   MIR["Owner's homeserver mirrors the pending recovery so the owner notices<br/>Approved (direction)"]
-  C["Contacts, groups and favorites: stay on the old device in the first release<br/>Approved (direction)"]
+  C["Contacts, groups and favorites are not restored in the first release (they stayed on the lost device)<br/>Approved (direction)"]
   CS["Encrypted social record restored from Pubky<br/>Unvalidated dependency"]
   F["Open escrows: escrow backup, or a dispute with no guarantee<br/>Approved (direction)"]
   Q["P2 is a new economic identity; reputation does not move in the first release<br/>Approved (direction)"]

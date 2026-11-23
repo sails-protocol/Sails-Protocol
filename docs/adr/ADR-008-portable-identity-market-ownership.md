@@ -1,6 +1,6 @@
 # ADR-008: Portable identity, social data and market ownership recovery
 
-**Status:** Accepted as architectural direction (2026-11-23). **Not implemented.** Each part ships in its own pull request, with tests, mutation checks and review by commit. Diagrams: [SYSTEM_DESIGN.md §14.5](../SYSTEM_DESIGN.md). Market Spaces: [README](../architecture/MARKET_SPACES/README.md).
+**Status:** Accepted as architectural direction (2026-11-23). **Not implemented.** Each part ships in its own pull request, with tests, mutation checks and review by commit. Diagrams: [SYSTEM_DESIGN.md section 14.5](../SYSTEM_DESIGN.md). Market Spaces: [README](../architecture/MARKET_SPACES/README.md).
 
 ## Context
 Sails separates four roles:
