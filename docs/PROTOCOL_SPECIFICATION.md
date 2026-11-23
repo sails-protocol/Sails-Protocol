@@ -186,6 +186,16 @@ positioning material, "Portable Identity Layer" is the technology-neutral
 term to use; "DID" is only correct when the discussion is genuinely about
 that one specific format choice.
 
+**Current implementation boundary (Day 0):** This portability requirement
+is not evidence of cross-device recovery, operator-independent identity
+migration, or a cryptographic binding between economic participant keys and
+Pears transport keys. The reference `PearNode` generates a separate,
+server-runtime transport keypair; `User.peerId` association and handshake
+checks are server-mediated (see `TRUST_BOUNDARY.md` boundary 1b and
+`NODE_ARCHITECTURE.md`). Portability and recovery remain open Day-0
+integration/evidence gates under ADR-001 / #105. Do not present the
+technology-neutral identity contract as a shipped portability guarantee.
+
 **Operational Profiles (RFC-007, `rfcs/RFC-007-real-world-p2p-requirements.md`).**
 A further additive, OpenIdentity-module-level attribute, orthogonal to the
 Keys/DID/Credentials/Trust Graph growth path above and to `Identity`'s core
