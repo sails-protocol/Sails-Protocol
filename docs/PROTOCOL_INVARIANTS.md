@@ -651,11 +651,11 @@ checkable, outside the executor's own control.
 2026-08-29). No `EVIDENCE` section is claimed — unlike every invariant
 above, no current reference-implementation code satisfies this rule
 yet, and this document's own discipline (§"How Invariants Are
-Enforced" below) is to never claim evidence that isn't real. Missão
+Enforced" below) is to never claim evidence that isn't real. Mission
 12's conformance-impact findings identify exactly which current
 behaviors this invariant newly classifies as non-conformant.
 
-> **Corrigido/Implementado 2026-08-29 (Missão 13 Fase 2), MULTISIG
+> **Corrected/Implemented 2026-08-29 (Mission 13 Phase 2), MULTISIG
 > scope only.** The paragraph above is now partially stale: real
 > `EVIDENCE` exists for the MULTISIG rail's disputed-settlement path —
 > `src/modules/open-settlement/arbitration-authority.ts` and
@@ -1068,8 +1068,8 @@ the negative (the private fields are ABSENT), not just the positive
 future column added to the underlying model leaking through
 unnoticed; asserting the exact key set does.
 
-> **Corrigido/Implementado 2026-08-25 (Missão 11 Fase 9.3.3).** This
-> note originally (Fase 9.3.2) flagged an open reconciliation question
+> **Corrected/Implemented 2026-08-25 (Mission 11 Phase 9.3.3).** This
+> note originally (Phase 9.3.2) flagged an open reconciliation question
 > and guessed a tentative "DP-10" label. The reconciliation is now
 > done — see "Canonical Hierarchy" near the top of this document.
 > **Derives from:** `INV-10` (Verifiability Is a Product Property),
