@@ -1,4 +1,4 @@
-> **Status: Superado pela Revisão 3: aprovação condicionada (CTO 28).** Aprovação condicionada da Entrega A (CTO 28); Entrega B não autorizada; nada implementado; nada homologado. (Texto original: PROPOSTA / PENDING_CTO_APPROVAL, recomendação conjunta Principal + GK.) Todos os valores (n/k, r/m, T_rec, Δ, D_max) são referências. E26 permanece HOLD documental. Texto em inglês, como produzido; a revisão 2 (§13) prevalece.
+> **Status: Superseded by Revision 3: conditional approval (CTO 28).** Delivery A received conditional approval (CTO 28); Delivery B is not authorized; nothing has been implemented or homologated. (Original text: PROPOSAL / PENDING_CTO_APPROVAL, joint Principal + GK recommendation.) All values (n/k, r/m, T_rec, Δ, D_max) are reference values only. E26 remains on documentary HOLD. The original document is in English; Revision 2 (§13) takes precedence where applicable, subject to the subsequent Revision 3 decision.
 
 # DELIVERY A: Gen-2 Bitcoin (Taproot) + Sails Signing Federation. Decision document (Principal draft for the GK and the Documentary Auditor; for the CTO's decision)
 
