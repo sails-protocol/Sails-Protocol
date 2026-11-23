@@ -76,6 +76,7 @@ export default defineArea(
     'trade.payment.safety': 'Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.',
     'trade.payment.sellerNote': 'O comprador vê estes dados na tela depois que os fundos forem registrados como bloqueados.',
     'trade.payment.noEditAfterAgreement': 'Os dados de pagamento não podem ser alterados depois do acordo. Se estiverem errados, cancele e abra uma nova negociação.',
+    'trade.payment.noEditAfterAgreementBuyer': 'Os dados de pagamento não podem ser alterados depois do acordo. Se parecerem errados, não pague: fale com o vendedor no chat do trade ou abra uma disputa.',
 
     // Payout address
     'trade.payout.newAddress': 'Novo endereço: {asset}',
@@ -372,6 +373,7 @@ export default defineArea(
       'trade.payment.safety': 'Pay only to these details, from an account in your name. Do not accept other details sent by chat, email or phone, or payments from third parties.',
       'trade.payment.sellerNote': 'The buyer sees these details on screen after the funds are recorded as locked.',
       'trade.payment.noEditAfterAgreement': 'Payment details cannot be changed after the agreement. If they are wrong, cancel and open a new trade.',
+      'trade.payment.noEditAfterAgreementBuyer': 'Payment details cannot be changed after the agreement. If they look wrong, do not pay: talk to the seller in the trade chat or open a dispute.',
 
       'trade.payout.newAddress': 'New address: {asset}',
       'trade.payout.yourAddress': 'Your address: {asset}',
@@ -658,6 +660,7 @@ export default defineArea(
       'trade.payment.safety': 'Paga solo a estos datos, desde una cuenta a tu nombre. No aceptes otros datos enviados por chat, correo o teléfono, ni pagos de terceros.',
       'trade.payment.sellerNote': 'El comprador ve estos datos en pantalla después de que los fondos se registren como bloqueados.',
       'trade.payment.noEditAfterAgreement': 'Los datos de pago no se pueden cambiar después del acuerdo. Si están mal, cancela y abre una nueva negociación.',
+      'trade.payment.noEditAfterAgreementBuyer': 'Los datos de pago no se pueden cambiar después del acuerdo. Si parecen incorrectos, no pagues: habla con el vendedor en el chat del trade o abre una disputa.',
 
       'trade.payout.newAddress': 'Nueva dirección: {asset}',
       'trade.payout.yourAddress': 'Tu dirección: {asset}',
@@ -944,6 +947,7 @@ export default defineArea(
       'trade.payment.safety': 'Payez uniquement vers ces coordonnées, depuis un compte à votre nom. N’acceptez pas d’autres coordonnées envoyées par chat, e-mail ou téléphone, ni de paiements de tiers.',
       'trade.payment.sellerNote': 'L’acheteur voit ces coordonnées à l’écran une fois les fonds enregistrés comme bloqués.',
       'trade.payment.noEditAfterAgreement': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles sont erronées, annulez et ouvrez une nouvelle négociation.',
+      'trade.payment.noEditAfterAgreementBuyer': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles semblent erronées, ne payez pas : parlez au vendeur dans le chat du trade ou ouvrez un litige.',
 
       'trade.payout.newAddress': 'Nouvelle adresse : {asset}',
       'trade.payout.yourAddress': 'Votre adresse : {asset}',
@@ -1230,6 +1234,7 @@ export default defineArea(
       'trade.payment.safety': 'Zahle nur an diese Daten, von einem Konto auf deinen Namen. Akzeptiere keine anderen Daten per Chat, E-Mail oder Telefon und keine Zahlungen Dritter.',
       'trade.payment.sellerNote': 'Der Käufer sieht diese Daten auf dem Bildschirm, nachdem die Mittel als gesperrt erfasst wurden.',
       'trade.payment.noEditAfterAgreement': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch sind, brich ab und eröffne einen neuen Trade.',
+      'trade.payment.noEditAfterAgreementBuyer': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch aussehen, zahle nicht: Schreib dem Verkäufer im Trade-Chat oder eröffne einen Streitfall.',
 
       'trade.payout.newAddress': 'Neue Adresse: {asset}',
       'trade.payout.yourAddress': 'Deine Adresse: {asset}',
@@ -1459,7 +1464,7 @@ export default defineArea(
       'trade.header.buying', 'trade.header.selling', 'trade.header.observer',
       'trade.payment.titleBuyer', 'trade.payment.titleSeller', 'trade.payment.noPendingAction', 'trade.payment.noDetailsBuyer',
       'trade.payment.noDetailsSeller', 'trade.payment.copyDetails', 'trade.payment.hiddenUntilLocked', 'trade.payment.safety',
-      'trade.payment.sellerNote', 'trade.payment.noEditAfterAgreement',
+      'trade.payment.sellerNote', 'trade.payment.noEditAfterAgreement', 'trade.payment.noEditAfterAgreementBuyer',
       'trade.toast.paymentMarkedSent', 'trade.toast.releaseRequested', 'trade.system.paymentPending', 'trade.chat.proof',
       'trade.record.unitPriceUsd', 'trade.record.tradeValueUsd', 'trade.record.paymentMethod', 'trade.record.quantity',
       'trade.card.release',

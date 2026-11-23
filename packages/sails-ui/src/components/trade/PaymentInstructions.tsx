@@ -77,7 +77,8 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details, 
             )}
             {details && (
               <p className="mt-2 text-xs text-brand-text-secondary">
-                {t('trade.payment.noEditAfterAgreement')}
+                {/* CTO D6: only the seller can cancel today, so the buyer is told not to pay and to use the chat or a dispute. */}
+                {t(viewer === 'seller' ? 'trade.payment.noEditAfterAgreement' : 'trade.payment.noEditAfterAgreementBuyer')}
               </p>
             )}
           </>

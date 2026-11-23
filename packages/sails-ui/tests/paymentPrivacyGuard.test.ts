@@ -9,13 +9,16 @@ import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative } from 'path'
 
 const SRC = join(__dirname, '..', 'src')
+// src/demo/ is skipped on purpose: its save() persists the simulated server's state (fictional data, demo only) to
+// sessionStorage, which the PM accepted as the demo backend's storage, not a UI cache (DECISIONS.md, CTO D4).
+const SKIP = join(SRC, 'demo')
 const SINK = /\bconsole\.\w+\(|\b(local|session)Storage\b|\.setItem\(|\btoast(\.\w+)?\(|\bsearchParams\b|\bURLSearchParams\b|\bhistory\.(push|replace)State\(|\b(track|analytics|gtag|posthog)\b/
 const PAYMENT_FIELD = /paymentDetails|paymentInstruction|instructionDigest|instructionSalt|paymentDigest|paymentSalt/i
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
     const p = join(dir, name)
-    if (statSync(p).isDirectory()) return files(p)
+    if (statSync(p).isDirectory()) return p === SKIP ? [] : files(p)
     return /\.(ts|tsx)$/.test(name) ? [p] : []
   })
 }
