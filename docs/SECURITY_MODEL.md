@@ -250,8 +250,11 @@ per application (never a protocol-native role, per RFC-007 D4 and
 `PROTOCOL_SPECIFICATION.md` §1.9's own explicit reasoning: this
 deliberately avoids implying the protocol itself governs or controls
 arbitration outcomes) — reviews the evidence in the chat history. Their
-decision triggers the multisig 2-of-3 release, recorded as the `Dispute`
-primitive's `ruling`. **Corrected 2026-07-19 (consolidation audit):**
+decision is recorded as the `Dispute` primitive's `ruling` and may
+initiate a settlement request; the ruling alone is **not** a Bitcoin
+signature or authorization to spend. Gen-1 P2WSH still requires the
+applicable 2-of-3 signatures, and its node-held arbiter key is not an
+independent Signing Federation. **Corrected 2026-07-19 (consolidation audit):**
 this scenario previously described a permissionless "community volunteer
 holding a reputation bond, fee drawn from bonded collateral" model — an
 earlier vision that RFC-007 D4 replaced with the application-registered
@@ -289,9 +292,13 @@ correction.
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
 - Bitcoin Gen-1 P2WSH 2-of-3 prevents spending with a single key, but any two authorized signers can spend; the arbiter key is currently node-held. This is not an EVM guarantee or proof of independent federation.
-- Reputation penalties apply to bad-faith disputes
-- A Trusted Arbitrator's own reputation is the incentive for a fair
-  ruling — a bad ruling is visible and permanent, not just a lost fee
+- Reputation penalties depend on the implemented outcome/event and appeal
+  paths; a disputed or allegedly bad-faith claim alone is not proof that a
+  penalty was applied.
+- A Trusted Arbitrator's reputation is a proposed accountability incentive,
+  not proof that every unfair ruling is detected, published, or penalized.
+  RFC-021's market/slashing implementation is opt-in and its RFC remains
+  Proposed; neither model establishes an independent signing quorum.
 - Protocol-expiry processing can attempt refunds when the opt-in
   `ESCROW_TIMELOCK_SWEEPER` is enabled (`sweepExpiredEscrows()`, implemented
   since 2026-08-01). It does not bypass rail-specific signing requirements
