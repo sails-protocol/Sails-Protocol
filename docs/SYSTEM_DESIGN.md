@@ -728,9 +728,9 @@ No arrow copies messages or economic data into the social record.
 
 ```mermaid
 flowchart LR
-  subgraph M["1. Local messages only"]
+  subgraph M["1. Chat messages"]
     M0["Today: chat stored in the node database (Message)<br/>Implementado"]
-    M1["Device storage; not synced and not restored<br/>Aprovado (direção)"]
+    M1["Direction: device storage only; not synced and not restored<br/>Aprovado (direção)"]
   end
   subgraph S["2. Encrypted social record, opaque path in the Pubky public area"]
     S1["Contacts, groups, favorites only; encrypted with K<br/>Aprovado (direção)"]
