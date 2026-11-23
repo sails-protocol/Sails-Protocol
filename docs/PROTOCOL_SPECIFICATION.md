@@ -11,8 +11,7 @@
 
 ## 0. Normative Language
 
-*(Added 2026-07-19, relaying a CTO-role architectural review — "a
-documentação deve evoluir para uma linguagem normativa consistente."
+*(Added 2026-07-19, relaying a CTO-role architectural review — "documentation should evolve toward consistent normative language."
 Scoped to this document only: the rest of the 20-document Engineering
 Handoff series is written for engineers understanding the system, not
 implementers conforming to it, and stays in its existing narrative
