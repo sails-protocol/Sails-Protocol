@@ -160,8 +160,7 @@ history.
    `releaseFunds()` needs no user-supplied signature or credential at
    all; the server signs unilaterally. This is a genuine violation of
    `PROTOCOL_INVARIANTS.md`'s Constitutional Invariant 2 ("The Protocol
-   Never Custodies Assets") **in the one real settlement path this
-   codebase ships today** — not a documentation phrasing issue, a real
+   Never Custodies Assets") **in this server-seed EVM reference settlement path** — not a documentation phrasing issue, a real
    custody gap. It is explicitly disclosed at the code level (not
    hidden), is testnet-only, and **RFC-019**
    (`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`) is the
@@ -172,8 +171,7 @@ history.
    Transaction Guard + ERC-4337 escrow with a KMS-backed co-signer,
    specified and tested but not deployed or wired into
    `WdkSettlementProvider`'s actual release path — see that RFC's
-   Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`
-   (the only other implementation) and the protocol's own design
+   Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`, the separately assessed Bitcoin Gen-1 rail, and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.
 3. **Escrow Isolation** — escrow logic is architecturally separate from the
