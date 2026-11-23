@@ -59,6 +59,8 @@ export default defineArea(
     'looseWires.groupMembershipStatus': 'Situação da participação nos grupos',
     'looseWires.savedContacts': 'Contatos salvos',
     'looseWires.marketOwnershipRecovery': 'Recuperar a administração dos mercados',
+    'looseWires.marketRecoveryAuthority': 'Quem pode recuperar o mercado',
+    'looseWires.escrowBackupPrompt': 'Backup no primeiro escrow',
   },
   {
     en: {
@@ -118,6 +120,8 @@ export default defineArea(
       'looseWires.groupMembershipStatus': 'Group membership status',
       'looseWires.savedContacts': 'Saved contacts',
       'looseWires.marketOwnershipRecovery': 'Recover market administration',
+      'looseWires.marketRecoveryAuthority': 'Who can recover the market',
+      'looseWires.escrowBackupPrompt': 'Backup at the first escrow',
     },
     es: {
       'looseWires.publicPrivateServers': 'Nodos Sails públicos y privados',
@@ -176,6 +180,8 @@ export default defineArea(
       'looseWires.groupMembershipStatus': 'Estado de la participación en los grupos',
       'looseWires.savedContacts': 'Contactos guardados',
       'looseWires.marketOwnershipRecovery': 'Recuperar la administración de los mercados',
+      'looseWires.marketRecoveryAuthority': 'Quién puede recuperar el mercado',
+      'looseWires.escrowBackupPrompt': 'Copia en el primer escrow',
     },
     fr: {
       'looseWires.publicPrivateServers': 'Nœuds Sails publics et privés',
@@ -234,6 +240,8 @@ export default defineArea(
       'looseWires.groupMembershipStatus': 'État de la participation aux groupes',
       'looseWires.savedContacts': 'Contacts enregistrés',
       'looseWires.marketOwnershipRecovery': 'Récupérer l’administration des marchés',
+      'looseWires.marketRecoveryAuthority': 'Qui peut récupérer le marché',
+      'looseWires.escrowBackupPrompt': 'Sauvegarde au premier escrow',
     },
     de: {
       'looseWires.publicPrivateServers': 'Öffentliche und private Sails-Knoten',
@@ -292,6 +300,8 @@ export default defineArea(
       'looseWires.groupMembershipStatus': 'Status der Gruppenmitgliedschaft',
       'looseWires.savedContacts': 'Gespeicherte Kontakte',
       'looseWires.marketOwnershipRecovery': 'Marktverwaltung wiederherstellen',
+      'looseWires.marketRecoveryAuthority': 'Wer den Markt wiederherstellen kann',
+      'looseWires.escrowBackupPrompt': 'Backup beim ersten Escrow',
     },
   },
   {

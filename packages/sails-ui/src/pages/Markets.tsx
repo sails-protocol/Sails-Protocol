@@ -41,7 +41,7 @@ import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
 import { t } from '../i18n'
-import { MarketRoleLine } from '../components/settings/PortableIdentityDemo'
+import { MarketRoleLine, RecoveryAuthorityChoice, RecoveryObjectionBanner } from '../components/settings/PortableIdentityDemo'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
 const tabs = () => [
@@ -288,8 +288,11 @@ function MineView() {
   const dashboardLink = (m: MarketView) => (
     <Link to={`${marketPath(m.id)}?tab=dashboard`} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'relative z-10 touch:min-h-11')}>{t('stats.space.tab')}<span className="sr-only"> {m.name}</span></Link>
   )
+  // CTO 29, demo: the owner's notice of a pending recovery of one of their markets (the old device's view).
+  const recoveryNotice = demo ? markets.find(yours) : undefined
   return (
     <div className="space-y-4">
+      {recoveryNotice && <RecoveryObjectionBanner marketName={recoveryNotice.name} />}
       <ConfirmActionDialog
         open={transferring !== null}
         onOpenChange={(o) => { if (!o) setTransferring(null) }}
@@ -437,6 +440,7 @@ function CreateView() {
         retainUrl={isRetainedPreview}
         privateHostingSlot={<PrivateHostingNote own={<p className="text-caption text-brand-text-secondary"><span className="font-medium text-brand-text">{t('spaces.hosting.own')}.</span> {t(simple ? 'spaces.hosting.ownNote' : 'spaces.hosting.ownInWizard')}</p>} />}
         brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
+        recoverySlot={<RecoveryAuthorityChoice name="market-recovery" />}
         invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}
         createAvailable={demo}
         unavailableNote={<WireNote ids={['createMarket']} />}

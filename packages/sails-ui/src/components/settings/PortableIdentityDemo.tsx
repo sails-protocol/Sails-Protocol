@@ -1,26 +1,29 @@
 /**
- * Layer C, demo only: portable identity (CTO 29, 2026-11-23). "Ativar o Sails P2P" (3 steps), "Recuperar minha
- * identidade" (3 steps + result) and the Configurações › Identidade e recuperação rows. Nothing here is real: no
- * identity is created, connected or recovered, nothing is read, stored or sent, and the record below is a fixture.
- * The flows render inside the caller's DialogContent (Login's dialog or the Settings dialog). Real mode renders only
- * the honest rows ("Não configurada", "Em breve"). Wires: portableIdentity, portableRecord, groupMembershipStatus,
- * savedContacts (lib/looseWires.ts).
+ * Layer C, demo only: portable identity and market ownership (CTO 29, homologated and ratified 2026-11-23 as direction;
+ * the SDK contract does not exist yet). "Ativar o Sails P2P" (2 actions), "Recuperar minha identidade" (result with
+ * identity / social data / funds kept apart), recovery of the markets you administer (7-day minimum safety period with
+ * objection, and the host must cooperate), the owner's objection banner, the market "Sobre" notices and the
+ * recovery-authority choice in Criar mercado. Nothing here is real: no identity is created, linked or recovered,
+ * nothing is read, stored or sent, every record is a fixture. Real mode renders only the honest rows ("Não
+ * configurada", "Em breve", "Seus contatos ficam neste aparelho").
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import {
-  ArrowLeft, ChevronDown, CircleAlert, CircleCheck, CircleOff, FileLock2, Fingerprint, KeyRound, Loader2, MessageSquareOff, Radio, RefreshCw,
-  RotateCcw, SearchCheck, TimerOff, Wallet, type LucideIcon,
+  ArrowLeft, Ban, BellRing, ChevronDown, CircleAlert, CircleCheck, CircleOff, FileLock2, Fingerprint, Hourglass, KeyRound,
+  MessageSquareOff, QrCode, Radio, RotateCcw, SearchCheck, Server, ServerCog, ShieldAlert, Star, TimerOff, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { SettingsRow } from './SettingsRow'
 import { SimulatedBadge } from '../ui/SimulatedBadge'
 import { Button } from '../ui/button'
+import { ConfirmActionDialog } from '../ui/ConfirmActionDialog'
+import { RadioCard, RadioGroup } from '../ui/radio-group'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { LOOSE_WIRES } from '../../lib/looseWires'
 import { isDemoMode } from '../../lib/demoMarkers'
 import { cn } from '../../lib/utils'
 import type { MarketInfrastructure } from '../../lib/myMarkets'
-import { simulatedToast } from '../../pages/markets/shared'
+import { simulatedToast, WirePlanned } from '../../pages/markets/shared'
 import { t } from '../../i18n'
 
 // Fictional portable record (demo): what a recovery would find. Names are illustrative, keys are not real.
@@ -37,70 +40,8 @@ const DEMO_GROUPS: readonly { name: string; state: GroupState }[] = [
   { name: 'Maré Alta', state: 'unavailable' },
 ]
 const DEMO_FAVORITES = 5
-
-// Markets the recovered identity administers (demo, one per verification state). Fictional names, as in the fixtures.
-export type MarketRole = 'owner' | 'delegated'
-type OwnershipState = 'checking' | 'restored' | 'notConfirmed' | 'stale'
-const DEMO_ADMIN_MARKETS: readonly { name: string; role: MarketRole; infrastructure: MarketInfrastructure; state: OwnershipState }[] = [
-  { name: 'Meu Mercado Exemplo', role: 'owner', infrastructure: 'network', state: 'restored' },
-  { name: 'Loja Exemplo', role: 'delegated', infrastructure: 'network', state: 'checking' },
-  { name: 'Clientes Empresa ABC', role: 'owner', infrastructure: 'own', state: 'notConfirmed' },
-  { name: 'Boreal OTC', role: 'delegated', infrastructure: 'managed', state: 'stale' },
-]
-const OWNERSHIP_STATE: Record<OwnershipState, { icon: LucideIcon; tone: string }> = {
-  checking: { icon: Loader2, tone: 'text-brand-info-fg motion-safe:animate-spin' },
-  restored: { icon: CircleCheck, tone: 'text-brand-success-fg' },
-  notConfirmed: { icon: CircleAlert, tone: 'text-brand-warning-fg' },
-  stale: { icon: RefreshCw, tone: 'text-brand-warning-fg' },
-}
-const HOSTED_KEY = { network: 'markets.create.infrastructure.networkLabel', own: 'markets.list.infrastructure.own', managed: 'markets.create.infrastructure.managedLabel' } as const
-
-/** "Proprietário" / "Administrador delegado" · "Hospedado em: …" (plain labels; the role is never proven by a payment or a wallet). */
-export function MarketRoleLine({ role, infrastructure, className }: { role: MarketRole; infrastructure: MarketInfrastructure; className?: string }) {
-  return (
-    <span className={cn('text-caption text-brand-text-secondary', className)}>
-      {t(role === 'owner' ? 'identity.role.owner' : 'identity.role.delegated')} · {t('identity.hosted', { where: t(HOSTED_KEY[infrastructure]) })}
-    </span>
-  )
-}
-
-/** "Seus mercados" in the recovery result: administration comes back only when the ownership check passes. */
-function RecoveredMarkets() {
-  const [states, setStates] = useState(() => DEMO_ADMIN_MARKETS.map((m) => m.state))
-  const retry = (i: number) => {
-    // Demo: the check runs again and lands on the same fixture result; nothing is sent.
-    setStates((s) => s.map((v, j) => (j === i ? 'checking' : v)))
-    simulatedToast()
-    setTimeout(() => setStates((s) => s.map((v, j) => (j === i ? DEMO_ADMIN_MARKETS[i].state : v))), 1200)
-  }
-  return (
-    <section aria-labelledby="identity-markets" className="space-y-2">
-      <h3 id="identity-markets" className="text-sm font-medium text-brand-text">{t('identity.markets.title')}</h3>
-      <p className="text-body-sm text-brand-text-secondary">{t('identity.markets.principle')} {t('identity.markets.note')}</p>
-      <ul className="divide-y divide-brand-border-subtle rounded-lg bg-brand-elevated">
-        {DEMO_ADMIN_MARKETS.map((m, i) => {
-          const state = states[i]
-          const { icon: Icon, tone } = OWNERSHIP_STATE[state]
-          return (
-            <li key={m.name} className="px-3 py-2">
-              <span className="block text-body-sm text-brand-text">{m.name} <span className="text-caption text-brand-text-secondary">· {t('markets.fictionalExample')}</span></span>
-              <MarketRoleLine role={m.role} infrastructure={m.infrastructure} className="block" />
-              <span role="status" className="mt-0.5 flex items-center gap-1.5 text-caption text-brand-text">
-                <Icon aria-hidden="true" className={cn('size-icon-sm shrink-0', tone)} />{t(`identity.markets.${state}`)}
-              </span>
-              {state === 'notConfirmed' && <span className="mt-0.5 block text-caption text-brand-text-secondary">{t('identity.markets.notConfirmedHelp')}</span>}
-              {(state === 'notConfirmed' || state === 'stale') && (
-                <Button type="button" size="sm" variant="secondary" onClick={() => retry(i)} className="mt-1.5 touch:min-h-11">
-                  {t('identity.markets.retry')}<span className="sr-only">: {m.name}</span>
-                </Button>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </section>
-  )
-}
+// Fictional identity domain (where the owner's portable identity lives); shown as a plain label.
+const DEMO_IDENTITY_DOMAIN = 'identidade.exemplo'
 
 // Icon + text for every state, never color alone.
 const GROUP_STATE: Record<GroupState, { icon: LucideIcon; tone: string }> = {
@@ -110,7 +51,32 @@ const GROUP_STATE: Record<GroupState, { icon: LucideIcon; tone: string }> = {
   unavailable: { icon: CircleOff, tone: 'text-brand-text-secondary' },
 }
 
-const simulated = () => <SimulatedBadge label={t('spaces.simulated')} />
+// Markets the recovered identity administers (demo, one per state of the CTO 29 model).
+export type MarketRole = 'owner' | 'delegated'
+type RecoveryState = 'pending' | 'awaitingHost' | 'restored' | 'cancelled' | 'notConfirmed' | 'noAuthority'
+const DEMO_ADMIN_MARKETS: readonly { name: string; role: MarketRole; infrastructure: MarketInfrastructure; state: RecoveryState; daysLeft?: number }[] = [
+  { name: 'Meu Mercado Exemplo', role: 'owner', infrastructure: 'network', state: 'pending', daysLeft: 5 },
+  { name: 'Traders P2P Exemplo', role: 'delegated', infrastructure: 'own', state: 'awaitingHost' },
+  { name: 'Loja Exemplo', role: 'delegated', infrastructure: 'network', state: 'restored' },
+  { name: 'Clientes Empresa ABC', role: 'owner', infrastructure: 'own', state: 'cancelled' },
+  { name: 'Boreal OTC', role: 'delegated', infrastructure: 'managed', state: 'notConfirmed' },
+  { name: 'Bitcoin Sul Exemplo', role: 'owner', infrastructure: 'network', state: 'noAuthority' },
+]
+const RECOVERY_STATE: Record<RecoveryState, { icon: LucideIcon; tone: string }> = {
+  pending: { icon: Hourglass, tone: 'text-brand-info-fg' },
+  awaitingHost: { icon: ServerCog, tone: 'text-brand-info-fg' },
+  restored: { icon: CircleCheck, tone: 'text-brand-success-fg' },
+  cancelled: { icon: Ban, tone: 'text-brand-warning-fg' },
+  notConfirmed: { icon: CircleAlert, tone: 'text-brand-warning-fg' },
+  noAuthority: { icon: CircleOff, tone: 'text-brand-text-secondary' },
+}
+const HOSTED_KEY = { network: 'markets.create.infrastructure.networkLabel', own: 'markets.list.infrastructure.own', managed: 'markets.create.infrastructure.managedLabel' } as const
+// Demo case for "Mudança de dono recente" (market page › Sobre).
+const DEMO_RECENT_OWNER_CHANGE: Readonly<Record<string, { requestedDaysAgo: number; doneDaysAgo: number }>> = {
+  'demo-market-boreal': { requestedDaysAgo: 9, doneDaysAgo: 2 },
+}
+
+const simulated = (className?: string) => <SimulatedBadge label={t('spaces.simulated')} className={className} />
 
 /** Title of the current step; focus moves to it on each step so keyboard and screen reader follow the flow. */
 function StepHeader({ step, total, title, description, onBack }: { step?: number; total?: number; title: string; description?: ReactNode; onBack?: () => void }) {
@@ -145,7 +111,35 @@ function Fact({ icon: Icon, children, tone = 'text-brand-text-secondary' }: { ic
   )
 }
 
-/** What a portable record never brings back (shown at the end of both flows). */
+/** A native disclosure (keyboard and screen reader for free). */
+function Disclosure({ summary, children }: { summary: string; children: ReactNode }) {
+  return (
+    <details className="group rounded-lg bg-brand-elevated px-3">
+      <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 text-body-sm font-medium text-brand-text touch:min-h-11">
+        {summary}<ChevronDown aria-hidden="true" className="size-icon-sm shrink-0 text-brand-text-secondary group-open:rotate-180" />
+      </summary>
+      <p className="pb-3 text-body-sm text-brand-text-secondary">{children}</p>
+    </details>
+  )
+}
+const WhatIs = () => <Disclosure summary={t('identity.whatIs')}>{t('identity.whatIsText')}</Disclosure>
+
+/** The QR the identity app scans (a placeholder: the demo draws no real code) and the anti-phishing line. */
+function QrApproval() {
+  return (
+    <>
+      <figure className="flex flex-col items-center gap-2 rounded-lg bg-brand-elevated p-4">
+        <span className="flex size-32 items-center justify-center rounded-md bg-brand-surface">
+          <QrCode aria-hidden="true" className="size-icon-lg text-brand-text-secondary" />
+        </span>
+        <figcaption className="text-caption text-brand-text-secondary">{t('identity.qr')}</figcaption>
+      </figure>
+      <Fact icon={ShieldAlert} tone="text-brand-warning-fg">{t('identity.phishing')}</Fact>
+    </>
+  )
+}
+
+/** What the portable identity never brings back (end of the activation). */
 function Limits({ onLeave }: { onLeave?: () => void }) {
   return (
     <section aria-labelledby="identity-limits" className="space-y-2 rounded-lg bg-brand-elevated p-3">
@@ -159,46 +153,24 @@ function Limits({ onLeave }: { onLeave?: () => void }) {
   )
 }
 
-/** "O que é isso?": the one place that names Pubky (native disclosure, keyboard and screen reader for free). */
-function WhatIs() {
-  return (
-    <details className="group rounded-lg bg-brand-elevated px-3">
-      <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 text-body-sm font-medium text-brand-text touch:min-h-11">
-        {t('identity.whatIs')}<ChevronDown aria-hidden="true" className="size-icon-sm shrink-0 text-brand-text-secondary group-open:rotate-180" />
-      </summary>
-      <p className="pb-3 text-body-sm text-brand-text-secondary">{t('identity.whatIsText')}</p>
-    </details>
-  )
-}
-
 const Note = () => <p className="text-caption text-brand-text-secondary">{t('spaces.simulated.toast')}</p>
 
-/** "Ativar o Sails P2P": identity created, portable identity, communication. `onDone` closes the host dialog. */
+/** "Ativar o Sails P2P": open the wallet, then scan the QR in the identity app and approve. `onDone` closes the host dialog. */
 export function ActivationFlow({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0)
-  const back = () => setStep((s) => s - 1)
   if (step === 0) return (
     <>
-      <StepHeader step={1} total={3} title={t('identity.activate.s1.title')} description={t('identity.activate.s1.text')} />
-      <Fact icon={KeyRound} tone="text-brand-info">{t('identity.status.description')}</Fact>
+      <StepHeader step={1} total={2} title={t('identity.activate.s1.title')} description={t('identity.activate.s1.text')} />
+      <Fact icon={Fingerprint} tone="text-brand-info">{t('identity.status.description')}</Fact>
       <Button onClick={() => setStep(1)} className="w-full touch:min-h-11">{t('identity.continue')}</Button>
     </>
   )
   if (step === 1) return (
     <>
-      <StepHeader step={2} total={3} title={t('identity.activate.s2.title')} description={t('identity.activate.s2.text')} onBack={back} />
+      <StepHeader step={2} total={2} title={t('identity.activate.s2.title')} description={t('identity.activate.s2.text')} onBack={() => setStep(0)} />
+      <QrApproval />
       <WhatIs />
-      <div className="grid gap-2">
-        <Button onClick={() => setStep(2)} className="w-full touch:min-h-11">{t('identity.activate.s2.create')}</Button>
-        <Button variant="secondary" onClick={() => setStep(2)} className="w-full touch:min-h-11">{t('identity.activate.s2.connect')}</Button>
-      </div>
-    </>
-  )
-  if (step === 2) return (
-    <>
-      <StepHeader step={3} total={3} title={t('identity.activate.s3.title')} description={t('identity.activate.s3.text')} onBack={back} />
-      <Fact icon={Radio} tone="text-brand-success-fg">{t('identity.activate.s3.nothing')}</Fact>
-      <Button onClick={() => setStep(3)} className="w-full touch:min-h-11">{t('identity.finish')}</Button>
+      <Button onClick={() => setStep(2)} className="w-full touch:min-h-11">{t('identity.approved')}</Button>
     </>
   )
   return (
@@ -207,9 +179,10 @@ export function ActivationFlow({ onDone }: { onDone: () => void }) {
       <p role="status" className="flex items-start gap-2 text-body text-brand-text">
         <CircleCheck aria-hidden="true" className="mt-0.5 size-icon-md shrink-0 text-brand-success-fg" />{t('identity.activate.done')}
       </p>
+      <Fact icon={Radio} tone="text-brand-success-fg">{t('identity.activate.comms')}</Fact>
       <Limits onLeave={onDone} />
       <Note />
-      <Button variant="secondary" onClick={onDone} className="w-full touch:min-h-11">{t('settings.backup.close')}</Button>
+      <Button variant="secondary" onClick={onDone} className="w-full touch:min-h-11">{t('identity.close')}</Button>
     </>
   )
 }
@@ -242,7 +215,56 @@ function ResultCard({ icon: Icon, title, children }: { icon: LucideIcon; title: 
   )
 }
 
-/** The recovery result: identity / social data / funds kept apart, then groups and contacts. */
+/** "Proprietário" / "Administrador delegado" · "Hospedado em: …" (plain labels; never proven by a payment or a wallet). */
+export function MarketRoleLine({ role, infrastructure, className }: { role: MarketRole; infrastructure: MarketInfrastructure; className?: string }) {
+  return (
+    <span className={cn('text-caption text-brand-text-secondary', className)}>
+      {t(role === 'owner' ? 'identity.role.owner' : 'identity.role.delegated')} · {t('identity.hosted', { where: t(HOSTED_KEY[infrastructure]) })}
+    </span>
+  )
+}
+
+const HostDependency = () => <Fact icon={Server}>{t('identity.markets.host')}</Fact>
+
+/** "Seus mercados" in the recovery result: administration can come back only after the safety period, with no objection and a cooperating host. */
+function RecoveredMarkets() {
+  return (
+    <section aria-labelledby="identity-markets" className="space-y-2">
+      <h3 id="identity-markets" className="text-sm font-medium text-brand-text">{t('identity.markets.title')}</h3>
+      <p className="text-body-sm text-brand-text-secondary">{t('identity.markets.principle')}</p>
+      <p className="text-body-sm text-brand-text">{t('identity.markets.wait')}</p>
+      <HostDependency />
+      <ul className="divide-y divide-brand-border-subtle rounded-lg bg-brand-elevated">
+        {DEMO_ADMIN_MARKETS.map((m) => {
+          const { icon: Icon, tone } = RECOVERY_STATE[m.state]
+          return (
+            <li key={m.name} className="px-3 py-2">
+              <span className="block text-body-sm text-brand-text">{m.name} <span className="text-caption text-brand-text-secondary">· {t('markets.fictionalExample')}</span></span>
+              <MarketRoleLine role={m.role} infrastructure={m.infrastructure} className="block" />
+              <span className="block text-caption text-brand-text-secondary">{t('identity.identityAt', { domain: DEMO_IDENTITY_DOMAIN })}</span>
+              <span className="mt-0.5 flex items-center gap-1.5 text-caption text-brand-text">
+                <Icon aria-hidden="true" className={cn('size-icon-sm shrink-0', tone)} />{t(`identity.markets.${m.state}`)}
+              </span>
+              {m.state === 'pending' && m.daysLeft !== undefined && (
+                <span className="mt-0.5 block text-caption tabular-nums text-brand-text-secondary">{t('identity.markets.daysLeft', { count: m.daysLeft })}</span>
+              )}
+              {m.state === 'notConfirmed' && (
+                <>
+                  <span className="mt-0.5 block text-caption text-brand-text-secondary">{t('identity.markets.notConfirmedHelp')}</span>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => simulatedToast()} className="mt-1.5 touch:min-h-11">
+                    {t('identity.markets.retry')}<span className="sr-only">: {m.name}</span>
+                  </Button>
+                </>
+              )}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
+  )
+}
+
+/** The recovery result: identity / social data / funds kept apart, then reputation, groups, markets and contacts. */
 function RecoveryResult({ doneLabel, onDone }: { doneLabel: string; onDone: () => void }) {
   return (
     <>
@@ -252,6 +274,7 @@ function RecoveryResult({ doneLabel, onDone }: { doneLabel: string; onDone: () =
           <p className="flex items-center gap-1.5 text-brand-text"><CircleCheck aria-hidden="true" className="size-icon-sm text-brand-success-fg" />{t('identity.result.identityValue')}</p>
         </ResultCard>
         <ResultCard icon={FileLock2} title={t('identity.result.social')}>
+          <p>{t('identity.result.socialFuture')}</p>
           <p>{t('identity.result.found')}</p>
           <ul className="list-disc pl-5 text-brand-text">
             <li>{t('identity.result.contacts', { count: DEMO_CONTACTS.length })}</li>
@@ -263,6 +286,7 @@ function RecoveryResult({ doneLabel, onDone }: { doneLabel: string; onDone: () =
           <p>{t('identity.limits.funds')}</p>
         </ResultCard>
       </div>
+      <Fact icon={Star}>{t('identity.result.reputation')}</Fact>
       <Fact icon={MessageSquareOff}>{t('identity.limits.messages')}</Fact>
 
       <section aria-labelledby="identity-groups" className="space-y-2">
@@ -296,25 +320,108 @@ function RecoveryResult({ doneLabel, onDone }: { doneLabel: string; onDone: () =
   )
 }
 
-/** "Recuperar minha identidade": recover, authorize this app, restore social data, result. */
+/** "Recuperar minha identidade": restore the identity app, scan and approve, social data (future), result. */
 export function RecoveryFlow({ onExit, onDone, doneLabel }: { onExit?: () => void; onDone: () => void; doneLabel: string }) {
   const [step, setStep] = useState(0)
+  const next = () => setStep((s) => s + 1)
   const back = () => setStep((s) => s - 1)
-  const STEPS = [
-    { title: 'identity.recover.s1.title', text: 'identity.recover.s1.text', action: 'identity.recover.s1.action' },
-    { title: 'identity.recover.s2.title', text: 'identity.recover.s2.text', action: 'identity.recover.s2.action' },
-    { title: 'identity.recover.s3.title', text: 'identity.recover.s3.text', action: 'identity.recover.s3.action' },
-  ] as const
-  if (step >= STEPS.length) return <RecoveryResult doneLabel={doneLabel} onDone={onDone} />
-  const s = STEPS[step]
-  return (
+  if (step === 0) return (
     <>
-      <StepHeader step={step + 1} total={STEPS.length} title={t(s.title)} description={t(s.text)} onBack={step > 0 ? back : onExit} />
-      {step === 0 && (
-        <WhatIs />
-      )}
-      <Button onClick={() => setStep(step + 1)} className="w-full touch:min-h-11">{t(s.action)}</Button>
+      <StepHeader step={1} total={3} title={t('identity.recover.s1.title')} description={t('identity.recover.s1.text')} onBack={onExit} />
+      <WhatIs />
+      <Disclosure summary={t('identity.loseAll.title')}>{t('identity.loseAll.text')}</Disclosure>
+      <Button onClick={next} className="w-full touch:min-h-11">{t('identity.recover.s1.action')}</Button>
     </>
+  )
+  if (step === 1) return (
+    <>
+      <StepHeader step={2} total={3} title={t('identity.recover.s2.title')} description={t('identity.recover.s2.text')} onBack={back} />
+      <QrApproval />
+      <Button onClick={next} className="w-full touch:min-h-11">{t('identity.approved')}</Button>
+    </>
+  )
+  if (step === 2) return (
+    <>
+      <StepHeader step={3} total={3} title={t('identity.recover.s3.title')} description={t('identity.recover.s3.text')} onBack={back} />
+      <Button onClick={next} className="w-full touch:min-h-11">{t('identity.recover.s3.action')}</Button>
+    </>
+  )
+  return <RecoveryResult doneLabel={doneLabel} onDone={onDone} />
+}
+
+/**
+ * The owner's notice on the old device (demo: Meus mercados): a pending recovery of their market, with "Contestar"
+ * (the veto). Channels shown: in-app notice and wallet push, both simulated.
+ */
+export function RecoveryObjectionBanner({ marketName }: { marketName: string }) {
+  const [confirming, setConfirming] = useState(false)
+  const [sent, setSent] = useState(false)
+  return (
+    <section aria-labelledby="identity-objection" className="space-y-2 rounded-lg bg-brand-warning-bg p-3">
+      <h2 id="identity-objection" className="flex flex-wrap items-center gap-2 text-sm font-medium text-brand-text">
+        <BellRing aria-hidden="true" className="size-icon-sm shrink-0 text-brand-warning-fg" />
+        {t('identity.objection.text', { name: marketName })}{simulated()}
+      </h2>
+      <p className="text-caption text-brand-text-secondary">{t('identity.objection.channels')}</p>
+      <p className="text-body-sm text-brand-text">{t('identity.objection.revoke')}</p>
+      {sent ? (
+        <p role="status" className="flex items-center gap-1.5 text-body-sm text-brand-text"><CircleCheck aria-hidden="true" className="size-icon-sm shrink-0 text-brand-success-fg" />{t('identity.objection.sent')}</p>
+      ) : (
+        <Button type="button" variant="destructive" size="sm" onClick={() => setConfirming(true)} className="touch:min-h-11">{t('identity.objection.action')}</Button>
+      )}
+      <ConfirmActionDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t('identity.objection.confirmTitle', { name: marketName })}
+        consequence={t('identity.objection.confirmBody')}
+        confirmLabel={t('identity.objection.action')}
+        tone="danger"
+        onConfirm={() => { setConfirming(false); setSent(true); simulatedToast() }}
+      />
+    </section>
+  )
+}
+
+/** Market page › Sobre (demo): host and identity labels, the host dependency, and a recent owner change when there is one. */
+export function MarketRecoveryAbout({ marketId, infrastructure, className }: { marketId: string; infrastructure: MarketInfrastructure; className?: string }) {
+  const change = DEMO_RECENT_OWNER_CHANGE[marketId]
+  return (
+    <section aria-labelledby="market-ownership" className={cn('space-y-2', className)}>
+      <h2 id="market-ownership" className="flex flex-wrap items-center gap-2 text-section-title">{t('identity.about.title')}{simulated()}</h2>
+      <p className="text-body-sm text-brand-text-secondary">
+        {t('identity.hosted', { where: t(HOSTED_KEY[infrastructure]) })}
+        <span className="block">{t('identity.identityAt', { domain: DEMO_IDENTITY_DOMAIN })}</span>
+      </p>
+      <HostDependency />
+      {change && (
+        <div role="note" className="space-y-1 rounded-lg bg-brand-warning-bg p-3">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-brand-text"><RotateCcw aria-hidden="true" className="size-icon-sm shrink-0 text-brand-warning-fg" />{t('identity.ownerChange.title')}</p>
+          <ol className="list-decimal space-y-0.5 pl-5 text-body-sm text-brand-text">
+            <li>{t('identity.ownerChange.requested', { count: change.requestedDaysAgo })}</li>
+            <li>{t('identity.ownerChange.window')}</li>
+            <li>{t('identity.ownerChange.done', { count: change.doneDaysAgo })}</li>
+          </ol>
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** Criar mercado › Opções avançadas: who can recover the market (demo); real mode shows the planned item. */
+export function RecoveryAuthorityChoice({ name }: { name: string }) {
+  const [value, setValue] = useState<'self' | 'group'>('self')
+  if (!isDemoMode()) return <WirePlanned id="marketRecoveryAuthority" label={t('identity.recovery.legend')} description={t('identity.recovery.help')} />
+  return (
+    <RadioGroup legend={<span className="inline-flex flex-wrap items-center gap-2">{t('identity.recovery.legend')}{simulated()}</span>} description={t('identity.recovery.help')} listClassName="grid gap-2">
+      {(['self', 'group'] as const).map((v) => (
+        <RadioCard key={v} name={name} value={v} checked={value === v} onChange={() => setValue(v)} className="items-start">
+          <span className="min-w-0">
+            <span className="block">{t(v === 'self' ? 'identity.recovery.self' : 'identity.recovery.group')}</span>
+            <span className="block text-caption font-normal text-brand-text-secondary">{t(v === 'self' ? 'identity.recovery.selfHelp' : 'identity.recovery.groupHelp')}</span>
+          </span>
+        </RadioCard>
+      ))}
+    </RadioGroup>
   )
 }
 
@@ -326,7 +433,7 @@ export function PortableIdentityRows() {
   const [open, setOpen] = useState<'activate' | 'recover' | null>(null)
   const close = () => setOpen(null)
   const soon = t('common.soon')
-  const withBadge = (text: string) => <><SimulatedBadge label={t('spaces.simulated')} className="mr-1.5" />{text}</>
+  const withBadge = (text: string) => <>{simulated('mr-1.5')}{text}</>
   return (
     <>
       <SettingsRow
@@ -354,6 +461,7 @@ export function PortableIdentityRows() {
           <h3 className="text-sm font-medium text-brand-text">{t('identity.social.title')}</h3>
           <p className="text-body-sm text-brand-text-secondary">{t('identity.social.included')}</p>
           <p className="text-body-sm text-brand-text-secondary">{t('identity.social.excluded')}</p>
+          <p className="text-body-sm text-brand-text-secondary">{t('identity.social.today')}</p>
           <p className="text-body-sm text-brand-text-secondary">{t('identity.limits.messages')}</p>
         </div>
       </li>
@@ -365,15 +473,15 @@ export function PortableIdentityRows() {
           <div className="min-w-0 flex-1 space-y-2">
             <div>
               <h3 className="flex flex-wrap items-center gap-2 text-sm font-medium text-brand-text">{t('identity.contacts.title')}{simulated()}</h3>
-              <p className="text-caption text-brand-text-secondary">{t('identity.contacts.description')}</p>
+              <p className="text-caption text-brand-text-secondary">{t('identity.contacts.description')} {t('identity.contacts.local')}</p>
             </div>
             <ContactsList />
           </div>
         </li>
       ) : (
-        <SettingsRow icon={LOOSE_WIRES.savedContacts.icon} label={t('identity.contacts.title')} description={t('identity.contacts.description')} plannedLabel={soon} />
+        <SettingsRow icon={LOOSE_WIRES.savedContacts.icon} label={t('identity.contacts.title')} description={t('identity.contacts.local')} plannedLabel={soon} />
       )}
-      {/* R0 backup (economic key, escrow keys) is a separate thing from the portable social record. */}
+      {/* R0 backup (escrow keys, asked only with an open escrow) is a separate thing from the identity and the social record. */}
       <SettingsRow icon={KeyRound} label={t('identity.backup.label')} description={t('identity.backup.description')} to="/settings?section=seguranca" />
       {demo && (
         <Dialog open={open !== null} onOpenChange={(o) => !o && close()}>

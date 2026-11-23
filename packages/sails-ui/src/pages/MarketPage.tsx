@@ -44,6 +44,7 @@ import { formatMonthYear } from '../lib/format'
 import { cn } from '../lib/utils'
 import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycDetails, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
 import { t } from '../i18n'
+import { MarketRecoveryAbout } from '../components/settings/PortableIdentityDemo'
 
 const SECTION = 'rounded-lg bg-brand-surface p-3 sm:p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
@@ -301,6 +302,9 @@ export function MarketPage() {
               </Button>
             )}
           </section>
+
+          {/* CTO 29, demo: who hosts the market and where the owner's identity lives, the host dependency, recent owner changes. */}
+          {isDemoMode() && <MarketRecoveryAbout marketId={m.id} infrastructure={m.infrastructure} className={SECTION} />}
 
           <section aria-labelledby="market-rules" className={SECTION}>
             <h2 id="market-rules" className="text-section-title">{t('spaces.page.rulesTitle')}</h2>

@@ -77,7 +77,9 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   portableIdentity: sim('Wallet e chaves', 'Configurações → Identidade e recuperação (Ativar, Recuperar); Conectar wallet → Já usei o Sails em outro app ou aparelho · contrato pendente (Principal, GK)'),
   portableRecord: sim('Wallet e chaves', 'Recuperar minha identidade → resultado; Configurações → Identidade e recuperação → Dados sociais portáteis · contrato pendente (Principal, GK)'),
   groupMembershipStatus: sim('Mercados', 'Recuperar minha identidade → resultado (grupos) · contrato pendente (Principal, GK)'),
-  marketOwnershipRecovery: sim('Mercados', 'Recuperar minha identidade → resultado (Seus mercados); Meus mercados → Seu espaço (papel e hospedagem) · contrato pendente (Principal, GK)'),
+  marketOwnershipRecovery: sim('Mercados', 'Recuperar minha identidade → resultado (Seus mercados); Meus mercados (aviso ao dono, Contestar); página do mercado → Sobre · período de segurança mínimo de 7 dias, contrato pendente (Principal, GK)'),
+  marketRecoveryAuthority: sim('Mercados', 'Criar mercado → Opções avançadas → Quem pode recuperar este mercado · contrato pendente (Principal, GK)'),
+  escrowBackupPrompt: sim('Wallet e chaves', 'Trade com escrow aberto → Crie o backup das chaves deste escrow · falta o R0 no SDK (decisão do CTO)'),
   savedContacts: sim('Wallet e chaves', 'Recuperar minha identidade → resultado; Configurações → Identidade e recuperação → Contatos · contrato pendente (Principal, GK)'),
   // Notificações.
   notifyTrades: sim('Notificações', 'Configurações → Notificações'),

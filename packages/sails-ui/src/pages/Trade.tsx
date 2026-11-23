@@ -51,6 +51,7 @@ import { FaqLink } from '../components/faq/FaqLink'
 import { protocolFeeRateLabel } from '../lib/faq'
 import { FeeBreakdown } from '../components/ui/FeeBreakdown'
 import { SimulatedBadge } from '../components/ui/SimulatedBadge'
+import { EscrowBackupPrompt } from '../components/settings/BackupDemo'
 import { AsideResizer, useTradeAsideWidth } from '../components/trade/AsideResizer'
 import { SafetyCenterLink } from '../components/safety/SafetyCenterLink'
 
@@ -1135,6 +1136,8 @@ export function Trade() {
       {/* The aside width is the viewer's, set with the divider (AsideResizer); 400 px by default. */}
       <div ref={aside.gridRef} style={aside.style} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_var(--trade-aside-w)] lg:grid-rows-[auto_auto_1fr] lg:items-start">
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
+          {/* CTO 29, demo: R0 is asked only once an escrow is open (one prompt per page load). */}
+          {isDemoMode() && escrow && <EscrowBackupPrompt />}
           {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
           {escrowStatus === 'DISPUTED' && dispute ? null : actionCardShown ? (
             <CurrentActionCard
