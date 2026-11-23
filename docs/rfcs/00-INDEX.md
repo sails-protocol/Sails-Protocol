@@ -1,18 +1,10 @@
 # Sails Protocol — RFCs
 
-Índice de leitura sugerido — cada RFC segue o mesmo formato: Summary,
-Motivation, Alternatives Considered (incluindo o que foi rejeitado e por
-quê), Decision, Primitives Used or Extended, Principle Alignment,
-Specification, Backward Compatibility, Reference Implementation Plan.
+Suggested reading index. Each RFC follows a common structure: Summary, Motivation, Alternatives Considered, Decision, Primitives Used or Extended, Principle Alignment, Specification, Backward Compatibility, and Reference Implementation Plan.
 
-**🔷 = Core RFC** (`GOVERNANCE.md` §6A) — muda o *wiring* do lifecycle
-de um primitive já existente, ou o modelo de confiança/custódia de algo
-que `PROTOCOL_INVARIANTS.md` trata como invariante constitucional.
-Classificação, não renumeração — ainda entra na mesma sequência única e
-permanente (§5). Ganha `Motivation`/`Decision`/`Implementation Impact`
-como seções obrigatórias e explícitas, além do template padrão.
+**🔷 Core RFC** (`GOVERNANCE.md` §6A): changes the lifecycle wiring of an existing primitive or a trust/custody model protected by `PROTOCOL_INVARIANTS.md`. Core classification does **not** renumber the permanent RFC sequence (`GOVERNANCE.md` §5). Core RFCs also require explicit Motivation, Decision, and Implementation Impact sections.
 
-| RFC | Título | Resolve |
+| RFC | Title | Scope / Decision |
 |---|---|---|
 | RFC-001 | Participant Model | Core depende de `Participant` abstrato, não de `Identity` diretamente. Corrige explicitamente por que `Wallet` e `Agent` NÃO são implementações diretas |
 | RFC-002 | Transport Provider Abstraction | Pears/HyperDHT vira implementação de `TransportProvider`, não dependência fixa — decisão explícita entre tratar Pears como fundacional (rejeitado) ou criar a interface (aceito) |
