@@ -130,3 +130,15 @@ export function durationParts(ms: number): { hours: number; minutes: number; tot
   const totalMinutes = Math.round(ms / 60000)
   return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60, totalMinutes }
 }
+
+// shortcut: provisional UI value; the real small-numbers rule belongs to the backend aggregates contract (Principal/CTO), move it there when that contract exists.
+export const MIN_AGGREGATE_COUNT = 5
+
+/**
+ * Small-numbers privacy for the space dashboard (CTO 29 Portable Analytics): with few concluded trades in the period or
+ * few members, a breakdown can point at one person, so the per-asset figures, the chart and the top assets hide.
+ * Members unknown counts as few: never shown on a guess.
+ */
+export function aggregatesHidden(i: { completed: number; members: number | null | undefined }): boolean {
+  return i.completed < MIN_AGGREGATE_COUNT || i.members === null || i.members === undefined || i.members < MIN_AGGREGATE_COUNT
+}

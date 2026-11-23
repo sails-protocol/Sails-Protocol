@@ -139,6 +139,8 @@ export function VolumeChart({ trades, range, rangeText }: { trades: readonly Tra
         copy={chartCopy()}
       />
       {hidden > 0 && <p className="mt-1 text-caption text-brand-text-muted">{t('stats.chart.moreAssets', { count: hidden })}</p>}
+      {/* totalUsd as each trade recorded it; the interface converts nothing. */}
+      <p className="mt-2 text-caption text-brand-text-muted">{t('stats.chart.usdSource')}</p>
     </div>
   )
 }

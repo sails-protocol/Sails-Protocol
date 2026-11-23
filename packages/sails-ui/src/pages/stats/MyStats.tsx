@@ -174,6 +174,8 @@ export function MyStatsSection({ user, className }: { user: User; className?: st
     return (
       <>
         {capped && <p className="mt-3 text-caption text-brand-text-secondary">{t('stats.me.capped', { count: load.trades.length })}</p>}
+        {/* Real mode only: the demo's numbers are fictional and come from this device. */}
+        {!demo && <p className="mt-3 text-caption text-brand-text-muted">{t('stats.me.source')}</p>}
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
           <StatTile label={t('stats.kpi.completed')} value={fig.completed} delta={prev ? countDelta(fig.completed, prev.completed) : undefined} />
           <StatTile label={t('stats.kpi.volume')} value={<VolumeValue amounts={fig.amountByUnit} />} />
