@@ -14,10 +14,10 @@
 | Threat | Severity | Mitigation |
 |---|---|---|
 | **Fake Liquidity** | High | QVAC (once implemented) detects offers with zero completion history. Trust limits: new peers have low trade caps until volume is proven (see `SECURITY_MODEL.md` section on trust limits). |
-| **Sybil Attack** | High | Reputation requires real Bitcoin volume — zero volume means low score means low trust limits. Creating many fake identities has real economic cost, not just effort. |
+| **Sybil Attack** | High | Volume-linked reputation and trade limits are intended to raise attack cost, but do not prove that volume is independent or economically genuine. Colluding identities may generate circular trades; resistance to capital-funded Sybil activity remains a residual risk (RFC-021). |
 | **PIX / Fiat Proof Fraud** | High | QVAC image analysis + pattern matching (future). Repeated fake receipts from the same keypair get auto-flagged. Today, this relies on the counterparty's own judgment plus dispute resolution. |
 | **Chat Phishing** | Medium | URL detection in Secretstream messages (future QVAC capability). Suspicious patterns — links, urgency, requests to pay outside the agreed method — should be flagged. |
-| **Reputation Manipulation** | Medium | Anti-double-rating enforced at the database level (`@@unique([tradeId, raterId])`). QVAC (future) detects coordinated rating groups: same IP, same timing, circular trades between colluding accounts. |
+| **Reputation Manipulation** | Medium | The database constraint (`@@unique([tradeId, raterId])`) limits duplicate ratings by the same rater for a trade; it does not prevent coordinated distinct identities or circular trades. QVAC-based detection of rating rings (IP/timing/circular patterns) is future work, not an active control. |
 | **Escrow Exploit** | High | Escrow is always architecturally separate from the application (see `ARCHITECTURE.md` layer-violation fix). Multisig 2-of-3 — no single entity controls funds alone. Third-party security audit required before mainnet (see `ROADMAP.md`). |
 | **API Abuse / DDoS** | Low | Rate limiting per IP is real (`@fastify/rate-limit`, resolved 2026-07-18 — see §4 below for the exact config and its still-open gaps). Per-keypair/API-key limiting and "API keys carrying their own reputation score" remain design intentions, not built. Sandbox environment kept separate from production. |
 | **Custody Creep** | High | Normative target: Sails economic coordination must remain non-custodial. Reference/provider implementations are independently classified and may violate or only partially satisfy that target until remediated; RFC-019/RFC-020 and production-eligibility gates own those distinctions. Interface conformance alone does not prove non-custody. |
@@ -41,10 +41,10 @@ failure modes:
 - **Non-custodial protocol target** — removes a major attack surface when correctly implemented, but custody properties must be verified per settlement provider/reference implementation; they are not guaranteed by prose or interface shape alone
 - **Escrow isolation as an architectural goal** — module separation reduces coupling, but compromise impact depends on the concrete provider/custody model; architectural separation alone is not proof that funds cannot be exposed
 - **Multi-party authorization where the selected rail/provider actually implements it** — do not generalize MULTISIG semantics to WDK/EVM or other rails without rail-specific evidence
-- **QVAC-assisted fraud detection runs locally** — no cloud dependency, no
-  centralized honeypot of user financial intent data
-- **Anti-Sybil reputation tied to real volume** — much more expensive to
-  attack than a simple account-creation-based reputation system
+- **QVAC-assisted fraud detection is a local-first design goal**, not a generally active protection: most detectors remain future work; the dispute-evidence assessment is implemented but opt-in and bounded (see §4).
+- **Volume-linked reputation and trust limits** may raise Sybil attack cost,
+  but do not establish verified economic independence or eliminate circular
+  trading and capital-funded collusion (RFC-021).
 
 ---
 
