@@ -209,7 +209,7 @@ every fund-moving action; the server never holds a key capable of
 moving user funds (`PROTOCOL_INVARIANTS.md` Constitutional Invariant 2,
 `SECURITY_MODEL.md` Principle 2).**
 
-**What the one real, tested `SettlementProvider` — `WdkSettlementProvider`
+**What the server-seed EVM reference `SettlementProvider` — `WdkSettlementProvider`
 (`wdk-settlement.provider.ts`) — actually does: it does not meet that
 guarantee.** `getWallet()` constructs a `WalletManagerEvm` from a single
 seed phrase (`config.wdk.seedPhrase`, env var `WDK_SEED_PHRASE`) that
