@@ -633,12 +633,12 @@ edge carries exactly one label. A dotted edge or node is **not operational**. No
 | *Dependência não homologada* | Depends on implementation, upstream support or cryptographic validation that has not been signed off. |
 
 Today Pubky appears only in lab experiments, not in `src/` or the SDK. The formats `SAILS-BACKUP/1` and `SAILS-REGISTRY/1` are
-*em especificação*; their parameters are deliberately not published here. Whether a third party can check that a
+*em especificação*; their parameters will be documented once the formats are approved. Whether a third party can check that a
 delegated authorisation was revoked is an upstream dependency (pubky-homeserver #824/#825) and is **not** assumed anywhere below.
 
 #### Diagram 1 - Architecture and key separation
 
-Seven separate keys. No arrow below is a derivation between them, except an escrow key from its own escrow seed. Nothing leaves the wallet seed.
+Separate keys. No arrow below is a derivation between them, except an escrow key from its own escrow seed. Nothing leaves the wallet seed.
 
 ```mermaid
 flowchart LR
@@ -648,7 +648,7 @@ flowchart LR
   EK["Escrow keys<br/>Implementado"]
   PR["Pubky root, held by the signer, e.g. Ring<br/>Aprovado (direção)"]
   DK["Delegated app key, scoped grant<br/>Aprovado (direção)"]
-  PK["Pear transport key, new per installation<br/>Implementado (ephemeral today; per-installation rule: Aprovado)"]
+  PK["Pear transport key (ephemeral today)<br/>Implementado"]
   K["Registry key K, random, never derived<br/>Aprovado (direção)"]
   N["Sails node and SDK: records and verifies<br/>Implementado"]
   PEER["Pears / HyperDHT: carries messages<br/>Implementado"]
@@ -656,6 +656,7 @@ flowchart LR
   P -->|"economic participation: Implementado"| N
   EK -->|"escrow signing: Implementado"| N
   PK -->|"transport only: Implementado"| PEER
+  PK -.->|"new key per installation, never imported: Aprovado (direção)"| PEER
   PR -.->|"signer issues grant: Aprovado (direção)"| DK
   DK -.->|"scoped authorisation: Aprovado (direção)"| N
 ```
@@ -672,7 +673,7 @@ flowchart TD
   B["SDK configures a Pear transport key automatically, per installation<br/>Aprovado (direção)"]
   C["Pubky identity through the signer; app receives a scoped grant, never the root<br/>Aprovado (direção)"]
   D["Sails participant registered and verified by the node<br/>Implementado"]
-  E["Random registry key K created once, stored only in the backup file<br/>Aprovado (direção)"]
+  E["Random registry key K created once, kept on the device and included in the encrypted backup file<br/>Aprovado (direção)"]
   X["Not required: Sails seed, derivation from the wallet, P2P BIP-39 phrase<br/>Aprovado (direção)"]
   A -->|"first use: Implementado"| D
   A -.->|"automatic: Aprovado (direção)"| B
@@ -703,7 +704,7 @@ flowchart TD
   S -.->|"Aprovado (direção)"| F
   F -.->|"Aprovado (direção)"| K
   K -.->|"locate and decrypt: Aprovado (direção)"| R
-  C -.->|"identity finds the record: Aprovado (direção)"| R
+  C -.->|"identity reaches the homeserver; the opaque path comes from K: Aprovado (direção)"| R
   R -.->|"Aprovado (direção)"| L
   A -.->|"blocked: no signer API today: Dependência não homologada"| PK
   PK -.->|"Dependência não homologada"| K
@@ -716,7 +717,7 @@ flowchart TD
   FD ~~~ NB
 ```
 
-Lab evidence shows Pubky recovery working in a clean installation; in production it depends on the real signer, which is why the whole path stays dotted.
+Lab experiments (#543/#545) restored a Pubky identity in a clean installation; this is not a production capability and depends on the real signer, so the path stays dotted.
 
 #### Diagram 4 - Persistence (three separate stores)
 
@@ -725,7 +726,7 @@ No arrow copies messages or economic data into the social record.
 ```mermaid
 flowchart LR
   subgraph M["1. Local messages only"]
-    M1["Device storage; no sync; not restored by default<br/>Aprovado (direção)"]
+    M1["Device storage; not synced and not restored<br/>Aprovado (direção)"]
   end
   subgraph S["2. Encrypted social record, opaque path in the Pubky public area"]
     S1["Contacts, groups, favorites only; encrypted with K<br/>Aprovado (direção)"]
