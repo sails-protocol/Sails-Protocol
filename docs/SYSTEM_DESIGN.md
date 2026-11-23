@@ -709,7 +709,7 @@ flowchart TD
   K -.->|"locate and decrypt: Aprovado (direção)"| R
   C -.->|"identity locates the homeserver; K gives the path: Aprovado (direção)"| R
   R -.->|"Aprovado (direção)"| L
-  A -.->|"blocked: no signer API today: Dependência não homologada"| PK
+  A -.->|"depends on signer support for scoped encryption keys (not yet in a tagged signer release) and on independent validation: Dependência não homologada"| PK
   PK -.->|"Dependência não homologada"| K
   L -.->|"group reference found: Aprovado (direção)"| grpFound["1. Found: reference only, no access<br/>Aprovado (direção)"]
   grpFound -.->|"membership checked now at the group authority: Aprovado (direção)"| grpValid["2. Valid membership verified now<br/>Aprovado (direção)"]
