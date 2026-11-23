@@ -43,16 +43,16 @@ Today only the Sails participant key, the client escrow keys and the node exist 
 - **Concurrent recoveries.** Two pending recoveries cancel each other and freeze the market. The owner is notified, and a new recovery restarts the delay.
 
 ### 4. When a recovery takes effect
-- **The market's host decides.** The host records the recovery in an append-only log with its monotonic clock. The recovery takes effect at **host receipt + d**, if no veto was received by the host before then.
+- **The market's host decides.** The host records the recovery in an append-only log (no update or delete) and uses the clock of its database, not that of the application process. The recovery takes effect at **host receipt + d**, if no veto was received by the host before then. A time signed by the new key never counts, and a recovery that has taken effect is final.
 - **A veto** signed by the current key cancels the recovery permanently. It may reach the host by any channel, including relayed from the owner's homeserver.
 - **The owner's homeserver is a transparency mirror only.** It shows the pending recovery so that the owner and others notice. It is not a source of time or of "no veto": whoever controls the Pubky root can delete files there, and its timestamps are unsigned. A recovery present only on the homeserver never takes effect.
-- **A third-party SDK** checks the signatures and the binding itself. For timing and the absence of a veto it accepts the host's verdict for that host's market. It refuses and flags a recovery declared effective before its own first sighting + d, or one declared despite a veto it saw.
+- **A third-party SDK** checks the signatures and the binding itself. For timing and the absence of a veto it accepts the host's verdict for that host's market. It refuses and flags a recovery declared effective before its own first sighting + d, or one declared despite a veto it saw. For an ownership change that took effect less than d ago, the SDK shows a "recent ownership change" notice with the timeline instead of accepting it silently. Refusing means not recognising the new owner for privileged actions and flagging it, while the market keeps running on the host; different clients may therefore see different states, which is the expected signal of a dishonest host.
 
 ### 5. User journey
 | Moment | Actions | Secrets to keep |
 | --- | --- | --- |
 | Activate | 2: open the wallet; scan the code with the signer and approve | The signer's own recovery; the wallet seed |
-| Open an escrow without a backup | 1: save the escrow backup | That backup, while the escrow is open |
+| Open an escrow without a backup | 1: save the escrow backup. If the user declines and later loses the device, that escrow goes to dispute, with no guarantee | That backup, while the escrow is open |
 | Lose the device | 3: restore the signer; scan; approve. Market administration can return no earlier than 7 days later, if the old device does not object and the host cooperates; the market keeps working meanwhile | As above |
 | Change wallet | Same as losing the device | As above |
 | Lose everything | None | Identity, markets (unless k of n is configured), contacts and reputation are lost; funds depend only on the wallet seed; open escrows resolve by dispute |
@@ -65,6 +65,7 @@ Today only the Sails participant key, the client escrow keys and the node exist 
 Notifications of a pending recovery go to more than one channel. None of this copy appears before the corresponding part is implemented and approved.
 
 ## Accepted residual risks (first release)
+- Whoever controls the owner's Pubky identity and is not vetoed within d takes over the market. This is inherent: that identity is the recovery authority the owner chose. Notifications on more than one channel and the optional k of n reduce it.
 - The market depends on its host. A host that refuses to record a recovery blocks it: denial of service, never theft. The remedy is host migration, which is not implemented yet.
 - A host colluding with the holder of the Pubky root can ignore a veto that only it received.
 - A binding approved through phishing in the signer starts a recovery. Only a veto stops it.
