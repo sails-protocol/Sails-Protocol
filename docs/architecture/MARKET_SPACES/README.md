@@ -1,5 +1,7 @@
 # Market Spaces (CTO 31): mercados P2P independentes e personalizáveis
 
+> **Implementation status (English summary):** this document is a design direction and a UI demonstration. No market model, route or service exists in the reference implementation yet. Ownership and recovery are specified in [ADR-008](../../adr/ADR-008-portable-identity-market-ownership.md) and summarised in the last section. The rest of this file is still in Portuguese; a translation pass is planned.
+
 > **Status:** visão aprovada conceitualmente pelo CTO (2026-11-22). **Decisão do PO (2026-11-22): Market Spaces entra no escopo Day 0; a ratificação formal do CTO do recorte Day 0 vem com a proposta técnica. Não implementado.** Este documento registra a decisão de produto e arquitetura; o mapeamento técnico (o que já existe, o que é reaproveitável, o que é novo) e a proposta de escopo são entregas separadas. Rastreabilidade: GitHub Project #3 (cartão "Market Spaces").
 
 ## 1. Visão
