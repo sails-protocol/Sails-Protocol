@@ -707,10 +707,10 @@ flowchart TD
   R -.->|"Aprovado (direção)"| L
   A -.->|"blocked: no signer API today: Dependência não homologada"| PK
   PK -.->|"Dependência não homologada"| K
-  L -.->|"group reference found: Aprovado (direção)"| G1["1. Found: reference only, no access<br/>Aprovado (direção)"]
-  G1 -.->|"membership checked now at the group authority: Aprovado (direção)"| G2["2. Valid membership verified now<br/>Aprovado (direção)"]
-  G1 -.->|"Aprovado (direção)"| G3["3. Expired or revoked: no access<br/>Aprovado (direção)"]
-  G1 -.->|"Aprovado (direção)"| G4["4. Unavailable: no access, fail closed<br/>Aprovado (direção)"]
+  L -.->|"group reference found: Aprovado (direção)"| grpFound["1. Found: reference only, no access<br/>Aprovado (direção)"]
+  grpFound -.->|"membership checked now at the group authority: Aprovado (direção)"| grpValid["2. Valid membership verified now<br/>Aprovado (direção)"]
+  grpFound -.->|"Aprovado (direção)"| grpRevoked["3. Expired or revoked: no access<br/>Aprovado (direção)"]
+  grpFound -.->|"Aprovado (direção)"| grpUnavailable["4. Unavailable: no access, fail closed<br/>Aprovado (direção)"]
   F -.->|"escrow keys as of the backup: Aprovado (direção)"| FD["Funds: depend on the rail; in 2-of-3 the release needs the other party or the arbiter<br/>Aprovado (direção)"]
   NB["Does not come back: chat history, private openings and confirmations, escrows created after the backup<br/>Aprovado (direção)"]
   FD ~~~ NB
