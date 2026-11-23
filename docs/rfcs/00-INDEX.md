@@ -31,14 +31,4 @@ Suggested reading index. Each RFC follows a common structure: Summary, Motivatio
 | RFC-023 | QVAC Negotiated Trade Proposal (price/reputation-bounded discovery) | Bounded QVAC discovery/proposals with decimal price limits and reputation filters; **human approval remains mandatory** before trade creation or escrow/settlement. |
 | RFC-024 | Generation-2 Bitcoin Settlement (candidate) | **Architecture candidate only.** Gen-2 Taproot/MuSig2 is not implemented or homologated; Gen-1 P2WSH 2-of-3 remains the implemented Bitcoin rail. See RFC-024 and the Signing Federation design for gates. |
 
-Todas as 6 RFCs de RFC-001 a RFC-006 nasceram do mesmo processo: achados
-da Protocol Quality Review, revisados e, em alguns casos, corrigidos antes
-de virarem decisão final — cada RFC documenta explicitamente o que foi
-considerado e rejeitado, não só o que foi aceito. `RFC-007` nasceu de
-entrevistas com operadores de mercado, não da Protocol Quality Review, e
-foi aceito por diretiva direta do CTO em vez de passar pela janela de
-Discussion aberta (`GOVERNANCE.md` §5) — registrado explicitamente no
-próprio RFC, não omitido. `RFC-008` emenda duas construções que o próprio
-RFC-007 introduziu (`EvidenceReference`, `TimelineEntry`); nasceu de uma
-crítica de design levantada durante a revisão do próprio RFC-007, não de
-diretiva do CTO — provenance registrada com precisão no próprio RFC.
+**Provenance:** RFC-001–006 originated in the Protocol Quality Review; each RFC records its considered and rejected alternatives. RFC-007 came from operator interviews and was accepted by CTO direction rather than the usual discussion window (`GOVERNANCE.md` §5). RFC-008 addresses timestamp and timeline gaps identified while reviewing RFC-007. See each RFC for its decision record.
