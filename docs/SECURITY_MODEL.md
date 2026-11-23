@@ -202,9 +202,11 @@ bad faith.
 ### Scenario B: Asset locked, payment not received
 
 Seller provides no evidence of non-payment beyond the timeout. The
-escrow's protocol expiry deadline passes → escrow refunds the seller
-automatically. The buyer's suspicious non-payment pattern is logged to
-the reputation system.
+escrow's administrative expiry deadline passes → an enabled sweeper attempts
+the seller refund through the normal authorization path. This is not a
+guaranteed on-chain refund: the feature is disabled by default, and Bitcoin
+Gen-1 still needs the required signatures or dispute resolution. Any
+reputation consequence depends on the separately implemented event path.
 
 **Terminology note, Missão 11 Fase 9.1 §9 (2026-08-24):** "Timelock" in
 this document (and this codebase's `timelockHours`/`DEFAULT_TIMELOCK_HOURS`
@@ -290,12 +292,12 @@ correction.
 - Reputation penalties apply to bad-faith disputes
 - A Trusted Arbitrator's own reputation is the incentive for a fair
   ruling — a bad ruling is visible and permanent, not just a lost fee
-- Protocol-expiry fallbacks handle no-response scenarios automatically —
-  **real since 2026-08-01** (`sweepExpiredEscrows()`, gated behind
-  `ESCROW_TIMELOCK_SWEEPER`; see Scenario B's own correction above and
-  `BACKLOG.md`'s "Escrow timelock proactive sweeper" row). An
-  administrative deadline, not a Bitcoin-native on-chain timelock — see
-  Scenario B for the full terminology note
+- Protocol-expiry processing can attempt refunds when the opt-in
+  `ESCROW_TIMELOCK_SWEEPER` is enabled (`sweepExpiredEscrows()`, implemented
+  since 2026-08-01). It does not bypass rail-specific signing requirements
+  or guarantee recovery after signer unavailability. This is an
+  administrative deadline, not a Bitcoin-native on-chain timelock; see
+  Scenario B and `BACKLOG.md`'s "Escrow timelock proactive sweeper" row.
 - Dispute history is public on the reputation layer — repeat bad actors
   become visible to the whole network, not just one counterparty
 
