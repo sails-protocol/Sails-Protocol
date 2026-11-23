@@ -450,8 +450,14 @@ src/
 │       │                                 each PearNode's real identity
 │       │                                 keypair, `sodium-native`)
 │       └── websocket-relay.service.ts  (WebSocketRelayTransportProvider —
-│                                         blind relay, CISO Privacy Rule;
-│                                         real, not yet wired to a route)
+│                                         relay implementation exposed via
+│                                         /ws/relay; "blind" is a design
+│                                         privacy boundary, not proof of
+│                                         end-to-end confidentiality or
+│                                         operator independence. Token auth,
+│                                         payload encryption, replay defenses,
+│                                         relay availability and failure
+│                                         behavior require separate evidence)
 └── modules/
     ├── open-settlement/
     │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)
