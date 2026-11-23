@@ -623,7 +623,7 @@ This section draws the rule. It complements §14.1-§14.4 and
 [IDENTITY_ARCHITECTURE_DISCOVERY.md](IDENTITY_ARCHITECTURE_DISCOVERY.md) (candidate models and evidence), and leaves
 cryptographic detail to [CRYPTOGRAPHIC_MODEL.md](CRYPTOGRAPHIC_MODEL.md). It is not a homologation.
 
-**Status of this section.** The architecture for portable identity, social data and market ownership was accepted as direction on 2026-11-23 in [ADR-008](adr/ADR-008-portable-identity-market-ownership.md), which prevails over these diagrams where they differ. In particular, the first release keeps contacts on the device, and the backup file is requested only while an escrow is open; the paths through the registry key K in Diagrams 2-4 describe an earlier option and will be redrawn to match the ADR.
+**Status of this section.** The architecture for portable identity, social data and market ownership was accepted as direction on 2026-11-23 in [ADR-008](adr/ADR-008-portable-identity-market-ownership.md), which prevails over these diagrams where they differ. These diagrams follow the ADR: the first release keeps contacts on the device, and the backup file is requested only while an escrow is open.
 
 **Legend.** Every node and
 edge carries exactly one label. A dotted edge or node is **not operational**. No element should be read above its label.
@@ -634,124 +634,119 @@ edge carries exactly one label. A dotted edge or node is **not operational**. No
 | *Approved (direction)* | Approved product direction; **not implemented**. Intent, not capability. |
 | *Unvalidated dependency* | Depends on implementation, upstream support or cryptographic validation that has not been signed off. |
 
-Today Pubky appears only in lab experiments, not in `src/` or the SDK. The formats `SAILS-BACKUP/1` and `SAILS-REGISTRY/1` are
-*under specification*; their parameters will be documented once the formats are approved. Whether a third party can check that a
+Today Pubky appears only in lab experiments, not in `src/` or the SDK. The escrow backup format `SAILS-BACKUP/1` is
+*under specification*; its parameters will be documented once the format is approved. Whether a third party can check that a
 delegated authorisation was revoked is an upstream dependency (pubky-homeserver #824/#825) and is **not** assumed anywhere below.
 
 #### Diagram 1 - Architecture and key separation
 
-Separate keys. No arrow below is a derivation between them, except a buyer/seller escrow key from its own optional escrow seed. The arbiter key is server-side and separate. Nothing leaves the wallet seed.
-
 ```mermaid
 flowchart LR
-  WDK["Wallet: WDK seed and financial keys, moves the funds<br/>Implemented"]
-  P["Sails participant economic key P<br/>Implemented"]
-  ES["Optional client escrow seed (sails-escrow-v1)<br/>Implemented"]
-  EK["Buyer/seller escrow keys: random per escrow or derived from the optional seed<br/>Implemented"]
-  AK["Arbiter key, server-side, from MULTISIG_SEED<br/>Implemented"]
-  PR["Pubky root, held by the signer, e.g. Ring<br/>Approved (direction)"]
-  DK["Delegated app key, scoped grant<br/>Approved (direction)"]
-  PK["Pear transport key, today in the Sails node, ephemeral per start<br/>Implemented"]
+  WDK["Wallet seed and financial keys, moves the funds<br/>Implemented"]
+  P["Sails participant key P, economic identity<br/>Implemented"]
+  ES["Optional client escrow seed<br/>Implemented"]
+  EK["Buyer and seller escrow keys, random or derived from the escrow seed<br/>Implemented"]
+  AK["Arbiter key, node side<br/>Implemented"]
+  PKN["Pear transport key, in the node, new on each start<br/>Implemented"]
   PKI["Pear transport key per installation, on the client<br/>Approved (direction)"]
-  K["Registry key K, random, never derived<br/>Approved (direction)"]
-  N["Sails node and SDK: records and verifies<br/>Implemented"]
-  PEER["Pears / HyperDHT: carries messages<br/>Implemented"]
-  ES -->|"optional own derivation: Implemented"| EK
+  PR["Pubky identity, held by the user's signer<br/>Approved (direction)"]
+  N["Sails node and SDK: record and verify<br/>Implemented"]
+  ES -->|"optional derivation: Implemented"| EK
   P -->|"economic participation: Implemented"| N
-  EK -->|"escrow signing: Implemented"| N
-  AK -->|"arbiter signing: Implemented"| N
-  PK -->|"transport only: Implemented"| PEER
-  PKI -.->|"new key per installation, never imported: Approved (direction)"| PEER
-  PR -.->|"signer issues grant: Approved (direction)"| DK
-  DK -.->|"scoped authorisation: Approved (direction)"| N
+  EK -->|"escrow signatures: Implemented"| N
+  AK -->|"arbiter signatures: Implemented"| N
+  PKN -->|"transport only: Implemented"| N
+  PR -.->|"recovery authority for markets: Approved (direction)"| N
+  PKI -.->|"transport only: Approved (direction)"| N
 ```
 
-The wallet seed has no outgoing arrow, and Pubky and Pear keys share no derivation. Pubky does not reach K (see Diagram 3).
+The wallet seed has no outgoing edge. Pubky does not derive or hold any of the other keys.
 
-#### Diagram 2 - Activation (first use of the SDK in a wallet)
-
-No mandatory Sails seed, no derivation from the wallet, no separate P2P BIP-39 phrase.
+#### Diagram 2 - Activation (two user actions)
 
 ```mermaid
 flowchart TD
-  A["User opens a wallet that embeds the SDK<br/>Implemented"]
-  B["SDK configures a Pear transport key automatically, per installation<br/>Approved (direction)"]
-  C["Pubky identity through the signer; app receives a scoped grant, never the root<br/>Approved (direction)"]
-  D["Sails participant registered and verified by the node<br/>Implemented"]
-  E["Random registry key K, created once; kept on the device and in the backup file, never on the server<br/>Approved (direction)"]
-  X["Not required: Sails seed, derivation from the wallet, P2P BIP-39 phrase<br/>Approved (direction)"]
-  A -->|"first use: Implemented"| D
-  A -.->|"automatic: Approved (direction)"| B
-  B -.->|"authorise this installation: Approved (direction)"| C
-  C -.->|"grant limits what the app may do: Approved (direction)"| D
-  A -.->|"on backup: Approved (direction)"| E
+  A["1. User opens a wallet that embeds the SDK<br/>Implemented"]
+  P["SDK creates the participant key P on the device<br/>Implemented"]
+  B["2. User scans the code with the Pubky signer and approves<br/>Approved (direction)"]
+  G["Pubky identity linked to P by a grant signed by the signer<br/>Approved (direction)"]
+  M["Creating a market names the owner's Pubky identity as recovery authority<br/>Approved (direction)"]
+  X["Not required: a Sails seed, a backup file, derivation from the wallet<br/>Approved (direction)"]
+  E["Escrow backup requested only while an escrow is open<br/>Approved (direction)"]
+  A -->|"first use: Implemented"| P
+  P -.->|"link identity: Approved (direction)"| B
+  B -.->|"signer issues the grant: Approved (direction)"| G
+  G -.->|"on market creation: Approved (direction)"| M
+  P -.->|"when an escrow opens: Approved (direction)"| E
   X ~~~ A
 ```
 
-#### Diagram 3 - Recovery (device or wallet switch)
-
-Without a backup file there is no recovery of contacts and groups. A recovered group reference is **not** access.
+#### Diagram 3 - Losing the device, and how markets come back
 
 ```mermaid
 flowchart TD
-  S["Clean installation: new device or new wallet<br/>Approved (direction)"]
-  A["Native Pubky recovery through the signer<br/>Approved (direction)"]
-  B["New Pear transport key, never imported<br/>Approved (direction)"]
-  C["Scoped re-authorisation of this installation<br/>Approved (direction)"]
-  F["Backup file plus its passphrase (SAILS-BACKUP/1, under specification)<br/>Approved (direction)"]
-  K["Registry key K, read from the backup file<br/>Approved (direction)"]
-  R["Encrypted social record, found at its opaque path<br/>Approved (direction)"]
-  L["Contacts, groups, favorites<br/>Approved (direction)"]
-  PK["Direct path Pubky to K, without the file<br/>Unvalidated dependency"]
-  S -.->|"Approved (direction)"| A
-  A -.->|"Approved (direction)"| B
-  B -.->|"Approved (direction)"| C
-  S -.->|"Approved (direction)"| F
-  F -.->|"Approved (direction)"| K
-  K -.->|"locate and decrypt: Approved (direction)"| R
-  C -.->|"identity locates the homeserver; K gives the path: Approved (direction)"| R
-  R -.->|"Approved (direction)"| L
-  A -.->|"depends on signer support for scoped encryption keys (not yet in a tagged signer release) and on independent validation: Unvalidated dependency"| PK
-  PK -.->|"Unvalidated dependency"| K
-  L -.->|"group reference found: Approved (direction)"| grpFound["1. Found: reference only, no access<br/>Approved (direction)"]
-  grpFound -.->|"membership checked now at the group authority: Approved (direction)"| grpValid["2. Valid membership verified now<br/>Approved (direction)"]
-  grpFound -.->|"Approved (direction)"| grpRevoked["3. Expired or revoked: no access<br/>Approved (direction)"]
-  grpFound -.->|"Approved (direction)"| grpUnavailable["4. Unavailable: no access, fail closed<br/>Approved (direction)"]
-  F -.->|"escrow keys as of the backup: Approved (direction)"| FD["Funds: depend on the rail; in 2-of-3 the release needs the other party or the arbiter<br/>Approved (direction)"]
-  NB["Does not come back: chat history, private openings and confirmations, escrows created after the backup<br/>Approved (direction)"]
-  FD ~~~ NB
+  S["1. User restores the Pubky signer on a new device<br/>Approved (direction)"]
+  W["2. User opens the wallet and scans the code; 3. approves<br/>Approved (direction)"]
+  NP["SDK creates a new participant key P2; the old key is never reused<br/>Approved (direction)"]
+  R["Signed recovery revision, sent to the market's host<br/>Approved (direction)"]
+  H["Host logs it, append-only, and counts at least 7 days<br/>Approved (direction)"]
+  V["Old device can veto in that period; a veto cancels it for good<br/>Approved (direction)"]
+  OK["No veto after the period: P2 administers the market<br/>Approved (direction)"]
+  MIR["Owner's homeserver mirrors the pending recovery so the owner notices<br/>Approved (direction)"]
+  C["Contacts, groups and favorites: stay on the old device in the first release<br/>Approved (direction)"]
+  CS["Encrypted social record restored from Pubky<br/>Unvalidated dependency"]
+  F["Open escrows: escrow backup, or a dispute with no guarantee<br/>Approved (direction)"]
+  Q["P2 is a new economic identity; reputation does not move in the first release<br/>Approved (direction)"]
+  S -.->|"Approved (direction)"| W
+  W -.->|"Approved (direction)"| NP
+  NP -.->|"signed by P2 with the signer's grant: Approved (direction)"| R
+  R -.->|"Approved (direction)"| H
+  H -.->|"Approved (direction)"| V
+  H -.->|"Approved (direction)"| OK
+  R -.->|"transparency only, not a clock: Approved (direction)"| MIR
+  W -.->|"Approved (direction)"| C
+  C -.->|"needs a signer that delivers scoped keys: Unvalidated dependency"| CS
+  W -.->|"Approved (direction)"| F
+  OK ~~~ Q
 ```
 
-Lab experiments (#543/#545) restored a Pubky identity in a clean installation; this is not a production capability and depends on the real signer, so the path stays dotted.
+Copy that goes with this diagram:
+- the 7 days are a minimum security period, not a promised date;
+- the market keeps working for its members during the period;
+- a host that refuses to record the recovery blocks it, as a denial of service and never as a transfer of ownership.
 
-#### Diagram 4 - Persistence (three separate stores)
-
-No arrow copies messages or economic data into the social record.
+#### Diagram 4 - Where data lives
 
 ```mermaid
 flowchart LR
-  subgraph M["1. Chat messages"]
-    M0["Today: chat stored in the node database (Message)<br/>Implemented"]
-    M1["Direction: device storage only; not synced and not restored<br/>Approved (direction)"]
+  subgraph D["On the device"]
+    M1["Chat messages, local, not restored<br/>Approved (direction)"]
+    S1["Contacts, groups, favorites, local in the first release<br/>Approved (direction)"]
   end
-  subgraph S["2. Encrypted social record, opaque path in the Pubky public area"]
-    S1["Contacts, groups, favorites only; encrypted with K<br/>Approved (direction)"]
-    S2["Visible to anyone: existence, size in blocks, write time<br/>Approved (direction)"]
+  subgraph N["In the Sails node"]
+    M0["Chat messages stored in the node today<br/>Implemented"]
+    E1["Commitments, escrows, economic events<br/>Implemented"]
+    L1["Market ownership revisions and the append-only recovery log<br/>Approved (direction)"]
   end
-  subgraph E["3. Verifiable economic records, in the node"]
-    E1["Commitments, escrows, events<br/>Implemented"]
+  subgraph H["Owner's Pubky homeserver"]
+    H1["Mirror of pending recoveries, transparency only<br/>Approved (direction)"]
   end
-  APP["Client / SDK<br/>Implemented"]
-  APP -.->|"chat messages stay local: Approved (direction)"| M1
-  APP -.->|"writes the allow-listed fields only: Approved (direction)"| S1
-  APP -->|"economic facts go to the node: Implemented"| E1
+  APP["Client and SDK<br/>Implemented"]
+  APP -->|"economic facts: Implemented"| E1
+  APP -->|"chat goes to the node today: Implemented"| M0
+  APP -.->|"chat kept local: Approved (direction)"| M1
+  APP -.->|"social data kept local: Approved (direction)"| S1
+  APP -.->|"signed market revisions: Approved (direction)"| L1
+  L1 -.->|"published for transparency: Approved (direction)"| H1
 ```
+
+No edge copies chat or economic data into the homeserver. The homeserver never decides when a recovery takes effect.
 
 #### Reading notes
 
-- *Implemented* here means the key or store exists today; the arrows that depend on Pubky, the backup file or the registry are intent.
+- *Implemented* here means the key or store exists today; the arrows that depend on Pubky or the escrow backup are intent.
 - The recovery path never promises that funds return with the identity: it depends on the rail and on the counterpart or arbiter.
-- The social record is a convenience copy of contacts, groups and favorites. It is not a source of economic truth and carries no chat history.
+- Contacts, groups and favorites are convenience data kept on the device in the first release. They are not a source of economic truth and carry no chat history.
 
 ---
 
