@@ -142,9 +142,7 @@ history.
 ## 2. Six Security Principles
 
 1. **Non-Custodial by Design (normative)** — the protocol must not custody user funds. This is a design requirement, **not a blanket claim about every implementation**: the server-seed `WDK_USDT_EVM` reference provider has a treasury and can unilaterally move escrow funds; it is production-ineligible (RFC-019). Bitcoin Gen-1 uses P2WSH 2-of-3, but its arbiter key remains on the node server; independent Signing Federation is not implemented. See principle 2 below and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`.
-2. **User Always Signs** — every action that moves funds requires the
-   user's own WDK signature. No server can initiate a transaction on a
-   user's behalf.
+2. **Participant Authorization (normative)** — fund-moving actions must follow the selected rail's participant-signature and spending policy; a server must not possess unilateral escrow authority. This is **not** an implementation guarantee: the server-seed EVM reference violates it (RFC-019), and Bitcoin Gen-1 requires separate analysis of its 2-of-3 signer roles. See the gap and rail-specific boundaries below.
 
    **Real-implementation gap found 2026-07-19** (a CTO-directed fidelity
    audit comparing this principle against the actual code, not just its
@@ -288,7 +286,7 @@ correction.
 ### Resolution Principles
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
-- Multisig 2-of-3 prevents any unilateral fund release
+- Bitcoin Gen-1 P2WSH 2-of-3 prevents spending with a single key, but any two authorized signers can spend; the arbiter key is currently node-held. This is not an EVM guarantee or proof of independent federation.
 - Reputation penalties apply to bad-faith disputes
 - A Trusted Arbitrator's own reputation is the incentive for a fair
   ruling — a bad ruling is visible and permanent, not just a lost fee
