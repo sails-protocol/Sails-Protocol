@@ -563,7 +563,7 @@ export function Trade() {
     try {
       await fn()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('trade.toast.actionFailed'))
+      toast.error(errorMessage(err, t('trade.toast.actionFailed')))
     } finally {
       setActing(false)
     }

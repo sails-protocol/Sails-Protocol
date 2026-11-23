@@ -10,7 +10,7 @@
  * real; only the server round trips are fake. Every escrow is type MOCK
  * (single-call release, no PSBT, no escrow signatures).
  */
-import { SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
+import { SailsError, SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
 import type {
   ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, IntentRiskAssessment, Message, Offer, Participant,
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
@@ -357,7 +357,8 @@ function setEscrowStatus(e: Escrow, status: Escrow['status'], patch: Partial<Esc
 
 function createEscrow(tradeId: string, actorId: string): Escrow {
   const t = findTrade(tradeId)
-  if (actorId !== t.sellerId) throw new Error('Somente o vendedor cria o escrow')
+  // Same refusal as the node with ESCROW_CREATE_SELLER_ONLY enforced (CTO D7).
+  if (actorId !== t.sellerId) throw new SailsError('Somente o vendedor cria o escrow', 'ESCROW_CREATE_SELLER_ONLY', 403)
   if (t.escrowId) return clone(findEscrow(t.escrowId))
   if (t.status !== 'PENDING') throw new Error(`Não é possível criar escrow com o trade em ${t.status}`)
   const e = mockEscrow(t, 'CREATED', now())

@@ -123,6 +123,13 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
     for (const r of ROLES) expect(deriveTradeState(input(null, r)).action.canDispute).toBe(false)
   })
 
+  it('D7: the buyer waits for the seller to create the escrow and is told why', () => {
+    const a = deriveTradeState(input(null, BUYER)).action
+    expect(a.tone).toBe('waiting')
+    expect(a.title).toBe('Aguardando o vendedor criar o escrow')
+    expect(a.description).toMatch(/^Neste protocolo, quem vende cria o escrow\. /)
+  })
+
   it('a cancelled trade without escrow is terminal, and a refund keeps the escrow outcome', () => {
     const c = deriveTradeState(input(null, BUYER, { tradeStatus: 'CANCELLED' }))
     expect(c.status.label).toBe('Trade cancelado')
