@@ -115,14 +115,15 @@ Mechanics:
   `sendToPeer(targetParticipantId, payload)`'s existing shape (the
   sender already knows who they're sending to; no separate nonce
   management or key announcement needed).
-- **Sender authentication of a payload's origin is a different, already
-  solved problem** — the Ed25519 keypair that authenticated the
-  underlying Hyperswarm connection already tells the recipient who
-  they're connected to. This layer's only job is keeping the payload's
-  *contents* opaque to anything that isn't that specific peer — not
-  proving who sent it (the transport layer already does that) and not
-  hiding metadata (who is talking to whom is visible at the DHT layer;
-  this is content confidentiality, not traffic analysis resistance).
+- **Sender identity is transport-scoped, not end-to-end payload proof.**
+  The Hyperswarm handshake can authenticate the connected transport key,
+  but that key is distinct from the economic participant key and their
+  association is currently server-mediated (`TRUST_BOUNDARY.md` boundary
+  1b). Anonymous sealed boxes do not authenticate the sender or prevent
+  replay of an otherwise valid application message. The WebSocket relay
+  fallback also must not inherit Hyperswarm handshake guarantees by
+  implication. This layer protects payload confidentiality, not sender
+  attribution, message freshness, or traffic metadata.
 
 **What this does not protect against — stated explicitly, per this
 document's own discipline:**
