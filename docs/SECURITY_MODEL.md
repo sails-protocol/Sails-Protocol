@@ -149,7 +149,7 @@ history.
 
    **Real-implementation gap found 2026-07-19** (a CTO-directed fidelity
    audit comparing this principle against the actual code, not just its
-   design): the one real, tested `SettlementProvider` —
+   design): the server-seed EVM reference `SettlementProvider` —
    `WdkSettlementProvider` (`wdk-settlement.provider.ts`) — does not
    satisfy either principle 1 or 2 as written. It derives every escrow's
    signing key from **one server-held seed phrase**
