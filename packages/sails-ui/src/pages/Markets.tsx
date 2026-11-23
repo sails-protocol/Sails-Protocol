@@ -41,6 +41,7 @@ import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
 import { t } from '../i18n'
+import { MarketRoleLine } from '../components/settings/PortableIdentityDemo'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
 const tabs = () => [
@@ -277,6 +278,9 @@ function MineView() {
   // "Seu espaço": markets the person administers or created. Transferir is simulated in the demo (no transfer exists).
   const [transferring, setTransferring] = useState<MarketView | null>(null)
   const yours = (m: MarketView) => m.relation === 'admin' || !!m.ownedByYou
+  // CTO 29 (marketOwnershipRecovery wire), demo only: role and hosting in plain words.
+  // shortcut: the contract has adminIdentity but no owner/delegate role, so every demo space of yours reads "Proprietário"; use the role field when the Principal adds it.
+  const roleLine = (m: MarketView, className?: string) => (demo && yours(m) ? <MarketRoleLine role="owner" infrastructure={m.infrastructure} className={className} /> : null)
   const transferButton = (m: MarketView) => (
     <Button type="button" size="sm" variant="ghost" onClick={() => setTransferring(m)} className="relative z-10 touch:min-h-11">{t('spaces.transfer')}<span className="sr-only"> {m.name}</span></Button>
   )
@@ -310,7 +314,7 @@ function MineView() {
             <li key={m.id} className="flex">
               <MarketCard
                 market={m} copy={cardCopy} className="w-full"
-                badges={yours(m) ? <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge> : undefined}
+                badges={yours(m) ? <><Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge>{roleLine(m, 'basis-full')}</> : undefined}
                 action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && dashboardLink(m)}{yours(m) && transferButton(m)}</div>}
               />
             </li>
@@ -324,6 +328,7 @@ function MineView() {
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
               <div className="flex flex-wrap items-center justify-end gap-1">
+                {roleLine(m, 'w-full text-right sm:w-auto')}
                 {yours(m) && <Badge variant="outline" className="hidden border-transparent bg-brand-tonal font-medium text-brand-text sm:inline-flex">{t('spaces.yourSpace')}</Badge>}
                 {yours(m) && dashboardLink(m)}
                 {yours(m) && transferButton(m)}

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Activity, Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Link2, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Globe, LayoutGrid, MessageCircleQuestion, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
+  Globe, LayoutGrid, MessageCircleQuestion, Ticket, UsersRound, Wallet, ArrowLeft, Fingerprint, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -30,6 +30,7 @@ import { useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
 import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
 import { SimulatedSettingRow } from '../components/settings/SimulatedSettings'
+import { PortableIdentityRows } from '../components/settings/PortableIdentityDemo'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { MarketIcon } from '../components/markets/MarketIcon'
@@ -176,6 +177,8 @@ const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon
   { id: 'idioma', label: t('settings.section.language'), icon: Languages },
   { id: 'notificacoes', label: t('settings.section.notifications'), icon: Bell },
   { id: 'seguranca', label: t('settings.section.security'), icon: Shield },
+  // CTO 29 portable identity (2026-11-23): demo flows; real mode shows the honest state.
+  { id: 'identidade', label: t('identity.section'), icon: Fingerprint },
   // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
   { id: 'no-sails', label: t('settings.section.network'), icon: Network },
   // Renamed "Mercados" (DECISIONS.md "Configurações → Mercados"); the id stays so ?section=comunidades keeps working.
@@ -374,6 +377,10 @@ export function Settings() {
             <Planned id="keyBackupExport" />
             <Planned id="keyBackupImport" />
             <Planned id="sessionLock" />
+          </SettingsGroup>
+
+          <SettingsGroup {...panel('identidade')} title={t('identity.section')} icon={Fingerprint}>
+            <PortableIdentityRows />
           </SettingsGroup>
 
           {/* Preferences about markets, not the markets: those live in the Market area. The old "Comunidades" planned row

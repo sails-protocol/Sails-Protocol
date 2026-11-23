@@ -7,12 +7,17 @@ import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { SafetyNote } from '../components/ui/SafetyNote'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
-import { ArrowLeft, ChevronRight, KeyRound, Link2, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
+import { ArrowLeft, ChevronRight, KeyRound, Link2, RotateCcw, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
+import { ActivationFlow, RecoveryFlow } from '../components/settings/PortableIdentityDemo'
+import { isDemoMode } from '../lib/demoMarkers'
 import { t } from '../i18n'
 
 // Routes a visitor can see without a session. Cancelling the dialog returns
 // there; returning to a protected route would bounce straight back here.
 const isPublicPath = (path: string) => path === '/' || path.startsWith('/offer/')
+
+// The demo never stores the key, so every demo sign-in is a "new key": offer the activation sheet once per page load.
+let activationOffered = false
 
 /**
  * "Conectar wallet" dialog, rendered at /login over the Market (App.tsx).
@@ -30,7 +35,12 @@ export function Login() {
   const navigate = useNavigate()
   const location = useLocation()
   const state = location.state as { from?: string; amount?: number } | null
-  const [step, setStep] = useState<'list' | 'local'>('list')
+  // 'recover' and 'activate' are the CTO 29 portable identity flows, demo only (components/settings/PortableIdentityDemo.tsx).
+  const [step, setStep] = useState<'list' | 'local' | 'recover' | 'activate'>('list')
+  const demo = isDemoMode()
+  // After a recovery the portable identity is already there: no activation sheet after the sign-in.
+  const [recovered, setRecovered] = useState(false)
+  const finish = () => navigate(state?.from ?? '/', { replace: true, state: state?.amount ? { amount: state.amount } : undefined })
 
   const close = () => {
     const from = state?.from
@@ -56,15 +66,28 @@ export function Login() {
                 subtitle={t('auth.login.localKeySubtitle')}
                 onSelect={() => setStep('local')}
               />
+              {/* Real mode: no portable identity exists yet, so the option is listed as "Em breve". */}
+              <Option
+                icon={RotateCcw}
+                title={t('identity.login.recoverOption')}
+                subtitle={t('identity.login.recoverSubtitle')}
+                trailing={demo ? undefined : t('common.soon')}
+                onSelect={demo ? () => setStep('recover') : undefined}
+              />
             </ul>
             <p className="mt-4 text-center text-xs text-brand-text-muted">{t('auth.login.noWallet')}</p>
           </>
+        ) : step === 'recover' ? (
+          <RecoveryFlow onExit={() => setStep('list')} onDone={() => { setRecovered(true); setStep('local') }} doneLabel={t('identity.result.signIn')} />
+        ) : step === 'activate' ? (
+          <ActivationFlow onDone={finish} />
         ) : (
           <LocalKeyStep
             onBack={() => setStep('list')}
-            onConnected={() =>
-              navigate(state?.from ?? '/', { replace: true, state: state?.amount ? { amount: state.amount } : undefined })
-            }
+            // Demo, first sign-in with a new key: "Ativar o Sails P2P" before returning.
+            onConnected={(isNew) => {
+              if (demo && isNew && !recovered && !activationOffered) { activationOffered = true; setStep('activate') } else finish()
+            }}
           />
         )}
       </DialogContent>
@@ -106,7 +129,7 @@ function Option({ icon: Icon, title, subtitle, trailing, onSelect }: {
   )
 }
 
-function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected: () => void }) {
+function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected: (isNew: boolean) => void }) {
   const { login } = useAuth()
   const [connecting, setConnecting] = useState(false)
   const [passphrase, setPassphrase] = useState('')
@@ -130,7 +153,7 @@ function LocalKeyStep({ onBack, onConnected }: { onBack: () => void; onConnected
       // locally, to derive the AES key that encrypts the stored keypair.
       await login(passphrase)
       toast.success(t('auth.local.connected'))
-      onConnected()
+      onConnected(!isReturning)
     } catch (err) {
       toast.error(err instanceof WrongPassphraseError || err instanceof Error ? err.message : t('auth.local.connectFailed'))
     } finally {
