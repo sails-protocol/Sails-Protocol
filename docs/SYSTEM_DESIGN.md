@@ -638,7 +638,7 @@ delegated authorisation was revoked is an upstream dependency (pubky-homeserver 
 
 #### Diagram 1 - Architecture and key separation
 
-Separate keys. No arrow below is a derivation between them, except an escrow key from its own escrow seed. Nothing leaves the wallet seed.
+Separate keys. No arrow below is a derivation between them, except a buyer/seller escrow key from its own optional escrow seed. The arbiter key is server-side and separate. Nothing leaves the wallet seed.
 
 ```mermaid
 flowchart LR
