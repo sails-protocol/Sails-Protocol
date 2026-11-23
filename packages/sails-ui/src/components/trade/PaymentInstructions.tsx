@@ -75,6 +75,11 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details, 
                 {t('trade.payment.sellerNote')}
               </p>
             )}
+            {details && (
+              <p className="mt-2 text-xs text-brand-text-secondary">
+                {t('trade.payment.noEditAfterAgreement')}
+              </p>
+            )}
           </>
         )}
       </div>

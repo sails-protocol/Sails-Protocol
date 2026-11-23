@@ -74,6 +74,8 @@ export default defineArea(
     'faq.markedPaid.a': 'Não. Marcar avisa o vendedor, mas não comprova nem libera nada. Quem libera é o vendedor, depois de conferir o dinheiro na conta.',
     'faq.thirdParty.q': 'Posso pagar fora do trade ou para um terceiro?',
     'faq.thirdParty.a': 'Não. Pague só para os dados mostrados no trade, de uma conta no seu nome.',
+    'faq.fixPayment.q': 'Errei os dados de pagamento. Posso corrigir?',
+    'faq.fixPayment.a': 'Não. Depois do acordo, os dados de pagamento do trade não podem ser alterados. Se estiverem errados, não pague: cancele a negociação e abra uma nova com os dados certos.',
 
     'faq.fees.q': 'Pago taxa para negociar?',
     'faq.fees.answer': 'O Sails Protocol está estruturando uma política global de taxas, com referência inicial de 0,40% sobre as negociações. Essa política financiará a infraestrutura, os integradores, o desenvolvimento do protocolo e os mecanismos de resolução de disputas. A cobrança ainda depende de ativação. Quando aplicável, a taxa efetiva será informada antes da confirmação da negociação. Taxas de rede e de serviços externos poderão ser cobradas separadamente.',
@@ -194,6 +196,8 @@ export default defineArea(
       'faq.markedPaid.a': 'No. Marking notifies the seller but proves or releases nothing. The seller releases, after checking the money in their account.',
       'faq.thirdParty.q': 'Can I pay outside the trade or to a third party?',
       'faq.thirdParty.a': 'No. Pay only to the details shown in the trade, from an account in your name.',
+      'faq.fixPayment.q': 'I entered the wrong payment details. Can I fix them?',
+      'faq.fixPayment.a': 'No. After the agreement, the trade’s payment details cannot be changed. If they are wrong, do not pay: cancel the trade and open a new one with the right details.',
 
       'faq.fees.q': 'Do I pay a fee to trade?',
       'faq.fees.answer': 'Sails Protocol is setting up a global fee policy, with an initial reference of 0.40% on trades. This policy will fund the infrastructure, the integrators, the protocol’s development and the dispute resolution mechanisms. Charging still depends on activation. When applicable, the effective fee will be shown before you confirm the trade. Network and outside service fees may be charged separately.',
@@ -313,6 +317,8 @@ export default defineArea(
       'faq.markedPaid.a': 'No. Marcarlo avisa al vendedor, pero no comprueba ni libera nada. Quien libera es el vendedor, después de comprobar el dinero en su cuenta.',
       'faq.thirdParty.q': '¿Puedo pagar fuera del trade o a un tercero?',
       'faq.thirdParty.a': 'No. Paga solo a los datos que muestra el trade, desde una cuenta a tu nombre.',
+      'faq.fixPayment.q': 'Me equivoqué en los datos de pago. ¿Puedo corregirlos?',
+      'faq.fixPayment.a': 'No. Después del acuerdo, los datos de pago del trade no se pueden cambiar. Si están mal, no pagues: cancela la negociación y abre una nueva con los datos correctos.',
 
       'faq.fees.q': '¿Pago comisión por negociar?',
       'faq.fees.answer': 'Sails Protocol está estructurando una política global de comisiones, con una referencia inicial del 0,40 % sobre las negociaciones. Esa política financiará la infraestructura, los integradores, el desarrollo del protocolo y los mecanismos de resolución de disputas. El cobro todavía depende de su activación. Cuando corresponda, la comisión efectiva se informará antes de confirmar la negociación. Las comisiones de red y de servicios externos podrán cobrarse por separado.',
@@ -432,6 +438,8 @@ export default defineArea(
       'faq.markedPaid.a': 'Non. Marquer prévient le vendeur, mais ne prouve ni ne libère rien. C’est le vendeur qui libère, après avoir contrôlé l’argent sur son compte.',
       'faq.thirdParty.q': 'Puis-je payer en dehors du trade ou à un tiers ?',
       'faq.thirdParty.a': 'Non. Payez uniquement aux coordonnées affichées dans le trade, depuis un compte à votre nom.',
+      'faq.fixPayment.q': 'Je me suis trompé dans les coordonnées de paiement. Puis-je les corriger ?',
+      'faq.fixPayment.a': 'Non. Après l’accord, les coordonnées de paiement du trade ne peuvent plus être modifiées. Si elles sont erronées, ne payez pas : annulez la négociation et ouvrez-en une nouvelle avec les bonnes coordonnées.',
 
       'faq.fees.q': 'Est-ce que je paie des frais pour échanger ?',
       'faq.fees.answer': 'Sails Protocol met en place une politique de frais globale, avec une référence initiale de 0,40 % sur les transactions. Cette politique financera l’infrastructure, les intégrateurs, le développement du protocole et les mécanismes de résolution des litiges. La perception dépend encore de son activation. Le cas échéant, les frais effectifs seront indiqués avant la confirmation de la transaction. Les frais de réseau et de services externes pourront être facturés séparément.',
@@ -551,6 +559,8 @@ export default defineArea(
       'faq.markedPaid.a': 'Nein. Das Markieren benachrichtigt den Verkäufer, beweist aber nichts und gibt nichts frei. Freigeben kann nur der Verkäufer, nachdem er den Zahlungseingang auf seinem Konto geprüft hat.',
       'faq.thirdParty.q': 'Kann ich außerhalb des Trades oder an Dritte zahlen?',
       'faq.thirdParty.a': 'Nein. Zahle nur an die im Trade angezeigten Daten, von einem Konto auf deinen Namen.',
+      'faq.fixPayment.q': 'Ich habe falsche Zahlungsdaten angegeben. Kann ich sie korrigieren?',
+      'faq.fixPayment.a': 'Nein. Nach der Einigung können die Zahlungsdaten des Trades nicht mehr geändert werden. Wenn sie falsch sind, zahle nicht: Brich den Trade ab und eröffne einen neuen mit den richtigen Daten.',
 
       'faq.fees.q': 'Zahle ich eine Gebühr für den Handel?',
       'faq.fees.answer': 'Das Sails Protocol baut eine globale Gebührenrichtlinie auf, mit einem anfänglichen Richtwert von 0,40 % auf Trades. Diese Richtlinie wird die Infrastruktur, die Integratoren, die Entwicklung des Protokolls und die Mechanismen zur Streitbeilegung finanzieren. Die Erhebung hängt noch von der Aktivierung ab. Falls zutreffend, wird die tatsächliche Gebühr vor der Bestätigung des Trades angezeigt. Netzwerkgebühren und Gebühren externer Dienste können separat berechnet werden.',
@@ -609,6 +619,7 @@ export default defineArea(
       'faq.fees.t4.protocol', 'faq.fees.t4.protocolToday', 'faq.fees.t4.protocolNote', 'faq.fees.t4.network', 'faq.fees.t4.networkToday',
       'faq.fees.t4.networkNote', 'faq.fees.t4.external', 'faq.fees.t4.externalToday', 'faq.fees.t4.externalNote', 'faq.fees.t4.space',
       'faq.fees.t4.spaceToday', 'faq.fees.t4.spaceNote', 'faq.markedPaid.q', 'faq.markedPaid.a', 'faq.thirdParty.q', 'faq.thirdParty.a',
+      'faq.fixPayment.q', 'faq.fixPayment.a',
       'faq.merchantHow.a', 'faq.merchantCriteria.a', 'faq.merchantPerks.q', 'faq.merchantPerks.a', 'faq.merchantSpace.q', 'faq.merchantSpace.a',
     ],
     dispute: [

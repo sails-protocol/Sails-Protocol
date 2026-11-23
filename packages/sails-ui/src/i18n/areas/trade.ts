@@ -75,6 +75,7 @@ export default defineArea(
     'trade.payment.hiddenUntilLocked': 'As instruções de pagamento aparecem nesta tela depois que o vendedor registrar o bloqueio dos fundos no escrow.',
     'trade.payment.safety': 'Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.',
     'trade.payment.sellerNote': 'O comprador vê estes dados na tela depois que os fundos forem registrados como bloqueados.',
+    'trade.payment.noEditAfterAgreement': 'Os dados de pagamento não podem ser alterados depois do acordo. Se estiverem errados, cancele e abra uma nova negociação.',
 
     // Payout address
     'trade.payout.newAddress': 'Novo endereço: {asset}',
@@ -370,6 +371,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'The payment instructions appear on this screen after the seller records the funds as locked in the escrow.',
       'trade.payment.safety': 'Pay only to these details, from an account in your name. Do not accept other details sent by chat, email or phone, or payments from third parties.',
       'trade.payment.sellerNote': 'The buyer sees these details on screen after the funds are recorded as locked.',
+      'trade.payment.noEditAfterAgreement': 'Payment details cannot be changed after the agreement. If they are wrong, cancel and open a new trade.',
 
       'trade.payout.newAddress': 'New address: {asset}',
       'trade.payout.yourAddress': 'Your address: {asset}',
@@ -655,6 +657,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Las instrucciones de pago aparecen en esta pantalla después de que el vendedor registre el bloqueo de los fondos en el escrow.',
       'trade.payment.safety': 'Paga solo a estos datos, desde una cuenta a tu nombre. No aceptes otros datos enviados por chat, correo o teléfono, ni pagos de terceros.',
       'trade.payment.sellerNote': 'El comprador ve estos datos en pantalla después de que los fondos se registren como bloqueados.',
+      'trade.payment.noEditAfterAgreement': 'Los datos de pago no se pueden cambiar después del acuerdo. Si están mal, cancela y abre una nueva negociación.',
 
       'trade.payout.newAddress': 'Nueva dirección: {asset}',
       'trade.payout.yourAddress': 'Tu dirección: {asset}',
@@ -940,6 +943,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Les instructions de paiement apparaissent sur cet écran une fois que le vendeur a enregistré le blocage des fonds dans l’escrow.',
       'trade.payment.safety': 'Payez uniquement vers ces coordonnées, depuis un compte à votre nom. N’acceptez pas d’autres coordonnées envoyées par chat, e-mail ou téléphone, ni de paiements de tiers.',
       'trade.payment.sellerNote': 'L’acheteur voit ces coordonnées à l’écran une fois les fonds enregistrés comme bloqués.',
+      'trade.payment.noEditAfterAgreement': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles sont erronées, annulez et ouvrez une nouvelle négociation.',
 
       'trade.payout.newAddress': 'Nouvelle adresse : {asset}',
       'trade.payout.yourAddress': 'Votre adresse : {asset}',
@@ -1225,6 +1229,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Die Zahlungsanweisungen erscheinen auf diesem Bildschirm, nachdem der Verkäufer die Sperrung der Mittel im Escrow erfasst hat.',
       'trade.payment.safety': 'Zahle nur an diese Daten, von einem Konto auf deinen Namen. Akzeptiere keine anderen Daten per Chat, E-Mail oder Telefon und keine Zahlungen Dritter.',
       'trade.payment.sellerNote': 'Der Käufer sieht diese Daten auf dem Bildschirm, nachdem die Mittel als gesperrt erfasst wurden.',
+      'trade.payment.noEditAfterAgreement': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch sind, brich ab und eröffne einen neuen Trade.',
 
       'trade.payout.newAddress': 'Neue Adresse: {asset}',
       'trade.payout.yourAddress': 'Deine Adresse: {asset}',
@@ -1454,7 +1459,7 @@ export default defineArea(
       'trade.header.buying', 'trade.header.selling', 'trade.header.observer',
       'trade.payment.titleBuyer', 'trade.payment.titleSeller', 'trade.payment.noPendingAction', 'trade.payment.noDetailsBuyer',
       'trade.payment.noDetailsSeller', 'trade.payment.copyDetails', 'trade.payment.hiddenUntilLocked', 'trade.payment.safety',
-      'trade.payment.sellerNote',
+      'trade.payment.sellerNote', 'trade.payment.noEditAfterAgreement',
       'trade.toast.paymentMarkedSent', 'trade.toast.releaseRequested', 'trade.system.paymentPending', 'trade.chat.proof',
       'trade.record.unitPriceUsd', 'trade.record.tradeValueUsd', 'trade.record.paymentMethod', 'trade.record.quantity',
       'trade.card.release',
