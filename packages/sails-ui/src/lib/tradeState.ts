@@ -351,6 +351,15 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
   return i.signingRoundKind ? { ...view, primary: undefined } : view
 }
 
+/**
+ * "Cancelar negociação" (trade status -> CANCELLED), Principal on 8f80d4b6: either party, only while the trade is
+ * PENDING/ACTIVE and no escrow exists. Never once any escrow exists, whatever its status: the backend does not
+ * refuse a manual cancel over a funded escrow yet (pending CTO), and a funded refund is the seller's MULTISIG round.
+ */
+export function canCancelTrade(i: { tradeStatus: TradeStatus; hasEscrow: boolean; isBuyer: boolean; isSeller: boolean }): boolean {
+  return (i.isBuyer || i.isSeller) && !i.hasEscrow && (i.tradeStatus === 'PENDING' || i.tradeStatus === 'ACTIVE')
+}
+
 export function deriveTradeState(i: TradeStateInput): TradeState {
   // A refunded escrow also projects the trade to CANCELLED; the escrow outcome is the more specific one.
   const cancelled = i.tradeStatus === 'CANCELLED' && (!i.escrowStatus || ACTIVE_ESCROW.has(i.escrowStatus))

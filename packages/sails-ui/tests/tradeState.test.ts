@@ -1,4 +1,4 @@
-import { deriveTradeState, ESCROW_STATE_LABEL, type TradeStateInput } from '../src/lib/tradeState'
+import { canCancelTrade, deriveTradeState, ESCROW_STATE_LABEL, type TradeStateInput } from '../src/lib/tradeState'
 import { deriveCurrentAction } from '../src/lib/currentAction'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
@@ -174,5 +174,25 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
       expect(s.status.label).not.toMatch(/^conclu[ií]do$/i)
       expect(s.status.tone).not.toBe('success')
     }
+  })
+})
+
+describe('canCancelTrade (Principal 8f80d4b6: trade cancel only before any escrow exists)', () => {
+  const TRADE_STATUSES: TradeStatus[] = ['PENDING', 'ACTIVE', 'COMPLETED', 'DISPUTED', 'CANCELLED']
+  it('buyer or seller, trade PENDING/ACTIVE, no escrow: true', () => {
+    for (const r of [BUYER, SELLER]) for (const tradeStatus of ['PENDING', 'ACTIVE'] as const) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...r })).toBe(true)
+    }
+  })
+  it('never once an escrow exists, for any role, escrow status or trade status', () => {
+    for (const r of ROLES) for (const status of STATUSES) for (const tradeStatus of [...TRADE_STATUSES, TRADE_FOR[status]]) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: true, ...r })).toBe(false)
+    }
+  })
+  it('never on a closed trade or for a non-party', () => {
+    for (const r of [BUYER, SELLER]) for (const tradeStatus of ['COMPLETED', 'DISPUTED', 'CANCELLED'] as const) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...r })).toBe(false)
+    }
+    for (const tradeStatus of TRADE_STATUSES) expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...OTHER })).toBe(false)
   })
 })

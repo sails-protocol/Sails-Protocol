@@ -22,7 +22,7 @@ import { PaymentInstructions } from '../components/trade/PaymentInstructions'
 import { PayoutAddressForm } from '../components/trade/PayoutAddressForm'
 import { FundingInstructionCard } from '../components/trade/FundingInstructionCard'
 import { deriveFundingInstruction, deriveFundingRecordRows, lockRefusalMessage } from '../lib/fundingInstruction'
-import { batonLabel, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, payoutTxLabel } from '../lib/tradeState'
+import { batonLabel, canCancelTrade, custodyModelLabel, deriveTradeState, ESCROW_STATE_LABEL, payoutTxLabel } from '../lib/tradeState'
 import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import type { DisputeNotice } from '../components/trade/DisputeAppealBlock'
@@ -228,7 +228,7 @@ export function Trade() {
   const [acting, setActing] = useState(false)
   const [confirmRelease, setConfirmRelease] = useState(false)
   // The other one-way steps with a confirmation (release has its own flag above).
-  const [confirmStep, setConfirmStep] = useState<'markPaid' | 'contest' | 'appeal' | null>(null)
+  const [confirmStep, setConfirmStep] = useState<'markPaid' | 'contest' | 'appeal' | 'cancelTrade' | null>(null)
   const [pending, setPending] = useState<PendingState>({ status: 'none' })
   const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
@@ -320,6 +320,8 @@ export function Trade() {
     setLoading(true)
     setLoadError(null)
     setPending({ status: 'none' })
+    // Another trade's escrow must never show on this one (in-app navigation reuses this page).
+    setEscrow(null)
     lastEscrowStatusRef.current = undefined
     ;(async () => {
       let t: SdkTrade
@@ -587,6 +589,12 @@ export function Trade() {
     }
     setEscrow(e)
     toast.info(t('trade.toast.escrowLocked'), { icon: <Lock aria-hidden="true" className="size-icon shrink-0 text-brand-inverse-info" /> })
+  })
+
+  // Before any escrow only (canCancelTrade); the returned trade carries CANCELLED, so the page shows its cancelled state.
+  const handleCancelTrade = () => trade && withGuard(async () => {
+    const updated = await sailsClient.openp2p.updateTradeStatus(trade.id, 'CANCELLED')
+    setTrade((prev) => ({ ...prev, ...updated }))
   })
 
   const handleMarkPaymentSent = () => escrow && withGuard(async () => {
@@ -1135,6 +1143,8 @@ export function Trade() {
               onAction={(a) => ({ createEscrow: handleCreateEscrow, lock: handleLockFunds, markPaymentSent: () => setConfirmStep('markPaid'), release: () => setConfirmRelease(true) })[a]()}
               onOpenDispute={() => setShowDisputeForm(true)}
               disputeTriggerRef={disputeTriggerRef}
+              // Any escrow (the trade's record or one just created here) hides it, whatever its status.
+              onCancelTrade={canCancelTrade({ tradeStatus: trade.status, hasEscrow: !!trade.escrowId || !!escrow, isBuyer, isSeller }) ? () => setConfirmStep('cancelTrade') : undefined}
             >
               {countdown}
               {fundingView && <FundingInstructionCard view={fundingView} />}
@@ -1325,6 +1335,21 @@ export function Trade() {
         busy={acting}
         onConfirm={async () => {
           await handleMarkPaymentSent()
+          setConfirmStep(null)
+        }}
+      />
+
+      <ConfirmActionDialog
+        open={confirmStep === 'cancelTrade'}
+        onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
+        title={t('trade.confirm.cancelTrade.title')}
+        consequence={t('trade.confirm.cancelTrade.consequence')}
+        confirmLabel={t('trade.action.cancelTrade')}
+        cancelLabel={t('trade.confirm.cancelRound.back')}
+        tone="danger"
+        busy={acting}
+        onConfirm={async () => {
+          await handleCancelTrade()
           setConfirmStep(null)
         }}
       />

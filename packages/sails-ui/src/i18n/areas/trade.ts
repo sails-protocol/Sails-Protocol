@@ -56,6 +56,9 @@ export default defineArea(
 
     // Current action card
     'trade.action.openDispute': 'Abrir disputa',
+    'trade.action.cancelTrade': 'Cancelar negociação',
+    'trade.confirm.cancelTrade.title': 'Cancelar esta negociação?',
+    'trade.confirm.cancelTrade.consequence': 'A negociação é encerrada para as duas partes. Nenhum escrow foi criado, então não há fundos envolvidos.',
     'trade.card.release': 'Liberar fundos',
 
     // Escrow deadline
@@ -355,6 +358,9 @@ export default defineArea(
       'trade.rail.stateUpcoming': 'pending',
 
       'trade.action.openDispute': 'Open dispute',
+      'trade.action.cancelTrade': 'Cancel trade',
+      'trade.confirm.cancelTrade.title': 'Cancel this trade?',
+      'trade.confirm.cancelTrade.consequence': 'The trade closes for both parties. No escrow was created, so no funds are involved.',
       'trade.card.release': 'Release funds',
 
       'trade.countdown.title': 'Escrow deadline',
@@ -642,6 +648,9 @@ export default defineArea(
       'trade.rail.stateUpcoming': 'pendiente',
 
       'trade.action.openDispute': 'Abrir disputa',
+      'trade.action.cancelTrade': 'Cancelar negociación',
+      'trade.confirm.cancelTrade.title': '¿Cancelar esta negociación?',
+      'trade.confirm.cancelTrade.consequence': 'La negociación se cierra para las dos partes. No se creó ningún escrow, así que no hay fondos involucrados.',
       'trade.card.release': 'Liberar fondos',
 
       'trade.countdown.title': 'Plazo del escrow',
@@ -929,6 +938,9 @@ export default defineArea(
       'trade.rail.stateUpcoming': 'en attente',
 
       'trade.action.openDispute': 'Ouvrir un litige',
+      'trade.action.cancelTrade': 'Annuler la négociation',
+      'trade.confirm.cancelTrade.title': 'Annuler cette négociation ?',
+      'trade.confirm.cancelTrade.consequence': 'La négociation est clôturée pour les deux parties. Aucun escrow n’a été créé, donc aucun fonds n’est en jeu.',
       'trade.card.release': 'Libérer les fonds',
 
       'trade.countdown.title': 'Délai de l’escrow',
@@ -1216,6 +1228,9 @@ export default defineArea(
       'trade.rail.stateUpcoming': 'ausstehend',
 
       'trade.action.openDispute': 'Streitfall eröffnen',
+      'trade.action.cancelTrade': 'Trade abbrechen',
+      'trade.confirm.cancelTrade.title': 'Diesen Trade abbrechen?',
+      'trade.confirm.cancelTrade.consequence': 'Der Trade wird für beide Parteien beendet. Es wurde kein Escrow erstellt, daher sind keine Mittel betroffen.',
       'trade.card.release': 'Mittel freigeben',
 
       'trade.countdown.title': 'Escrow-Frist',
@@ -1524,6 +1539,7 @@ export default defineArea(
       'trade.confirm.sign.title', 'trade.confirm.sign.warnAddress', 'trade.confirm.sign.consequence', 'trade.confirm.sign.confirm',
       'trade.confirm.cancelRound.title', 'trade.confirm.cancelRound.consequence', 'trade.confirm.cancelRound.confirm',
       'trade.confirm.cancelRound.back', 'trade.disputeForm.confirm', 'trade.toast.stateChanged',
+      'trade.action.cancelTrade', 'trade.confirm.cancelTrade.title', 'trade.confirm.cancelTrade.consequence',
     ],
   },
 )
