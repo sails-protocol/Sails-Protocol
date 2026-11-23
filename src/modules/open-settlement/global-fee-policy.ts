@@ -8,7 +8,7 @@
  */
 import nacl from 'tweetnacl'
 import { createHash } from 'crypto'
-import { canonicalJson, type FeePolicyV1 } from '../open-p2p/trade-commitment'
+import { canonicalJson, verifyDigestSignature, type FeePolicyV1 } from '../open-p2p/trade-commitment'
 
 export const FEE_POLICY_V2_DOMAIN_TAG = 'sails-fee-policy-v2'
 
@@ -66,11 +66,10 @@ export function verifySignedFeePolicy(doc: SignedFeePolicy, authority: { keys: s
   if (!Number.isSafeInteger(authority.threshold) || authority.threshold < 1 || authority.threshold > authority.keys.length) return { ok: false, reason: 'invalid authority threshold' }
 
   const digest = feePolicyDigestV2(p)
-  const msg = Buffer.from(digest, 'hex')
   const valid = new Set<string>()
   for (const [pk, sig] of Object.entries(doc.signatures ?? {})) {
     if (!authority.keys.includes(pk) || !HEX32.test(pk) || !HEX64.test(sig)) continue
-    if (nacl.sign.detached.verify(msg, Buffer.from(sig, 'hex'), Buffer.from(pk, 'hex'))) valid.add(pk)
+    if (verifyDigestSignature(digest, sig, pk)) valid.add(pk) // canonical-encoding checked (no malleable signatures)
   }
   if (valid.size < authority.threshold) return { ok: false, reason: `needs ${authority.threshold} authority signatures, has ${valid.size}` }
   return { ok: true, digest }
