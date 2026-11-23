@@ -182,6 +182,12 @@ Do not use this document as a substitute for those current owners.
 // network environments, e.g. corporate firewalls blocking default nodes)
 ```
 
-This is a reference-implementation configuration concern
-(`config/index.ts`, which is one of the missing files — see `TODO.md`), not
-a protocol-level requirement.
+This is a reference-implementation configuration concern, not a
+protocol-level requirement. The documented empty-array default depends on
+Holepunch public bootstrap infrastructure; supplying custom nodes changes
+that dependency but does not establish tested fallback, independent
+operators, or recovery during a bootstrap outage. The transport fallback
+described in `ARCHITECTURE.md` is narrower: relay fallback covers
+`start()`/`sendToPeer()` after a Pears timeout, **not** DHT topic joins,
+trade discovery, or offer broadcast. Cross-operator discovery and outage
+behavior require separate Day-0 evidence (ADR-001 / #105).
