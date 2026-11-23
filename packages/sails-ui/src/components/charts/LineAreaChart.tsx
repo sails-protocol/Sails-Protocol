@@ -105,7 +105,7 @@ export function LineAreaChart({ labels, series, formatValue, formatTick, summary
     e.preventDefault()
     setActive(next === null ? null : Math.min(n - 1, Math.max(0, next)))
   }
-  const tipLeft = active === null ? 0 : Math.min(Math.max(x(active) - 80, 0), Math.max(0, width - 168))
+  const tipLeft = active === null ? 0 : Math.min(Math.max(x(active) - 96, 0), Math.max(0, width - 200))
   const readout = active === null ? '' : `${labels[active]}: ${series.map((s) => `${s.name} ${formatValue(s.values[active] ?? 0)}`).join(', ')}`
 
   return (
@@ -165,14 +165,14 @@ export function LineAreaChart({ labels, series, formatValue, formatTick, summary
           )}
         </svg>
         {active !== null && (
-          <div aria-hidden="true" className="pointer-events-none absolute top-0 z-10 w-40 rounded-md bg-popover p-2 shadow-elevation-2" style={{ left: tipLeft }}>
+          <div aria-hidden="true" className="pointer-events-none absolute top-0 z-10 w-48 rounded-md bg-popover p-2 shadow-elevation-2" style={{ left: tipLeft }}>
             <p className="text-caption text-brand-text-muted">{labels[active]}</p>
             <ul className="mt-1 space-y-0.5">
               {series.map((s) => (
                 <li key={s.key} className="flex items-center gap-1.5">
                   <span className="h-0.5 w-3 shrink-0 rounded-full" style={{ background: seriesColor(s.slot) }} />
                   <span className="text-body-sm font-semibold tabular-nums text-brand-text">{formatValue(s.values[active] ?? 0)}</span>
-                  <span className="truncate text-caption text-brand-text-secondary">{s.name}</span>
+                  <span className="min-w-0 break-words text-caption text-brand-text-secondary">{s.name}</span>
                 </li>
               ))}
             </ul>

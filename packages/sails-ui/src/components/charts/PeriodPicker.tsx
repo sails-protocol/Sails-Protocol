@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { CalendarRange, Check, ChevronDown } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
 import { Button } from '../ui/button'
@@ -42,6 +42,8 @@ export function PeriodPicker({ value, onChange, start, today, rangeText, range, 
   const [to, setTo] = useState('')
   const [error, setError] = useState<RangeError | null>(null)
   const id = useId()
+  const fromRef = useRef<HTMLInputElement>(null)
+  const toRef = useRef<HTMLInputElement>(null)
   const custom = value.kind === 'custom'
 
   const openChange = (o: boolean) => {
@@ -52,7 +54,8 @@ export function PeriodPicker({ value, onChange, start, today, rangeText, range, 
     e.preventDefault()
     const err = validateRange(from, to, { today, min: start })
     setError(err)
-    if (err) return
+    // Focus the first field the error is about (Vercel WIG: focus first error on submit).
+    if (err) { (err === 'future' ? toRef : fromRef).current?.focus(); return }
     onChange({ kind: 'custom', from, to })
     setOpen(false)
   }
@@ -85,11 +88,11 @@ export function PeriodPicker({ value, onChange, start, today, rangeText, range, 
             <div className="grid grid-cols-2 gap-3">
               <div className="min-w-0">
                 <label htmlFor={`${id}-from`} className="text-control text-brand-text">{copy.from}</label>
-                <Input id={`${id}-from`} type="date" value={from} min={toDateInput(start)} max={toDateInput(today)} onChange={(e) => setFrom(e.target.value)} aria-invalid={invalid('from') || undefined} aria-describedby={error ? errorId : undefined} className="mt-1" />
+                <Input ref={fromRef} id={`${id}-from`} name="from" autoComplete="off" type="date" value={from} min={toDateInput(start)} max={toDateInput(today)} onChange={(e) => setFrom(e.target.value)} aria-invalid={invalid('from') || undefined} aria-describedby={error ? errorId : undefined} className="mt-1" />
               </div>
               <div className="min-w-0">
                 <label htmlFor={`${id}-to`} className="text-control text-brand-text">{copy.to}</label>
-                <Input id={`${id}-to`} type="date" value={to} min={toDateInput(start)} max={toDateInput(today)} onChange={(e) => setTo(e.target.value)} aria-invalid={invalid('to') || undefined} aria-describedby={error ? errorId : undefined} className="mt-1" />
+                <Input ref={toRef} id={`${id}-to`} name="to" autoComplete="off" type="date" value={to} min={toDateInput(start)} max={toDateInput(today)} onChange={(e) => setTo(e.target.value)} aria-invalid={invalid('to') || undefined} aria-describedby={error ? errorId : undefined} className="mt-1" />
               </div>
             </div>
             {error && <p id={errorId} role="alert" className="text-caption text-brand-danger-fg">{copy.errors[error]}</p>}

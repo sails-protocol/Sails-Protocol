@@ -233,6 +233,8 @@ export function MarketPage() {
           label={m.name}
           value={shownTab}
           onChange={setTab}
+          // Four tabs for the owner: at 320 px the row scrolls sideways instead of pushing the page wider.
+          className={owner ? 'overflow-x-auto [scrollbar-width:none] [&>button]:shrink-0 [&>button]:whitespace-nowrap' : undefined}
           items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.page.tabChats') }, { value: 'about', label: t('spaces.page.tabAbout') }, ...(owner ? [{ value: 'dashboard' as const, label: t('stats.space.tab') }] : [])]}
         />
 
