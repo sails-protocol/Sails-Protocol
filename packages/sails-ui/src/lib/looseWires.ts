@@ -1,5 +1,5 @@
 import {
-  Activity, Bell, CircleUser, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
+  Activity, Bell, CircleUser, FileDown, FileUp, Globe, Info, KeyRound, Languages, LifeBuoy, Link2, Lock, MapPin, MessageSquare,
   ServerCog, CalendarDays, Coins, CreditCard, Scale, Star, Users, Wallet, Network, Ticket, QrCode, UserCheck, Fingerprint, PlusCircle, Compass, Palette, EyeOff,
   Store, ShieldCheck, MessagesSquare, BadgeCheck, ShoppingBag, ScrollText, ArrowRightLeft, Pin, Award, ChartColumn,
 } from 'lucide-react'
@@ -26,6 +26,9 @@ export const LOOSE_WIRES = {
   notifyDisputes: { get label() { return t('looseWires.notifyDisputes') }, icon: Scale, contract: 'notification system/backend (none exists, PROJECT_CONTEXT §2E Future)' },
   displayCurrency: { get label() { return t('looseWires.displayCurrency') }, icon: Info, contract: 'FX rate source in the SDK; priceUsd is the only real price unit today' },
   keyBackup: { get label() { return t('looseWires.keyBackup') }, icon: KeyRound, contract: 'encrypted key export/import + recovery flow over AuthContext keypair' },
+  // Frente B identidade (Principal spec 2026-11-23): demo screens only until the CTO decides R0.
+  keyBackupExport: { get label() { return t('looseWires.keyBackupExport') }, icon: FileDown, contract: 'SDK R0, SAILS-BACKUP/1 export (participant key + escrow keys and their metadata, encrypted with a backup passphrase); format pending CTO decision' },
+  keyBackupImport: { get label() { return t('looseWires.keyBackupImport') }, icon: FileUp, contract: 'SDK R0, SAILS-BACKUP/1 import (passphrase, publicKey check, confirmation before replacing the key in this browser); format pending CTO decision' },
   sessionLock: { get label() { return t('looseWires.sessionLock') }, icon: Lock, contract: 'idle-lock policy over AuthContext session (re-prompt passphrase)' },
   // Superseded on screen by marketMembership (Configurações → Mercados → Meus mercados, plan 1.5); the id stays so references keep working.
   communities: { get label() { return t('looseWires.communities') }, icon: Users, contract: 'community / restricted-market membership contract in the SDK (none today)' },

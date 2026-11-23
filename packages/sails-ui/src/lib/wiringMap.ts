@@ -69,6 +69,9 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   walletConnect: notice('Wallet e chaves', 'Configurações → Wallet; Conectar wallet'),
   defaultReceiveAddress: notice('Wallet e chaves', 'Configurações → Wallet'),
   keyBackup: notice('Wallet e chaves', 'Configurações → Segurança'),
+  // Demo screens with no key material at all (BackupDemo.tsx); real mode "Em breve" until R0 (SDK) exists.
+  keyBackupExport: sim('Wallet e chaves', 'Configurações → Segurança → Exportar backup · falta o R0 no SDK (decisão do CTO)'),
+  keyBackupImport: sim('Wallet e chaves', 'Configurações → Segurança → Importar backup · falta o R0 no SDK (decisão do CTO)'),
   sessionLock: sim('Wallet e chaves', 'Configurações → Segurança'),
   // Notificações.
   notifyTrades: sim('Notificações', 'Configurações → Notificações'),
