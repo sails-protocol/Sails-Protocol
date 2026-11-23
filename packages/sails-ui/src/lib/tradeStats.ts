@@ -15,6 +15,8 @@ export interface TradeRecord {
   createdAt: string
   completedAt: string | null
   cancelledAt: string | null
+  /** Trade.escrowId: the escrow whose events time the release (null before any escrow). */
+  escrowId?: string | null
 }
 
 export interface PeriodFigures {
@@ -75,4 +77,56 @@ export const UNIT_ORDER: readonly string[] = ['BTC', 'USDT', 'USDC']
 export function orderUnits(units: Iterable<string>): string[] {
   const rank = (u: string) => { const i = UNIT_ORDER.indexOf(u); return i < 0 ? UNIT_ORDER.length : i }
   return [...new Set(units)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b))
+}
+
+/** One record of Escrow.events (GET /v1/settlement/escrow/:id, createdAt ascending). */
+export interface EscrowEventRecord { fromStatus: string; toStatus: string; createdAt: string }
+
+/**
+ * Payment declared (FUNDS_LOCKED -> PAYMENT_PENDING) to release (PAYMENT_PENDING -> COMPLETED), in ms, from the
+ * escrow's own events. null when either transition is missing, when any event touches DISPUTED (a ruling time is not
+ * a cooperative release) or when the times do not make sense. Never falls back to releasedAt: a disputed escrow ends
+ * DISPUTED -> COMPLETED with a releasedAt too.
+ */
+export function releaseDurationMs(events: unknown): number | null {
+  if (!Array.isArray(events)) return null
+  const list = events.filter((e): e is EscrowEventRecord => !!e && typeof e === 'object' && typeof e.fromStatus === 'string' && typeof e.toStatus === 'string' && typeof e.createdAt === 'string')
+  if (list.some((e) => e.fromStatus === 'DISPUTED' || e.toStatus === 'DISPUTED')) return null
+  const paid = list.find((e) => e.fromStatus === 'FUNDS_LOCKED' && e.toStatus === 'PAYMENT_PENDING')
+  const released = list.find((e) => e.fromStatus === 'PAYMENT_PENDING' && e.toStatus === 'COMPLETED')
+  if (!paid || !released) return null
+  const ms = Date.parse(released.createdAt) - Date.parse(paid.createdAt)
+  return Number.isFinite(ms) && ms >= 0 ? ms : null
+}
+
+/** Average of the durations that exist; null when none does. */
+export function averageDuration(durations: readonly (number | null)[]): { ms: number; count: number } | null {
+  const ok = durations.filter((d): d is number => d !== null)
+  return ok.length ? { ms: ok.reduce((a, d) => a + d, 0) / ok.length, count: ok.length } : null
+}
+
+/** Escrow reads allowed per period (Principal: one call per trade, display only). */
+export const RELEASE_SAMPLE_CAP = 50
+
+/** The escrows to read: completed trades in the period with an escrowId, most recent first, at most `cap`. */
+export function releaseSample(trades: readonly TradeRecord[], range: DateRange, cap = RELEASE_SAMPLE_CAP): { escrowIds: string[]; capped: boolean } {
+  const eligible = trades
+    .filter((tr) => tr.status === 'COMPLETED' && !!tr.escrowId && valid(at(tr.completedAt)) && inRange(at(tr.completedAt) as Date, range))
+    .sort((a, b) => (b.completedAt as string).localeCompare(a.completedAt as string))
+  return { escrowIds: eligible.slice(0, cap).map((tr) => tr.escrowId as string), capped: eligible.length > cap }
+}
+
+/** Runs `fn` over `items`, at most `limit` at a time, keeping the input order in the result. */
+export async function mapLimited<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]) } }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+/** Whole minutes and the hours split, for "18 min" / "2 h 05 min" (the words come from the catalog). */
+export function durationParts(ms: number): { hours: number; minutes: number; totalMinutes: number } {
+  const totalMinutes = Math.round(ms / 60000)
+  return { hours: Math.floor(totalMinutes / 60), minutes: totalMinutes % 60, totalMinutes }
 }
