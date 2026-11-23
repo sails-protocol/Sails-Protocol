@@ -195,7 +195,7 @@ Even without custody, disputes are inevitable in any real market. The
 protocol has a planned resolution layer — not custodial arbitration, but
 verifiable, evidence-based mechanisms. The separation of the Resolution Layer from a Signing Federation is planned/proposed, not implemented: in Gen-1 the arbiter key is held by the node server (see the Signing Federation README in `docs/architecture/SAILS_SIGNING_FEDERATION/`).
 
-Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Entrega A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
+Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Delivery A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
 
 ### Scenario A: Payment sent, asset not released
 
