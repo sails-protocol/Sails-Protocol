@@ -89,6 +89,37 @@ challenge construction.
 
 ---
 
+## 2.1 Portable signed offers (ADR-001 / C9)
+
+`offer-envelope.ts` verifies Ed25519 signatures over the SHA-256 digest
+of domain-separated canonical content (`sails-offer-envelope-v1`). It
+validates field shape, canonical decimal and UTC timestamp encodings,
+revision bounds and signature/key encoding ranges before verification.
+Offer identity is `(ownerPublicKey, logicalOfferId)`; fact identity adds
+revision and content digest, not signature bytes.
+
+`offer-envelope-repository.ts` verifies on ingest and deduplicates facts
+through database uniqueness. `getLatest()` selects the highest locally
+observed revision and re-verifies every row at that revision, including
+its reconstructed digest (C9). Integrity failure throws rather than
+falling back to an older revision. Distinct digests at the highest
+revision yield `EQUIVOCATED`; the activity helper rejects that state,
+missing offers, cancelled offers and expired offers. A valid higher
+revision can resolve the current state; cancellation is not an irrevocable
+ban on subsequent owner-authorized revisions.
+
+These are local repository semantics, not proof of globally current
+state: the highest-revision lookup and subsequent row read are separate
+queries, and the ingest equivocation flag is advisory under concurrency.
+Signature validity alone does not establish economic liveness, inventory,
+rail eligibility, amount-bound ordering or cross-operator convergence.
+The envelope has no separate signed network field. Propagation,
+anti-entropy and tombstone retention require their own evidence under
+ADR-001 / Issue #105. See `PORTABLE_SIGNED_OFFERS_EVIDENCE.md` for the
+historical verification record.
+
+---
+
 ## 3. Payload Confidentiality: Sealed-Box Encryption Over Pears
 
 **Guarantee: a payload sent peer-to-peer is unreadable by anyone except
