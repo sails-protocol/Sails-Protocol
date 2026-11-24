@@ -121,11 +121,13 @@ Event Bus             → namespaced {module}.{entity}.{action} events.
                         Event itself never being a primitive
                         (PROTOCOL_SPECIFICATION.md section 1.11).
                         RFC-008 (rfcs/RFC-008-verifiable-timestamps-and-
-                        chained-timeline.md) hash-chains each
-                        TimelineEntry (entryHash/prevHash, persisted on
-                        EscrowEvent/ReputationEvent) so tampering is
-                        detectable — this is the one place D5's original
-                        "no new write path" claim was later corrected.
+                        chained-timeline.md) specifies hash-chain integrity.
+                        RFC-010's 2026-08-04 implementation record places
+                        hash links on DurableEvent in Redis Streams, not
+                        EscrowEvent/ReputationEvent. IntentEvent has its
+                        own persisted links; the general Timeline projection
+                        does not expose verifyChain() (CRYPTOGRAPHIC_MODEL.md
+                        §4). These are distinct integrity boundaries.
                         RFC-010 (rfcs/RFC-010-durable-event-store.md)
                         makes durability pluggable via a new EventStore
                         Adapter (protocol says "must be durable and
@@ -373,7 +375,14 @@ src/
 │       │                                 RFC-010 — delegates to EventStore)
 │       ├── event-store.ts              (EventStore/DurableEvent, RFC-010 —
 │       │                                 InMemoryEventStore real,
-│       │                                 RedisStreamsEventStore a stub)
+│       │                                 RedisStreamsEventStore implemented
+│       │                                 and integration-tested per RFC-010
+│       │                                 (2026-08-04); default in-memory
+│       │                                 store non-durable. Redis delivery
+│       │                                 at least once, not exactly once;
+│       │                                 startup subscription race disclosed.
+│       │                                 No production or cross-operator
+│       │                                 recovery guarantee follows)
 │       └── handlers.ts                 (Coordination Protocol — cross-module
 │                                         reactions to events)
 ├── core/                                (6 formal Core components, §1B —
