@@ -252,6 +252,28 @@ Legacy equivalents: `POST /trade/create`, `GET /trade/:id`, `PATCH
 /trade/:id/status`, `WS /ws`, `GET /chat/:tradeId/messages`, `GET
 /chat/online`.
 
+### Trade admission and accepted offer revision (E21 R1)
+
+`TradeService.createTrade()` supports an optional `acceptedEnvelopeId`
+that is fixed at creation and references an append-only offer-envelope
+row. Migration `20261121120000_trade_accepted_envelope` checks owner,
+active status, database-clock expiry, absence of a locally known higher
+or conflicting revision, asset, side, price, payment method and amount
+bounds. The foreign key restricts deletion of the referenced row. The
+trigger does not reverify signatures (repository ingestion performs
+verification), compare network/rail semantics, or establish global
+revision convergence. Its owner/terms checks do not independently prove
+a logical-offer-to-legacy-Offer mapping.
+
+This is a service/database capability: the current canonical HTTP trade
+creation route does not expose or forward `acceptedEnvelopeId`. Omission
+retains legacy Offer-only admission with a NULL reference. The service's
+optional idempotency key binds the offer ID, amount and accepted envelope
+ID when supplied; this is not cross-node inventory reservation or
+bilateral signed acceptance. See `tests/integration/tradeAcceptedEnvelope.test.ts`
+for the scoped database/admission test cases and Issue #105 for remaining
+Day-0 evidence requirements.
+
 ### WebSocket authentication
 
 Obtain a ticket from `POST /v1/identity/ws-ticket` using the HTTP bearer
