@@ -116,9 +116,18 @@ completed trades, settlement speed, dispute history, and volume over time.
 
 ### 1.3 Verifiable Identity
 
-Participants prove control of their keypair via digital signature. No
-email, no phone number required at the base level — optional verification
-levels unlock higher trust limits.
+Canonical participant registration requires Ed25519 proof of possession
+(Issue #302), not merely knowledge of a public key. The registration
+challenge uses a separate Redis namespace and signed-message domain from
+login, binds the submitted `displayName`, and is atomically consumed only
+after successful signature verification. `IdentityService.register()`
+rejects an existing public-key value and handles database uniqueness
+conflicts independently of challenge consumption. These are separate
+Redis and database steps, not one atomic registration transaction.
+Proof of possession establishes key control, not real-world identity,
+unique human identity, or protection against a compromised key. No email
+or phone number is required at the base level; the following verification
+tiers are policy concepts, not evidence of enforced higher trust limits.
 
 - **Level 0:** keypair only
 - **Level 1:** phone verified
