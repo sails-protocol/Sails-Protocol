@@ -62,6 +62,30 @@ failure modes:
 
 ## 4. What Is NOT Yet Mitigated (be honest about current gaps)
 
+### Network topology and resource safety (ADR-001 §26.4–26.5)
+
+The inspected reference branch configures an HTTP rate limiter and a
+WebSocket `maxPayload` of 1 MiB (`app.ts`). Chat `SEND_MESSAGE` has a
+process-local participant budget; selected HTTP routes also use a
+Redis-backed limiter. These controls do not establish a common ingress
+budget across transports. The inspected `/ws/relay` handler dispatches
+post-upgrade frames without a route-level message/byte budget, and the
+Pears message handler does not establish equivalent application-level
+peer-count, ingress or backpressure bounds. This is a scoped source
+observation, not an assertion about every dependency or deployment.
+
+Handshake identity checks and signed-offer verification constrain
+identity claims and content authenticity, not peer diversity, selective
+forwarding, eclipse resistance or resource consumption by valid signed
+facts. Local reconnect reconciliation does not demonstrate recovery of
+an independent operator's market view. ADR-001 requires adversarial
+topology evidence, alternate honest paths and explicit gossip resource
+bounds; formal Sybil resistance remains separately tracked. Do not
+interpret these reference controls as network-wide availability or
+production readiness evidence (Issue #105).
+
+### Historical findings and scoped mitigations
+
 - ~~No rate limiting exists in the current code fragment~~ **Resolved**
   *(2026-07-18)* — `@fastify/rate-limit` is real, registered globally
   (`config.rateLimit.max`/`timeWindow`, default 100/minute per IP) with a
