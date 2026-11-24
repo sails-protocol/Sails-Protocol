@@ -158,6 +158,28 @@ subscribe to the generic `message` event from the owning domain module.
 
 ---
 
+## 4.1 Operational node discovery and identity boundary
+
+ADR-001 §26.2–26.3 distinguishes four identities: participant economic
+identity (A), participant transport identity (B), operational Sails node
+identity (C), and operator economic recipient (D). The reference
+`PearNode` is a participant-scoped transport runtime, not C or D.
+`verifyHandshakeIdentity()` checks the claimed user ID against the
+locally stored `User.peerId` and the connection's remote transport key.
+This is a local association check, not independent operator authentication
+or a signed economic-to-transport binding.
+
+The authenticated `/v1/peers/start` and `/v1/peers/status` routes expose
+participant runtime information, not a self-authenticating operator Node
+Descriptor. The `sails:v1:` topic namespace is not a wire-version
+negotiation mechanism. The inspected transport does not establish a
+signed descriptor with endpoint, compatible versions, enabled
+capabilities, settlement rails and custody/maturity posture, fee/policy
+and expiry. Operational identity lifecycle and descriptor authenticity,
+staleness and version-mismatch evidence remain governed by ADR-001 and
+Issue #105. No central registry or new identity mechanism is authorized
+by this clarification.
+
 ## 5. Open questions and external owners
 
 This document does not claim there are no remaining cross-cutting node/network
