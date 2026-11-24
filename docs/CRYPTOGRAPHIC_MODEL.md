@@ -151,7 +151,7 @@ document's own discipline:**
 **Guarantee (where implemented): a past event cannot be silently edited
 or deleted without the tamper being detectable.**
 
-Two related but *not identical* things exist under this name — worth
+Several related but *not identical* mechanisms exist under this name — worth
 being precise about, since conflating them would misstate what's
 actually protected:
 
@@ -171,16 +171,21 @@ makes tampering detectable at all (RFC-008's own point: a live-computed
 hash on every read would just re-derive an internally-consistent hash
 after a rewrite, defeating the purpose).
 
-### 4.2 The general cross-module `Timeline` (RFC-007 D5 / RFC-017) — no hash chain yet
+### 4.2 Cross-module `Timeline` — implemented over `DurableEvent`
 
-`core/timeline.ts`'s `TimelineEntry` (used by `SocialEngineeringAgent`
-and any future consumer needing a cross-module event history keyed by
-`correlationId`, not just one Intent) carries `eventId`/`occurredAt`/
-`payload` — **no `entryHash`/`prevHash`, no `verifyChain()`.** RFC-008
-designed the hash-chain mechanism generally, but only `IntentEvent`
-actually has it wired in. Extending it to the general `Timeline` is
-real, scoped future work, not done — described here so this document
-doesn't imply protection that doesn't exist yet at that layer.
+`core/timeline.ts` projects events from the EventStore, exposes
+`entryHash`/`prevHash`, and implements `verifyChain()` by recomputing
+stored event hashes and checking links from `GENESIS_HASH` per
+`correlationId`. `SailsEventBus` defaults to `PostgresEventStore`, not
+`InMemoryEventStore`. The Postgres implementation persists `DurableEvent`
+records and serializes writers per correlation using transaction-scoped
+advisory locks. RFC-008 D2's 2026-08-15 amendment records live Postgres
+integration tests of concurrency, rollback and chain verification.
+Redis Streams is another implemented adapter; in-memory storage is
+non-durable. These mechanisms are distinct from the `IntentEvent` and
+`EscrowEvent` chains. Hash verification does not itself deduplicate
+business operations or establish independent cross-operator recovery,
+external anchoring, or production homologation.
 
 ### 4.3 What hash-chaining does and doesn't give you
 
