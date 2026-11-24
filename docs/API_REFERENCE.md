@@ -138,6 +138,7 @@ left undocumented once it was corrected.
 | GET | `/v1/identity/participants/:id` | Fetch a participant's profile |
 | POST | `/v1/identity/challenge` | Issue an auth challenge |
 | POST | `/v1/identity/authenticate` | Verify the signed challenge, issue session token |
+| POST | `/v1/identity/ws-ticket` | Authenticated bearer request; issue a short-lived, single-use WebSocket ticket |
 
 Legacy equivalents (pre-namespacing): `POST /identity/create`, `GET
 /identity/:id`, `POST /identity/challenge`, `POST /identity/authenticate`,
@@ -250,6 +251,24 @@ tracked; see that file's "Resolved Items" section.
 Legacy equivalents: `POST /trade/create`, `GET /trade/:id`, `PATCH
 /trade/:id/status`, `WS /ws`, `GET /chat/:tradeId/messages`, `GET
 /chat/online`.
+
+### WebSocket authentication
+
+Obtain a ticket from `POST /v1/identity/ws-ticket` using the HTTP bearer
+session, then connect to `/v1/openp2p/chat?ticket=...` or
+`/ws/relay?ticket=...`. Do not put the HTTP session token in the URL.
+Both routes resolve the ticket through `atomicConsume()` in Redis
+(Issue #301), binding the connection to the stored participant ID.
+Each connection attempt requires a fresh ticket. A leaked unused ticket
+can still be consumed by another party before its expiry; single-use
+consumption is not proof of possession of the original identity key.
+The ticket is participant-bound, not route-bound. Its TTL governs
+connection admission, not the lifetime of an established socket;
+these handlers do not continuously revalidate the HTTP session.
+Chat checks trade participation on JOIN_TRADE and SEND_MESSAGE and
+assigns the sender from the authenticated connection. Ticket authentication
+does not establish message-level signatures, replay protection, relay
+confidentiality or economic authorization.
 
 ### WebSocket protocol (client → server)
 
