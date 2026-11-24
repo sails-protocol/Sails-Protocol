@@ -122,12 +122,12 @@ Event Bus             → namespaced {module}.{entity}.{action} events.
                         (PROTOCOL_SPECIFICATION.md section 1.11).
                         RFC-008 (rfcs/RFC-008-verifiable-timestamps-and-
                         chained-timeline.md) specifies hash-chain integrity.
-                        RFC-010's 2026-08-04 implementation record places
-                        hash links on DurableEvent in Redis Streams, not
-                        EscrowEvent/ReputationEvent. IntentEvent has its
-                        own persisted links; the general Timeline projection
-                        does not expose verifyChain() (CRYPTOGRAPHIC_MODEL.md
-                        §4). These are distinct integrity boundaries.
+                        Timeline projects DurableEvent hash links and
+                        implements verifyChain() per correlationId.
+                        Postgres is the default durable backend (RFC-008
+                        D2 amendment, 2026-08-15); Redis Streams and
+                        in-memory adapters also exist. IntentEvent and
+                        EscrowEvent have separate integrity boundaries.
                         RFC-010 (rfcs/RFC-010-durable-event-store.md)
                         makes durability pluggable via a new EventStore
                         Adapter (protocol says "must be durable and
@@ -377,7 +377,8 @@ src/
 │       │                                 InMemoryEventStore real,
 │       │                                 RedisStreamsEventStore implemented
 │       │                                 and integration-tested per RFC-010
-│       │                                 (2026-08-04); default in-memory
+│       │                                 (2026-08-04); PostgresEventStore
+│       │                                 is the wired default; in-memory
 │       │                                 store non-durable. Redis delivery
 │       │                                 at least once, not exactly once;
 │       │                                 startup subscription race disclosed.
