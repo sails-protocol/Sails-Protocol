@@ -1114,7 +1114,7 @@ recovery MUST fail closed (flag for manual review) rather than guess in
 either direction — a stuck-but-safe state is always preferable to a
 guessed, possibly-duplicate one.
 
-**How this is met today — MULTISIG only.** `escrow-settlement-reconciliation.service.ts`'s
+**Deterministic transaction reconstruction — MULTISIG.** `escrow-settlement-reconciliation.service.ts`'s
 `reconcilePendingSettlements()` finds every terminal-status escrow with
 a null `txReleaseId`. For MULTISIG (the only rail whose settlement
 transaction is fully deterministic and reconstructable from already-
@@ -1137,16 +1137,19 @@ is a genuine anomaly (structurally should be impossible, given a single
 2-of-3 script and this escrow's own already-collected signatures) —
 reconciliation fails closed and reports it, moving no funds.
 
-**Deliberately narrow.** No other rail in this codebase has an
-equivalent authoritative-truth primitive today. MOCK/WDK_USDT_EVM move
-funds via a direct, single-call path with no persisted, independently-
-reconstructable transaction to compare against; LIGHTNING_HODL/
-SAFE_GUARD_EVM are structurally signature-collection rails like
-MULTISIG but have never had this primitive built for them (out of
-scope for this phase — see `docs/TECHNICAL_DEBT_AUDIT.md`). For any
-escrow this mechanism cannot safely reconcile, it does exactly what
-this invariant requires: fails closed, flagged for manual review,
-moving no funds. See `tests/multisigProvider.test.ts`'s
+**Other rails — scoped restart convergence, not equivalent reconstruction.**
+`reconcileTxReleaseId()` now dispatches WDK_USDT_EVM to its durable
+transfer-attempt reconciliation (#251 RELEASE/REFUND, #250 SPLIT).
+The split requires independently confirmed evidence for both legs;
+partial confirmation does not authorize completion or resubmission.
+LIGHTNING_HODL and SAFE_GUARD_EVM use durable signature-finalization
+attempt evidence for RELEASE/REFUND (#240); SUBMITTED and
+SUBMISSION_UNKNOWN are not automatically converged, and external query
+and resubmission guarantees remain unproven. Unsupported or insufficiently
+corroborated cases require manual review. These paths do not establish
+production eligibility or universal recovery across rails.
+
+See `tests/multisigProvider.test.ts`'s
 `reconcilePendingSettlement()` suite (real signed PSBTs, real fetch-mocked
 network responses — the "expected txid" every test asserts against is
 independently computed, never asserted by fiat) and
