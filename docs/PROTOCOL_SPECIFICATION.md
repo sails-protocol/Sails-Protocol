@@ -322,7 +322,23 @@ interface NegotiationChannel {
 }
 ```
 
-**Two valid implementations of the same primitive, today and later —
+**Current reference implementation boundary (E21 slice 1):** Trade
+admission persists the Trade, its trade Intent, and the `trade.created`
+(`openp2p.trade.created`), `negotiation.opened` and
+`openp2p.trade.status_changed` events within the admission transaction.
+Post-commit dispatch and `NegotiationService.markOpened()` are separate
+from that durable admission. The service's status Map is process-local
+and non-authoritative; `getStatus()` defaults to `CREATED` when no entry
+exists. `markAgreed()` updates that Map and emits
+`negotiation.terms_agreed` with a trade ID, not a signed bilateral terms
+commitment. The interface above describes the protocol abstraction, not
+proof of a fully durable negotiation state machine or an implemented
+end-to-end `AgreedTerms` authorization pipeline. Neither a chat event
+nor this status change alone authorizes settlement. Exact accepted-offer
+and economic-commitment semantics require their own authority checks
+and Day-0 evidence (ADR-001 / Issue #105).
+
+**Two illustrative implementations of the same primitive, today and later —
 neither requires a Core change:**
 
 ```
