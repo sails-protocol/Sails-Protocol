@@ -714,7 +714,15 @@ right key. The shipped `core/timeline.ts` implements RFC-017's
 correction; this section had not been updated to match until this
 consolidation pass.
 
-**Hash-chained (RFC-008, decision D2).** A flat, unlinked Timeline is
+**Hash-chaining requirement (RFC-008, decision D2; not fully implemented).**
+The following describes the target contract, not the current general
+`Timeline` implementation. As documented in `CRYPTOGRAPHIC_MODEL.md` §4,
+`IntentEvent` has persisted hash links, whereas the general `Timeline`
+projection does not yet expose `entryHash`/`prevHash` or `verifyChain()`.
+Hash linkage alone does not establish message deduplication, cross-operator
+ordering, completeness, or independently anchored timestamps.
+
+ A flat, unlinked Timeline is
 tamper-*visible* to no one — an entry can be inserted, reordered, or
 deleted with nothing to detect it. RFC-008 gives each `TimelineEntry` an
 `entryHash`/`prevHash` pair, computed and persisted once at the moment the
