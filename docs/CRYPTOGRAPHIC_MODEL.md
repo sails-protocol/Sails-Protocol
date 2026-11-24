@@ -56,32 +56,36 @@ Multi-Protocol Identity UX" entry and
 
 ## 2. Authentication: Challenge-Response (Replay Protection)
 
-**Guarantee: an attacker who observes a past signed request cannot
-replay it to authenticate as that participant.**
+**Scoped guarantee:** a successfully consumed authentication challenge
+cannot mint a second session through replay of the same challenge proof.
+This is not per-request replay protection for bearer-authenticated calls.
 
 Flow (`common/middleware/auth.ts`):
 
 1. Client requests a challenge for their claimed `publicKey`
    (`POST /v1/identity/challenge`).
-2. Server generates a random 32-byte nonce (`crypto.randomBytes`),
-   stores it in Redis keyed by `publicKey` with a short TTL
-   (`config.auth.challengeTtlSeconds`).
-3. Client signs the nonce with their Ed25519 secret key, client-side.
-4. Client sends `{ publicKey, signature }`.
-5. Server verifies the signature against the stored nonce
-   (`nacl.sign.detached.verify`) — **then immediately deletes the
-   challenge from Redis**, before checking anything else. A captured
-   `{publicKey, signature}` pair cannot be reused, because the nonce it
-   was computed over no longer exists server-side after first use.
-6. On success, the server issues a short-lived opaque session token
-   (also random, also Redis-backed with its own TTL —
-   `config.auth.sessionTtlSeconds`) — every subsequent request in that
-   window authenticates via the session token (`Authorization: Bearer
-   ...`), not by re-signing per request.
+2. Server generates a random 32-byte nonce, stores it in Redis keyed by
+   `publicKey` with `config.auth.challengeTtlSeconds`.
+3. Client signs the challenge with their Ed25519 secret key.
+4. Server verifies the signature against the observed challenge using
+   `nacl.sign.detached.verify`.
+5. Only after successful verification, `atomicCompareAndConsume()`
+   claims the exact observed value (Issue #301). Concurrent consumers
+   cannot both win; a replaced challenge is not deleted, and an invalid
+   signature does not consume the challenge.
+6. After participant lookup succeeds, the server issues a random opaque
+   Redis-backed session token with `config.auth.sessionTtlSeconds`.
+   `requireAuth()` resolves the participant from that token, not from a
+   claimed body identity. Subsequent requests do not re-sign their
+   method, path or body through this middleware.
 
-**What this does not protect against:** a compromised secret key. Like
-any signature scheme, whoever holds the secret key can always
-authenticate as that identity — there is no second factor.
+**Limits:** possession of a valid bearer token permits session
+impersonation until it becomes invalid; a compromised identity secret
+key also permits authentication. Challenge consumption does not establish
+per-operation replay resistance, transaction authorization or economic
+idempotency. Those require separate controls. Registration proof uses a
+separate challenge domain (Issue #302), not the bare authentication
+challenge construction.
 
 ---
 
