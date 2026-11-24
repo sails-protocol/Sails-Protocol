@@ -383,7 +383,17 @@ src/
 │       │                                 at least once, not exactly once;
 │       │                                 startup subscription race disclosed.
 │       │                                 No production or cross-operator
-│       │                                 recovery guarantee follows)
+│       │                                 recovery guarantee follows.
+│       │                                 Economic replay protection is
+│       │                                 separate: INV-OP-5 in
+│       │                                 PROTOCOL_INVARIANTS.md defines
+│       │                                 source-transition projection
+│       │                                 claims, write-once settlement
+│       │                                 results and reconciliation;
+│       │                                 duplicate durable events may
+│       │                                 exist without duplicate effects.
+│       │                                 This is not a universal exactly-
+│       │                                 once execution guarantee)
 │       └── handlers.ts                 (Coordination Protocol — cross-module
 │                                         reactions to events)
 ├── core/                                (6 formal Core components, §1B —
