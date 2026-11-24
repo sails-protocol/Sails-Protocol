@@ -1263,10 +1263,17 @@ What the implementation guarantees:
    signature-collection, C8, PASS 1). The database backstops it
    (`escrows_settlement_result_write_once_guard`): a direct `UPDATE`
    cannot change a populated `txReleaseId` or `releasedAt`.
-2. **External success is never reverted as a local failure.** Only a
-   failing provider call reverts the claimed status; once the provider
-   has returned, a failing local step leaves the escrow in its claimed
-   state and reconciliation converges it from durable facts.
+2. **External success or uncertain submission must not be treated as a local failure.**
+   A provider error alone is not evidence of non-submission. For the WDK
+   attempt-ledger path, `revertClaimUnlessPotentiallySent()`
+   (`escrow.service.ts`, #341 D7–D9) checks potentially sent attempts
+   for the current disposition under the escrow funding lock. If such
+   an attempt exists, or non-submission cannot be established, the
+   claim and its authorization are retained for reconciliation. Otherwise
+   the claim and applicable ruling rollback commit in the same transaction.
+   After provider success, a local failure retains the claim for recovery.
+   This is a scoped recovery control, not proof of universal rail recovery
+   or production eligibility.
 3. **Escrow is authoritative; Trade is a projection.** The Trade status
    is derived from the *persisted* Escrow state under the escrow lock,
    monotonically (a stale/reordered event cannot regress it), with
