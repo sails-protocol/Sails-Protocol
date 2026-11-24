@@ -714,26 +714,18 @@ right key. The shipped `core/timeline.ts` implements RFC-017's
 correction; this section had not been updated to match until this
 consolidation pass.
 
-**Hash-chaining requirement (RFC-008, decision D2; not fully implemented).**
-The following describes the target contract, not the current general
-`Timeline` implementation. As documented in `CRYPTOGRAPHIC_MODEL.md` §4,
-`IntentEvent` has persisted hash links, whereas the general `Timeline`
-projection does not yet expose `entryHash`/`prevHash` or `verifyChain()`.
-Hash linkage alone does not establish message deduplication, cross-operator
-ordering, completeness, or independently anchored timestamps.
-
- A flat, unlinked Timeline is
-tamper-*visible* to no one — an entry can be inserted, reordered, or
-deleted with nothing to detect it. RFC-008 gives each `TimelineEntry` an
-`entryHash`/`prevHash` pair, computed and persisted once at the moment the
-underlying event is first written (not derivable at read-time, or it
-proves nothing), and adds `Timeline.verifyChain()`. This is a hash chain,
-not a blockchain — no consensus, same technique Certificate Transparency
-and Secure Scuttlebutt use. Correction to RFC-007 D5's original framing:
-this does add a small write-path change — `EscrowEvent` and
-`ReputationEvent` (`DATABASE.md`) each gain two nullable columns — RFC-007
-D5's "no new write path" held for the read-projection itself, not for
-this later chaining requirement.
+**Hash-chained Timeline (RFC-008, decision D2).** The implemented
+`Timeline` projects persisted `DurableEvent` records per `correlationId`,
+exposes `entryHash`/`prevHash`, and provides `verifyChain()` to check
+links from `GENESIS_HASH` and recompute hashes from stored event fields.
+The RFC-008 D2 amendment (2026-08-15) establishes `PostgresEventStore`
+as the default; the original proposal to chain `EscrowEvent` and
+`ReputationEvent` for the general Timeline was superseded by chaining
+`DurableEvent` itself. Separate Intent and Escrow event chains have their
+own integrity boundaries. This is a hash chain, not a blockchain or
+consensus mechanism. Verification does not establish business-operation
+idempotency, cross-operator ordering, completeness against truncation,
+external timestamp anchoring, or production homologation.
 
 ### 1.10 Capability and Policy — Why They Are Coordination Components, Not Protocol Primitives
 
