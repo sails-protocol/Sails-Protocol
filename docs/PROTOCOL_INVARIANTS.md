@@ -267,20 +267,23 @@ implementation of Sails Protocol). Derived Operational Invariants:
 **EVIDENCE.** `common/middleware/auth.ts`'s `requireAuth()`;
 `tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
 
-> **Newly-recognized non-conformant instance — Mission M8.5, 2026-08-30.**
-> `dispute.service.ts`'s `resolveDispute()` accepts `releaseToAddress`/
-> `refundToAddress` from the **arbiter's own** request and, via
-> `escrow-lifecycle.ts`'s `resolvePayoutAddress()` ("an explicit address
-> always wins"), lets that value unconditionally override the
-> beneficiary's own registered `PayoutAddress` with no trace to the
-> beneficiary's own verified authorization — a coordinator/discretionary-
-> authority substituting its own assumption for a participant's, exactly
-> what this invariant's own rule text already forbids. This is not a new
-> rule; it is this already-frozen rule, correctly applied to a case not
-> previously checked against it. `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`
-> records the closing architecture (Economic Disposition Authority ≠
-> Destination Authority); remediation is not yet implemented — see that
-> document's own §16 for what remains before Mission M8-R.
+> **Historical non-conformant instance — Mission M8.5, 2026-08-30.**
+> Arbiter-supplied `releaseToAddress`/`refundToAddress` previously
+> overrode beneficiary destinations without beneficiary authorization.
+> The closing architecture distinguishes Economic Disposition Authority
+> from Destination Authority (`DESTINATION_AUTHORITY_ARCHITECTURE.md`).
+> **Implementation update (M8-R/M8-R2, 2026-09-11):** the current
+> `resolveDispute()` routing no longer forwards these legacy parameters
+> to either ruling execution branch. MULTISIG binds beneficiary
+> destinations in the durable authoritative Outcome via
+> `commitAuthoritativeDisputeRuling()`; the other four reference rails
+> resolve registered destinations at settlement time, not through the
+> same atomic Outcome snapshot. `resolvePayoutAddress()` still accepts
+> explicit values under a trusted-internal-caller contract; provenance
+> is enforced at call sites, not independently by that helper. This
+> correction addresses the historical arbiter override path, not a
+> universal proof of destination binding, provider security or formal
+> production homologation.
 
 ### INV-02. Propose, Don't Impersonate
 
