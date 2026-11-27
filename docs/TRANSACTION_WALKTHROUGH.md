@@ -195,6 +195,8 @@ the real `Dispute` row rather than assumed from the fund movement alone.
 
 ## 3. The same trade, with both custody controls turned on
 
+> **This walkthrough uses `WDK_USDT_EVM`, which is production-ineligible (RFC-019).** The node refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false` and `WDK_SEED_PHRASE` is non-empty. The two controls described below are what a deployment on an eligible rail should enable. They do not make the WDK rail eligible, and nothing in this walkthrough is a production instruction for WDK.
+
 `ENFORCE_CAPABILITIES=true` and `REQUIRE_DUAL_APPROVAL_RELEASE=true`
 are both off by default (Sections above) precisely so the happy-path demo
 above keeps working unmodified. A production deployment handling real

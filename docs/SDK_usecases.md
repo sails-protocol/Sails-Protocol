@@ -84,8 +84,7 @@ document.
   Current state: `MULTISIG`, `LIGHTNING_HODL` (real since 2026-07-27, via
   Arkade/VTXO/Taproot — not the classic HTLC/hold-invoice design this
   cell originally implied), `WDK_USDT_EVM`, and `SAFE_GUARD_EVM` are all
-  real providers today; none is production-authorized (each is
-  testnet-only or explicitly production-ineligible, per
+  real providers today; none is production-authorized, and each rail differs: `MULTISIG` is the only mainnet-capable provider, has one disclosed micro-value mainnet rehearsal and is not decided or homologated for production (`docs/adr/ADR-002` section 5B); `LIGHTNING_HODL` and `SAFE_GUARD_EVM` are testnet only; `WDK_USDT_EVM` and `MOCK` are production-ineligible (per
   `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7). Update (2026-11-27): new offers, intents, trades and escrows for `LN_BTC` or `LIGHTNING_HODL` are refused with `RAIL_CLOSED` in every environment (`src/common/day0-closed-rails.ts`); existing escrows keep their dispatch, refund and recovery paths. A single micro-value Bitcoin mainnet rehearsal of `MULTISIG` is recorded in `docs/MAINNET_MULTISIG_PROOF.md`; it is a historical record, not a production authorization.
   `LiquidCovenantProvider` remains genuinely unimplemented — reserved,
   deliberately not built (2026-08-01 decision) — the one part of the
