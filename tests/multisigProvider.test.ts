@@ -191,12 +191,12 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
     // reach this new provider instance on the next request/process.
     const { multisigProvider: driftedProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-2' })
 
-    await expect(
-      driftedProvider.buildUnsignedRelease(
+    expect(() =>
+      driftedProvider.signAsArbiterAtExecution(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'bb'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
-        REFUND_ADDRESS_UNUSED
+        'not-reached: the identity check comes first'
       )
-    ).rejects.toThrow('does not match the arbiter public key committed')
+    ).toThrow('does not match the arbiter public key committed')
   })
 
   it('MULTISIG_SEED rotated after creation (same arbiter id): the persisted commitment no longer matches the new live key — fails closed', async () => {
@@ -232,12 +232,12 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: 5 }) })
     ;(global as any).fetch = fetchMock
 
-    await expect(
-      driftedProvider.buildUnsignedRelease(
+    expect(() =>
+      driftedProvider.signAsArbiterAtExecution(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, lockedAmount: '0.001', txLockId: 'dd'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
-        REFUND_ADDRESS_UNUSED
+        'not-reached: the identity check comes first'
       )
-    ).rejects.toThrow(/no persisted arbiter public-key commitment/)
+    ).toThrow(/no persisted arbiter public-key commitment/)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -283,12 +283,12 @@ describe('MultisigProvider — Missão 11 Fase 5.2 arbiter-commitment drift dete
     const { multisigProvider: creationTimeProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1,arb-2' })
     const { arbiterPubkeyHex: persistedCommitment } = await creationTimeProvider.getDepositAddress('trade-1', buyerPubkeyHex, sellerPubkeyHex)
 
-    await expect(
-      creationTimeProvider.buildUnsignedRefund(
+    expect(() =>
+      creationTimeProvider.signAsArbiterAtExecution(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey: persistedCommitment, lockedAmount: '0.001', txLockId: 'ff'.repeat(32), status: 'DISPUTED', triggeredBy: 'arb-2' },
-        REFUND_ADDRESS_UNUSED
+        'not-reached: the identity check comes first'
       )
-    ).rejects.toThrow('does not match the arbiter public key committed')
+    ).toThrow('does not match the arbiter public key committed')
   })
 })
 
@@ -557,7 +557,7 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     ).rejects.toThrow('failed to combine/finalize')
   })
 
-  it('disputed release: arbiter pre-signs immediately, only the buyer remains a required client signer', async () => {
+  it('disputed release: the round carries NO arbiter signature; the arbiter signs only at execution; only the buyer is a required client signer', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '2'.repeat(64)
@@ -581,30 +581,37 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     // not just this input) by construction. Asserted directly here rather
     // than only inferred: the arbiter's own pre-signature's DER-encoded
     // signature bytes must end in the SIGHASH_ALL byte (0x01).
-    const arbiterSig = bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig![0].signature
-    expect(arbiterSig[arbiterSig.length - 1]).toBe(bitcoin.Transaction.SIGHASH_ALL)
-
-    // The returned "unsigned" PSBT already carries the arbiter's own
-    // signature — only the buyer needs to add theirs.
+    // The round itself carries no signature at all; the arbiter signs only at execution.
+    expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig ?? []).toHaveLength(0)
+    // The buyer's signature alone cannot complete it (2-of-3).
     const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     buyerCopy.signInput(0, buyerKey)
+    await expect(multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])).rejects.toThrow('failed to combine/finalize')
+
+    // At execution (after the commit gates, in escrow-pending-tx.ts) the arbiter signs in memory, SIGHASH_ALL only.
+    const arbiterCopy = multisigProvider.signAsArbiterAtExecution(
+      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      psbtBase64
+    )!
+    const arbiterSig = bitcoin.Psbt.fromBase64(arbiterCopy, { network }).data.inputs[0].partialSig![0].signature
+    expect(arbiterSig[arbiterSig.length - 1]).toBe(bitcoin.Transaction.SIGHASH_ALL)
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '3'.repeat(64) })
-    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRelease({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64(), arbiterCopy])
     expect(result.txId).not.toBe('3'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
-  it('disputed release rejects a mismatched dispute arbiter before ever building a PSBT', async () => {
+  it('disputed release: the arbiter signature is refused for an identity that is not the committed arbiter (checked before signing)', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
-    await expect(
-      multisigProvider.buildUnsignedRelease(
+    expect(() =>
+      multisigProvider.signAsArbiterAtExecution(
         { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: 'x'.repeat(64), status: 'DISPUTED', triggeredBy: 'not-the-arbiter' },
-        REFUND_ADDRESS_UNUSED
+        'not-reached: the identity check comes first'
       )
-    ).rejects.toThrow('does not match')
+    ).toThrow('does not match')
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -736,23 +743,27 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
 
-  it('disputed refund: arbiter pre-signs immediately, only the seller remains a required client signer', async () => {
+  it('disputed refund: the round carries no arbiter signature; the arbiter signs only at execution; only the seller remains a required client signer', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
     const txid = '7'.repeat(64)
     mockUtxoFetch(txid, 100_000)
+    const disputedRefund = { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' }
     const { psbtBase64, requiredSigners } = await multisigProvider.buildUnsignedRefund(
-      { tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' },
+      disputedRefund,
       REFUND_ADDRESS_UNUSED
     )
     expect(requiredSigners).toEqual(['seller-1'])
+    expect(bitcoin.Psbt.fromBase64(psbtBase64, { network }).data.inputs[0].partialSig ?? []).toHaveLength(0)
 
     const sellerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
     sellerCopy.signInput(0, sellerKey)
+    const arbiterSig = multisigProvider.signAsArbiterAtExecution(disputedRefund, psbtBase64)
+    expect(arbiterSig).not.toBeNull()
 
     // R6 — same deliberately-wrong-provider-response proof as above.
     fetchMock.mockResolvedValueOnce({ ok: true, text: async () => '8'.repeat(64) })
-    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64()])
+    const result = await multisigProvider.finalizeRefund({ tradeId: 't1' }, psbtBase64, [sellerCopy.toBase64(), arbiterSig!])
     expect(result.txId).not.toBe('8'.repeat(64))
     expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
   })
@@ -790,14 +801,17 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
       expect(psbt.txOutputs[1].value).toBe(BigInt(spendableValue) - psbt.txOutputs[0].value)
       expect(psbt.txOutputs[0].value + psbt.txOutputs[1].value).toBe(BigInt(spendableValue))
 
-      // Already pre-signed by the arbiter — the buyer's signature alone
-      // (2 of 3 total) is enough to finalize.
+      // The round carries no arbiter signature: the buyer's alone is NOT enough; with the execution-time arbiter
+      // signature (2 of 3) it finalizes.
       const buyerCopy = bitcoin.Psbt.fromBase64(psbtBase64, { network })
       buyerCopy.signInput(0, buyerKey)
-      expect(() => buyerCopy.finalizeAllInputs()).not.toThrow()
+      expect(() => bitcoin.Psbt.fromBase64(buyerCopy.toBase64(), { network }).finalizeAllInputs()).toThrow()
+      const arbiterCopy = multisigProvider.signAsArbiterAtExecution({ tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' }, psbtBase64)!
+      const merged = bitcoin.Psbt.fromBase64(buyerCopy.toBase64(), { network }).combine(bitcoin.Psbt.fromBase64(arbiterCopy, { network }))
+      expect(() => merged.finalizeAllInputs()).not.toThrow()
     })
 
-    it('end-to-end: the buyer signature combines with the arbiter pre-signature and broadcasts to a real txid', async () => {
+    it('end-to-end: the buyer signature combines with the execution-time arbiter signature and broadcasts to a real txid', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
       const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'aa'.repeat(32)
@@ -815,12 +829,13 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
 
       // R6 — same deliberately-wrong-provider-response proof as above.
       fetchMock.mockResolvedValueOnce({ ok: true, text: async () => 'bb'.repeat(32) })
-      const result = await multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64()])
+      const arbiterCopy = multisigProvider.signAsArbiterAtExecution({ tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' }, psbtBase64)!
+      const result = await multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [buyerCopy.toBase64(), arbiterCopy])
       expect(result.txId).not.toBe('bb'.repeat(32))
       expect(result.txId).toBe(bitcoin.Transaction.fromHex(result.rawTxHex).getId())
     })
 
-    it('finalizeSplit fails to combine/finalize with only the arbiter pre-signature and no client signature at all', async () => {
+    it('finalizeSplit fails to combine/finalize with only the arbiter signature and no client signature at all', async () => {
       const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
       const arbiterPubkey = multisigProvider.getArbiterPubkeyHex('arb-1')
       const txid = 'cc'.repeat(32)
@@ -832,8 +847,9 @@ describe('MultisigProvider — Phase 2 signature collection (buildUnsignedReleas
         5000
       )
 
+      const arbiterCopy = multisigProvider.signAsArbiterAtExecution({ tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1', buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey, lockedAmount: '0.001', txLockId: txid, status: 'DISPUTED', triggeredBy: 'arb-1' }, psbtBase64)!
       await expect(
-        multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [])
+        multisigProvider.finalizeSplit({ tradeId: 't1' }, psbtBase64, [arbiterCopy])
       ).rejects.toThrow('failed to combine/finalize')
     })
   })
@@ -903,31 +919,35 @@ describe('MultisigProvider — reconcilePendingSettlement() (Missão 11 Fase 9.6
     independentlyMerged.combine(sellerCopy)
     independentlyMerged.finalizeAllInputs()
     const expectedTxId = independentlyMerged.extractTransaction().getId()
+    const networkHex = independentlyMerged.extractTransaction().toHex()
 
     const escrow = {
       tradeId: 't1', buyerId: 'buyer-1', sellerId: 'seller-1',
       buyerPubkey: buyerPubkeyHex, sellerPubkey: sellerPubkeyHex, arbiterPubkey,
       lockedAmount: '0.001', txLockId: txid, txLockVout: 0, status: 'COMPLETED',
     }
-    return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId }
+    return { escrow, unsignedPsbtBase64: psbtBase64, signedList: [buyerCopy.toBase64(), sellerCopy.toBase64()], expectedTxId, networkHex }
   }
 
   it('Estado B (funds already moved) — the reconstructed transaction is already known to the network — converges WITHOUT a new broadcast', async () => {
     const { multisigProvider } = loadProvider({ MULTISIG_SEED: 'seed-a', TRUSTED_ARBITRATORS: 'arb-1' })
     const txid = 'a1'.repeat(32)
-    const { escrow, unsignedPsbtBase64, signedList, expectedTxId } = await buildRealSignedRelease(multisigProvider, txid)
+    const { escrow, unsignedPsbtBase64, signedList, expectedTxId, networkHex } = await buildRealSignedRelease(multisigProvider, txid)
     fetchMock.mockClear() // discard buildUnsignedRelease()'s own setup fetches — only reconcilePendingSettlement()'s own calls should count below
 
-    // Only ONE fetch call expected: the existence check. No UTXO lookup,
-    // no broadcast — this is the whole point of asking the chain first.
+    // Two fetch calls expected: the existence check, then the network's own bytes of that transaction (never re-signed
+    // locally to reconstruct them). No UTXO lookup, no broadcast — this is the whole point of asking the chain first.
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ confirmed: true }) })
+    fetchMock.mockResolvedValueOnce({ ok: true, status: 200, text: async () => networkHex })
 
     const result = await multisigProvider.reconcilePendingSettlement(escrow, unsignedPsbtBase64, signedList)
 
     expect(result.outcome).toBe('ALREADY_BROADCAST')
     expect(result.txId).toBe(expectedTxId)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((result as { rawTxHex: string }).rawTxHex).toBe(networkHex)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(String(fetchMock.mock.calls[0][0])).toContain(`/tx/${expectedTxId}/status`)
+    expect(String(fetchMock.mock.calls[1][0])).toContain(`/tx/${expectedTxId}/hex`)
   })
 
   it('Estado A (funds never moved) — reconstructed transaction unknown to the network, funding outpoint still unspent — broadcasts it for the first time', async () => {

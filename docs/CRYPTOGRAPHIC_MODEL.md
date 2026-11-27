@@ -21,6 +21,8 @@
 
 ## 1. Identity and Transport Keys
 
+> Key separation, activation, recovery and persistence diagrams: [SYSTEM_DESIGN.md §14.5](SYSTEM_DESIGN.md#145-portable-identity-pears-and-social-recovery-diagrams).
+
 Every `Participant` (RFC-001) is identified economically by a client-controlled Ed25519 public key used for signing/authentication.
 
 The current Pears/HyperDHT transport identity is **separate** from that economic identity.

@@ -36,7 +36,7 @@ import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
-import { commitTradePair } from './helpers/committedPairFixture'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -142,7 +142,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
     await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -243,7 +243,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // this escrow's script (ARBITER_ID, matching TRUSTED_ARBITRATORS
       // set at the top of this file), and isSellerOrAssignedArbiter()
       // requires a real Dispute row naming that same arbiter.
-      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID } })
+      // The split round executes a recorded SPLIT ruling (DISPUTE_RULING_REQUIRED).
+      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID, status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 5000 } })
 
       const reorgWrite = simulateEvidenceWriteUnderLock(escrowId, 'REORGED_INVALIDATED', 80)
       await tick(15)

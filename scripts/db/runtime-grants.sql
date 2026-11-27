@@ -75,6 +75,10 @@ BEGIN
     ('custody_attestations', 'append'), -- + UPDATE (supersededAt) only, see runtime_column_update
     ('intent_events', 'append'),        -- + UPDATE (publishedAt) only: hash-chained history, publication marker
     ('deployment_mode', 'read'),        -- F4 gate 3: environment marker; the runtime may only READ it (the MOCK exemption of the escrow trigger depends on it)
+    ('offer_capacity', 'append'),       -- M-1b: + UPDATE of the declaration columns only; the BLOCK columns are written solely by the SECURITY DEFINER evidence trigger and the reviewer function
+    ('offer_capacity_reservations', 'read'), -- M-1b: the runtime only READS reservations; the reservation is written by the SECURITY DEFINER COMMITTED trigger function (GK B4), released by the slice-3 path
+    ('offer_capacity_unblock_requests', 'read'), -- M-1b: append-only trail written ONLY by the SECURITY DEFINER request/execute functions
+    ('offer_capacity_blocks', 'read'), -- M-1b: append-only reorg block table, written ONLY by the SECURITY DEFINER evidence trigger and the reviewer function
     ('commitment_pairs', 'append'),     -- E25/E26 F3: + UPDATE of the signing/withdraw columns only; the pair itself is immutable (trigger)
     -- mutable state (write-once columns are still guarded by triggers)
     ('users', 'mutable'),
@@ -110,6 +114,8 @@ BEGIN
     ('intent_events', 'publishedAt'),         -- intent-repository.ts markEventPublished()/publishOwedEvent()
     -- E25/E26 F3 (commitment-pair.service.ts signPair()/withdrawPair()): one UPDATE per party writes its two
     -- signatures and its stamp once (NULL -> value), plus the state; the trigger refuses everything else.
+    ('offer_capacity', 'capacityTotal'), ('offer_capacity', 'capacityRevision'), ('offer_capacity', 'declaredAt'),
+    ('offer_capacity', 'declaration'), ('offer_capacity', 'declarationSignature'), ('offer_capacity', 'updatedAt'),
     ('commitment_pairs', 'state'),
     ('commitment_pairs', 'committedAnchorRef'),
     ('commitment_pairs', 'makerTradeSig'),
@@ -174,5 +180,7 @@ BEGIN
   EXECUTE format('GRANT USAGE ON SCHEMA sails_meta TO %I', runtime_role);
   EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA sails_meta FROM %I', runtime_role);
   EXECUTE format('GRANT SELECT ON sails_meta.runtime_table_class, sails_meta.runtime_column_update TO %I', runtime_role);
+  -- M-1b (GK B8): EXECUTE of the SECURITY DEFINER functions is revoked from PUBLIC by migration 20261122134000; the runtime gets exactly these two.
+  EXECUTE format('GRANT EXECUTE ON FUNCTION offer_capacity_try_release(text), offer_capacity_request_unblock(text, jsonb, text) TO %I', runtime_role);
 END
 $grants$;

@@ -555,6 +555,11 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
   `SailsRateLimitError` (`errors.ts`, `code: 'RATE_LIMIT_EXCEEDED'`,
   `statusCode: 429`); `catch` it specifically (`instanceof SailsRateLimitError`)
   to back off before your own retry.
+- **`RAIL_CLOSED` (409, Despacho 064).** LN_BTC and the LIGHTNING_HODL (Arkade) escrow are closed for Day 0 in every
+  environment. Creating an offer, a TradeIntent or a trade for LN_BTC, an escrow with asset LN_BTC, or an escrow with
+  `type: 'LIGHTNING_HODL'` (any asset) throws a `SailsError` with `code: 'RAIL_CLOSED'`, `statusCode: 409` and the
+  closed rail in `details` (`[{ asset }]` or `[{ escrowType }]`). Nothing is created. The types keep LN_BTC and
+  LIGHTNING_HODL (existing data stays representable); only new admissions are refused.
 
 ## 5. Build Plan (roadmap-linked — see `ROADMAP.md` for exact timing)
 
