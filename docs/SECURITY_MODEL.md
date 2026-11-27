@@ -122,12 +122,11 @@ See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERAT
 
 **Corrected/Implemented 2026-11-27:** the score is tied to the participant's key, not to a platform account, but it is computed and held by each node. A node-local score is not independently verifiable evidence for another operator, and cross-operator portability is an objective that is not demonstrated (`docs/CRYPTOGRAPHIC_MODEL.md`; `docs/SYSTEM_DESIGN.md` section 14.4). The `peerId` is a transport key, not an economic identity or an authority over funds.
 
-Score tied to the Ed25519 key. Built from
-completed trades, settlement speed, dispute history, and volume over time.
+Score tied to the Ed25519 key. The score is a single number that moves in fixed steps (`reputation.service.ts`): a positive settlement outcome adds 2, a negative one subtracts 5, a neutral one changes nothing, and a burned vouch costs the voucher 5. The API breakdown reports `total` and a `disputeRate` (disputes over total trades); settlement speed and volume are not tracked as score components.
 
 - **Trade ratings (1–5)** — informational feedback; `rate()` does not mutate `ReputationScore` (RFC-007).
-- **Volume and settlement outcomes** — historical signals; `recordOutcome()` is the documented score-mutating entrypoint, not proof that all BTC-equivalent volume is independently verified.
-- **Dispute history** — a risk signal, not automatic proof of bad faith or a guaranteed penalty.
+- **Settlement outcomes** — the inputs that move the score, through `recordOutcome()` / `recordOutcomeOnce()`; the party that loses a dispute receives a negative outcome and the winner a positive one. Volume is not a score input, and BTC-equivalent volume is not independently verified.
+- **Dispute history** — reported as `disputeRate`, a risk signal, not automatic proof of bad faith; its only effect on the score is through the dispute outcome above.
 
 ### 1.3 Verifiable Identity
 
