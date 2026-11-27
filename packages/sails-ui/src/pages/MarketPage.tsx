@@ -98,8 +98,13 @@ function NotFound() {
   )
 }
 
+// Keyed by market id so tab, filters, KYC/social steps and chat never leak from one market to the next.
 export function MarketPage() {
   const { id = '' } = useParams()
+  return <MarketPageView key={id} id={id} />
+}
+
+function MarketPageView({ id }: { id: string }) {
   const snapshot = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
   const idBase = useId()
   // ?tab=chat&peer=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread; the name comes in router state.
