@@ -10,13 +10,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { ArrowLeft, ChevronRight, KeyRound, Link2, RotateCcw, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
 import { ActivationFlow, RecoveryFlow } from '../components/settings/PortableIdentityDemo'
 import { isDemoMode } from '../lib/demoMarkers'
+import { markOnboardingSeen } from '../lib/onboarding'
 import { t } from '../i18n'
 
 // Routes a visitor can see without a session. Cancelling the dialog returns
 // there; returning to a protected route would bounce straight back here.
 const isPublicPath = (path: string) => path === '/' || path.startsWith('/offer/')
 
-// The demo never stores the key, so every demo sign-in is a "new key": offer the activation sheet once per page load.
+// Demo: offer the activation sheet once per page load, on the first sign-in with a new key.
 let activationOffered = false
 
 /**
@@ -38,8 +39,7 @@ export function Login() {
   // 'recover' and 'activate' are the CTO 29 portable identity flows, demo only (components/settings/PortableIdentityDemo.tsx).
   const [step, setStep] = useState<'list' | 'local' | 'recover' | 'activate'>('list')
   const demo = isDemoMode()
-  // After a recovery the portable identity is already there: no activation sheet after the sign-in.
-  const [recovered, setRecovered] = useState(false)
+  const { signInDemo } = useAuth()
   const finish = () => navigate(state?.from ?? '/', { replace: true, state: state?.amount ? { amount: state.amount } : undefined })
 
   const close = () => {
@@ -49,8 +49,8 @@ export function Login() {
 
   return (
     <Dialog open onOpenChange={(open: boolean) => !open && close()}>
-      {/* Below md a full-height sheet (content from the top); a centered dialog from md. */}
-      <DialogContent className="max-w-sm max-md:inset-0 max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:content-start max-md:overflow-y-auto max-md:border-0">
+      {/* Below md a full-height sheet (content from the top); a centered dialog from md that scrolls when taller than the window (recovery result). */}
+      <DialogContent className="max-w-sm md:max-h-[calc(100dvh-2rem)] md:overflow-y-auto max-md:inset-0 max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:content-start max-md:overflow-y-auto max-md:border-0">
         {step === 'list' ? (
           <>
             <DialogHeader>
@@ -78,7 +78,12 @@ export function Login() {
             <p className="mt-4 text-center text-xs text-brand-text-muted">{t('auth.login.noWallet')}</p>
           </>
         ) : step === 'recover' ? (
-          <RecoveryFlow onExit={() => setStep('list')} onDone={() => { setRecovered(true); setStep('local') }} doneLabel={t('identity.result.signIn')} />
+          // Demo: the recovered identity signs in as is (no new key, no activation sheet: the portable identity is already there).
+          <RecoveryFlow
+            onExit={() => setStep('list')}
+            onDone={() => signInDemo().then(() => { markOnboardingSeen(); toast.success(t('auth.local.connected')); finish() }, () => toast.error(t('auth.local.connectFailed')))}
+            doneLabel={t('identity.result.signIn')}
+          />
         ) : step === 'activate' ? (
           <ActivationFlow onDone={finish} />
         ) : (
@@ -86,7 +91,8 @@ export function Login() {
             onBack={() => setStep('list')}
             // Demo, first sign-in with a new key: "Ativar o Sails P2P" before returning.
             onConnected={(isNew) => {
-              if (demo && isNew && !recovered && !activationOffered) { activationOffered = true; setStep('activate') } else finish()
+              // The activation sheet replaces the onboarding tour for this sign-in (never both in a row).
+              if (demo && isNew && !activationOffered) { activationOffered = true; markOnboardingSeen(); setStep('activate') } else finish()
             }}
           />
         )}

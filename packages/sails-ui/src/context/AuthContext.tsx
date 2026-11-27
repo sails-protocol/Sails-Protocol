@@ -46,6 +46,7 @@ import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyE
 import { WrongPassphraseError } from '../lib/errors'
 import { createSessionEpochGate } from '../lib/sessionEpochGate'
 import { setAvatarChoiceOwner } from '../lib/avatarChoice'
+import { demoHooks } from '../lib/demoHooks'
 import { t } from '../i18n'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
@@ -132,6 +133,8 @@ interface AuthContextType {
   user: User | null
   loading: boolean
   login: (passphrase: string) => Promise<void>
+  /** Demo only: sign in with the demo identity (after a demo recovery). */
+  signInDemo: () => Promise<void>
   logout: () => void
   // The same Ed25519Keypair already used for identity.authenticate() —
   // exposed here so a real caller (Trade.tsx's chat) can pass it into
@@ -215,6 +218,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => sailsClient.setOnSessionExpired(undefined)
   }, [])
 
+  // Signs in with a keypair already in hand (shared by login() and the demo-only session restore below).
+  const adopt = async (keypair: Ed25519Keypair, derivedKey: CryptoKey) => {
+    // Real challenge-response — requests a challenge, signs it, submits
+    // it, and stores the returned session token on the client's
+    // transport for every subsequent authenticated call.
+    await sailsClient.identity.authenticate(keypair)
+    const participant = await sailsClient.identity.me()
+    // Issue #303 - production servers enforce Capability Authority
+    // (ENFORCE_CAPABILITIES=true is mandatory), so a participant with no
+    // canonical grants would be refused at intent creation and at every
+    // release/refund/split. Idempotent (a no-op when live grants already
+    // exist), so it runs on every login; self-issued consent, not
+    // independent permission - see capabilities.ts.
+    await sailsClient.capabilities.ensureCanonicalGrants(participant.id)
+    // Mission 3 R2 — activate() BEFORE the React state setters below,
+    // synchronously, in this same function (never deferred to an
+    // effect): the epoch gate must already reflect "this session is
+    // active" the instant a caller could possibly observe `user`
+    // becoming non-null, since a request racing this same login could
+    // otherwise reach the onSessionExpired handler in between.
+    epochGateRef.current!.activate()
+    setUser(toUser(participant))
+    setKeypair(keypair)
+    setEncryptionKey(derivedKey)
+  }
+
   const login = async (passphrase: string) => {
     setLoading(true)
     try {
@@ -227,32 +256,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await sailsClient.identity.create(keypair)
         await storeKeypair(derivedKey, keypair)
       }
-      // Real challenge-response — requests a challenge, signs it, submits
-      // it, and stores the returned session token on the client's
-      // transport for every subsequent authenticated call.
-      await sailsClient.identity.authenticate(keypair)
-      const participant = await sailsClient.identity.me()
-      // Issue #303 - production servers enforce Capability Authority
-      // (ENFORCE_CAPABILITIES=true is mandatory), so a participant with no
-      // canonical grants would be refused at intent creation and at every
-      // release/refund/split. Idempotent (a no-op when live grants already
-      // exist), so it runs on every login; self-issued consent, not
-      // independent permission - see capabilities.ts.
-      await sailsClient.capabilities.ensureCanonicalGrants(participant.id)
-      // Mission 3 R2 — activate() BEFORE the React state setters below,
-      // synchronously, in this same function (never deferred to an
-      // effect): the epoch gate must already reflect "this session is
-      // active" the instant a caller could possibly observe `user`
-      // becoming non-null, since a request racing this same login could
-      // otherwise reach the onSessionExpired handler in between.
-      epochGateRef.current!.activate()
-      setUser(toUser(participant))
-      setKeypair(keypair)
-      setEncryptionKey(derivedKey)
+      await adopt(keypair, derivedKey)
     } finally {
       setLoading(false)
     }
   }
+
+  // Demo only (fictional identity, demo/demoBackend.ts): a reload or HMR keeps the tab's session, and "Já usei o
+  // Sails" signs in with the recovered demo identity. The passphrase-derived key cannot survive a reload, so the demo
+  // session gets a fresh non-extractable key; the demo never keeps the escrow key anyway.
+  const demoKey = () => crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+  const signInDemo = async () => {
+    setLoading(true)
+    try {
+      const keypair = demoHooks().sessionKeypair?.() ?? generateKeypair()
+      await sailsClient.identity.create(keypair)
+      await adopt(keypair, await demoKey())
+    } finally {
+      setLoading(false)
+    }
+  }
+  useEffect(() => {
+    const keypair = demoHooks().sessionKeypair?.()
+    if (!keypair) return
+    setLoading(true)
+    void demoKey().then((key) => adopt(keypair, key)).catch(() => {}).finally(() => setLoading(false))
+  }, [])
 
   const logout = () => {
     // Mission 3 R2 — deactivate() synchronously, same reasoning as
@@ -279,7 +308,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // exposure this change closes, so it can't stay.)
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, keypair, encryptionKey, wallet, sessionExpiry }}>
+    <AuthContext.Provider value={{ user, loading, login, signInDemo, logout, keypair, encryptionKey, wallet, sessionExpiry }}>
       {children}
     </AuthContext.Provider>
   )
