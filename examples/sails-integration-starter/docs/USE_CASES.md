@@ -18,7 +18,9 @@ Representable assets (`AssetType`, `packages/sails-sdk/src/types.ts`):
 `BTC`, `USDT_ERC20`, `USDT_TRC20`, `USDT_LIQUID`, `USDT_LIGHTNING`,
 `LN_BTC`, `LIQUID_BTC`, `SPARK`, `STACKS`, `RSK_BTC`. This list is what the
 protocol can represent, not what a node can operate: only `BTC` and
-`USDT_ERC20` have a registered settlement provider today (testnet, not
+`USDT_ERC20` have a registered settlement provider today (`BTC` via
+`MULTISIG`, which has a supported mainnet configuration and one disclosed
+micro-value rehearsal; `USDT_ERC20` via a testnet reference provider; neither is
 production-authorized), `LN_BTC` is closed for Day 0 (`RAIL_CLOSED`), and the
 rest have none (see `GETTING_STARTED.md`, "Settlement providers").
 
