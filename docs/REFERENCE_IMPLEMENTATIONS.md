@@ -198,10 +198,12 @@ project's own strategic review (see the "proof vs. ambition" tension
 flagged during the architecture checkpoint):
 
 1. **It closes the gap between 8 specified modules and 1 proven module —
-   fast, and without waiting on third parties.** Satsails Wallet already
-   proves OpenP2P **at real scale**: USD $10M+ in processed volume and
-   12,000+ users (section 2) is not a pilot or a testnet — it's a live,
-   monetized product. Sails Finance's Morpho/Hyperliquid/Polymarket
+   fast, and without waiting on third parties.** Satsails Wallet is a live,
+   monetized product (USD $10M+ in processed volume and 12,000+ users,
+   section 2; figures stated by the project, not verifiable from this
+   repository). **Corrected/Implemented 2026-11-27:** that is the wallet's own
+   commercial operation and is not by itself evidence that OpenP2P, or any
+   Sails Protocol component, runs in production at that scale. Sails Finance's Morpho/Hyperliquid/Polymarket
    integrations are a near-term, low-risk path to proving OpenFinance
    against real external liquidity. SailsPay is a near-term path to
    proving payment-specific flows. None of this requires convincing an
