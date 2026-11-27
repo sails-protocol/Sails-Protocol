@@ -67,9 +67,18 @@ mechanisms answer this — "non-custodial" alone is not a sufficient answer.
 
 ### 1.1 Non-Custodial Escrow
 
-Funds are locked in a smart contract or multisig *before* fiat is sent. No
-single party can access the funds alone — release requires bilateral or
-arbitrated action.
+Funds are locked in a smart contract or multisig *before* fiat is sent.
+
+**Normative requirement:** no single party may be able to access the funds alone; release requires bilateral or arbitrated action. This is a requirement of the protocol, not a property that every implementation demonstrates. What each rail demonstrates today:
+
+| Rail | Demonstrated property | Limits |
+| --- | --- | --- |
+| Bitcoin Gen-1 (`MULTISIG`, P2WSH 2-of-3) | Any spend needs 2 of 3 signatures; buyer and seller keys are client-held. | The arbiter key is derived on the node (`MULTISIG_SEED`), so it is under the node operator's control: the operator-held arbiter key plus either participant's key satisfies the script. The independent Signing Federation is not implemented (proposal only). |
+| `WDK_USDT_EVM` (server-seed reference) | None: a single server-held seed can unilaterally move escrowed funds. | Production-ineligible (RFC-019); the node refuses to boot in production with it configured. |
+| `LIGHTNING_HODL`, `SAFE_GUARD_EVM` | Testnet implementations of the 2-of-3 model. | Not production-eligible. `LIGHTNING_HODL` derives its arbiter key on the node; `SAFE_GUARD_EVM` is a candidate that is not production-activated (RFC-020). |
+| Bitcoin Gen-2 (Taproot / MuSig2) | None yet. | Candidate only: no settlement rail implements it and it is not homologated; only a MuSig2 primitive exists in the SDK custody module. |
+
+See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`. (Corrected/Implemented 2026-11-27: this subsection previously stated the requirement without the per-rail status.)
 
 - **Multisig 2-of-3:** Buyer + Seller + Arbiter — real as of 2026-07-27
   (`multisig.provider.ts`). Buyer/seller each hold their own client-side

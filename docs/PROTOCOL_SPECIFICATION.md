@@ -1256,7 +1256,7 @@ Bob:   BuyIntent(BTC, maxBRL: 17,000, method: PIX)
 
 1. HyperDHT discovers Alice's offer → OpenLiquidity ranks by price + reputation
 2. Secretstream chat opens E2E → Alice shares her PIX key
-3. Escrow locks Alice's 0.05 BTC (Sails never holds the BTC itself)
+3. Escrow locks Alice's 0.05 BTC in a 2-of-3 script (Sails does not hold the BTC; on the Gen-1 rail the node derives the arbiter key)
 4. Bob sends R$17,000 via PIX directly to Alice — outside the protocol
 5. Alice confirms receipt via chat → signs the escrow release
 6. 0.05 BTC arrives in Bob's WDK wallet

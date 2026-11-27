@@ -77,9 +77,8 @@ exists to hold it) → **Implemented** (code path exists) → **Real**
 **Evidenced** (a document/test proves the above) → **Beta Eligible** →
 **Production Eligible**. A row is never marked Production Eligible
 higher than its weakest real dependency — e.g. row 7 (Settlement) is
-capped by whichever `EscrowType` a given trade actually uses (`MULTISIG`/
-`LIGHTNING_HODL` non-custodial and mainnet-proven for BTC per
-`docs/MAINNET_MULTISIG_PROOF.md`; `WDK_USDT_EVM` boot-refused in
+capped by whichever `EscrowType` a given trade actually uses (`MULTISIG`: Bitcoin Gen-1 2-of-3 with an operator-held arbiter key, one micro-value mainnet rehearsal recorded in
+`docs/MAINNET_MULTISIG_PROOF.md`; `LIGHTNING_HODL`: testnet only; `WDK_USDT_EVM` boot-refused in
 production per `docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md`).
 
 ### 1.1 Correction to `PROTOCOL_SPECIFICATION.md` §1.11 (stale, verified against real code 2026-09-12)

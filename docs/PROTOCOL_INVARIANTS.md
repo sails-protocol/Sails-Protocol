@@ -122,6 +122,8 @@ guidance to invariant because it is the protocol's entire reason for
 existing over a custodial alternative — see `PHILOSOPHY.md`, "Why
 Coordination, Not Custody."
 
+> **Corrected/Implemented 2026-11-27 (normative statement, not a description of every implementation).** This invariant states the requirement. The reference implementation does not fully meet it: `WdkSettlementProvider` holds a server seed that can unilaterally move escrowed funds (see the note below), and on the Bitcoin Gen-1 MULTISIG rail the node derives and holds the arbiter key, one of three keys in a 2-of-3 script (that key alone cannot spend, but together with either participant's key it satisfies the script). The status of each rail is in `SECURITY_MODEL.md` section 1.1.
+
 > **⚠ Known violation, real code, 2026-07-19.** Per this document's own
 > §"How Invariants Are Enforced" below, a violation is not something to
 > quietly caveat — it means the violating system is not Sails Protocol.
