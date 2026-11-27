@@ -61,7 +61,7 @@ describe('smallTradeRule.breakEven: strict validation', () => {
   })
 })
 
-it('settlement reads the break-even of the escrow's own (committed) policy by id, never a live lookup', async () => {
+it("settlement reads the break-even of the escrow's own (committed) policy by id, never a live lookup", async () => {
   const { committedBreakEven } = require('../src/modules/open-settlement/fee-break-even')
   const findUnique = jest.fn(async () => ({ smallTradeRule: { breakEven: BE } }))
   expect(await committedBreakEven({ feePolicyVersion: { findUnique } }, 'committed-1')).toEqual(BE)
