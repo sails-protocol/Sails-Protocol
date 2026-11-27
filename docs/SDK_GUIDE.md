@@ -235,7 +235,7 @@ interface SailsClient {
   // releaseAsset()/dispute() above is the path most applications
   // should use instead
   settlement: {
-    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
+    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session; if type is omitted the node picks one: MOCK when MOCK_ESCROW is on (the default), otherwise the recommended type for the asset (BTC: MULTISIG, USDT_ERC20: WDK_USDT_EVM, LN_BTC: LIGHTNING_HODL, closed for Day 0). Every other AssetType value has no provider and is refused (UNAVAILABLE) unless type is given explicitly.
     get(escrowId: string): Promise<Escrow>   // requires an active session + trade party/assigned arbiter
     submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one
     lock(escrowId: string): Promise<Escrow>   // requires an active session
@@ -255,7 +255,7 @@ interface SailsClient {
     submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }, idempotencyKey?: string): Promise<Dispute>   // requires an active session + trade party; optional idempotencyKey makes retries safe
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
-    // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; release() checks hasDualApproval() itself.
+    // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; when the node enables REQUIRE_DUAL_APPROVAL_RELEASE (off by default), release and initiateRelease are refused until both counterparties have approved.
     approveRelease(escrowId: string): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }>   // requires an active session
     getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // requires an active session + trade party/assigned arbiter
     // Arbiter registration/profile are exposed by client.arbitration, not by client.settlement.

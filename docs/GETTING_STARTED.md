@@ -237,19 +237,13 @@ claims. `MOCK` is the only one meant for everyday development.
 |---|---|---|---|---|---|
 | `MOCK` | ✅ | none | ✅ | no | **Development/test only — not real money, ever.** It is refused in production. |
 | `WDK_USDT_EVM` | ✅ | `WDK_SEED_PHRASE` + Sepolia RPC | ✅ | no — single seed, operator-custodial | Testnet only. One seed controls the treasury *and* every escrow sub-account — not a production custody model as-is. Production-ineligible: enabling controls does not make it eligible (the node also refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false` and `WDK_SEED_PHRASE` is non-empty, and deployment eligibility is enforced separately). |
-| `MULTISIG` | ✅ | real testnet BTC, sent manually by the trade parties | ❌ — use `initiateRelease()` + `submitTransactionSignature()` | ✅ (2-of-3 Bitcoin PSBT) | Mainnet-capable, used on testnet in routine. One micro-value Bitcoin mainnet rehearsal is recorded in `MAINNET_MULTISIG_PROOF.md` (a historical record). Production use is not authorized and the provider is not homologated (`ADR-002` section 5B: not decided); the arbiter key is still derived on the node. |
+| `MULTISIG` | ✅ | real testnet BTC, sent manually by the trade parties | ❌ — use `initiateRelease()` + `submitTransactionSignature()` | ✅ (2-of-3 Bitcoin PSBT) | Supported mainnet configuration, used on testnet in routine. One micro-value Bitcoin mainnet rehearsal is recorded in `MAINNET_MULTISIG_PROOF.md` (a historical record). Production use is not authorized and the provider is not homologated (`ADR-002` section 5B: not decided); the arbiter key is still derived on the node. |
 | `LIGHTNING_HODL` | ✅ | pinned to Ark Labs' public `mutinynet.arkade.sh`, real testnet funding | ❌ — same signature-collection flow as MULTISIG | ✅ | **Closed to new admissions for Day 0** (`src/common/day0-closed-rails.ts`): new offers, intents, trades and escrows for `LN_BTC`, or with `type: 'LIGHTNING_HODL'`, are refused with `RAIL_CLOSED` (409) in every environment, and there is no flag to reopen it; escrows already persisted keep their existing dispatch, refund and recovery paths. Testnet/mutinynet only, single-arbiter limitation. |
 | `SAFE_GUARD_EVM` | ✅ (client-side signing) / ❌ (server side) | a live EVM RPC + ERC-4337 bundler — **not available in this environment** | ❌ — same signature-collection flow | ✅ (KMS-backed arbiter co-signer) | **Not deployable today** — the one provider that's real code but genuinely can't run end-to-end here. It is not homologated infrastructure: it has not been exercised against a live bundler, key service or funded account. |
 | `LIQUID_COVENANT` | ❌ | — | — | — | Never built. `type: 'LIQUID_COVENANT'` is rejected at escrow-creation time, not silently accepted. |
 
 **Local dev note:** `docker-compose.yml`'s default (`MOCK_ESCROW=true`,
-i.e. `config.features.mockEscrow`) routes **every** escrow type to the
-`MOCK` provider regardless of what `type` you pass — so
-`examples/simple-wallet` calling `release()` directly "works" locally
-even though its own code never sets `type`, because the *type stored* on
-the Escrow row and the *provider actually used* are different things
-when this flag is on. Don't take a working local run as proof a
-non-MOCK type is production-ready — check this table.
+i.e. `config.features.mockEscrow`) only chooses the default type, `MOCK`, when `type` is omitted at creation: so `examples/simple-wallet`, whose code never sets `type`, runs against `MOCK` locally and `release()` "works". An escrow created with an explicit non-`MOCK` type always resolves to that type's own provider, whatever this flag says (`getSettlementProvider`, `escrow-providers.ts`), and `MOCK` is refused in production. Don't take a working local run as proof a non-MOCK type is production-ready — check this table.
 
 ## Common integration errors
 
