@@ -80,7 +80,8 @@ export const LOOSE_WIRES = {
   publicMemberSince: { get label() { return t('looseWires.publicMemberSince') }, icon: CalendarDays, contract: 'Data de cadastro (mês/ano) nos dados públicos do anunciante (PublicOfferSeller has no createdAt)' },
   assetCatalogPairs: { get label() { return t('looseWires.assetCatalogPairs') }, icon: Coins, contract: 'Os 13 pares "Em breve" do catálogo (lib/assetCatalog.ts): modelo Asset + SettlementRail do ADR-002 (§12 itens 2 e 3) ligado ao SDK e um rail de liquidação apto a produção por par; hoje só BTC on-chain (MULTISIG)' },
   multiPaymentMethods: { get label() { return t('looseWires.multiPaymentMethods') }, icon: CreditCard, contract: 'Oferta com até 5 métodos de pagamento (MAX_PAYMENT_METHODS) validados no backend e no SDK (issue #735); PaymentMethods already renders a list, the demo already simulates it' },
-  tradePaymentMethodChoice: { get label() { return t('looseWires.tradePaymentMethodChoice') }, icon: CreditCard, contract: 'Escolher um dos métodos da oferta ao abrir o trade e prender a escolha aos termos aceitos (issue #735, Despacho 039); openp2p.trade() has no method argument today' },
+  tradePaymentMethodChoice: { get label() { return t('looseWires.tradePaymentMethodChoice') }, icon: CreditCard, contract: 'Escolher um dos métodos da oferta ao abrir o trade e prender a escolha aos termos aceitos (issue #735, Despacho 039); openp2p.trade() has no method argument today, so only the demo shows the picker' },
+  multisigRefundRound: { get label() { return t('looseWires.multisigRefundRound') }, icon: ArrowRightLeft, contract: 'Seller refund with funds locked: settlement.initiateRefund() exists; the round needs the buyer signature and this interface signs no MULTISIG round while MULTISIG_SIGNING_HOLD is on (Despacho 033), so it only starts the round and reads it ("Devolvido" only with REFUNDED)' },
 } as const
 
 export type LooseWireId = keyof typeof LOOSE_WIRES
