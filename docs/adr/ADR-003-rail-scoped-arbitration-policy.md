@@ -4,6 +4,7 @@
 - **Date:** 2026-09-18
 - **Owner:** Issue #207
 - **Related:** #165, #206, RFC-021, ADR-002
+- **Status note (2026-10-26):** the policy is implemented (Issue #214, merged) and exercised by the arbitration-policy tests. The status line above is the historical text of 2026-09-18 and is not edited here; whether the ADR's formal status has moved past Proposed for CTO Gate is for the CTO to confirm. Day 0 uses the trusted-list; market remains production-ineligible and off.
 
 ## Context
 
