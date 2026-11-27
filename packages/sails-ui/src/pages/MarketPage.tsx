@@ -7,8 +7,8 @@
  * apart from the per-trade chat (the only real chat).
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
-import { Link, Navigate, useParams, useSearchParams } from 'react-router'
-import { ArrowLeft, ChartColumn, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
+import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router'
+import { ArrowLeft, ChartColumn, CircleCheck, ExternalLink, LogOut, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
@@ -26,7 +26,9 @@ import { MarketDashboard } from './stats/MarketDashboard'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { FilterChip } from '../components/ui/filter-chip'
 import { Button } from '../components/ui/button'
-import { demoDecideRequest, demoJoin, demoJoinRequests, demoMarketPage, demoMarkets, demoRemoveMember, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
+import { demoAcceptInvite, demoAddInvite, demoDecideRequest, demoInvites, demoJoin, demoJoinRequests, demoMarketPage, demoMarkets, demoOfferMarket, demoRemoveMember, isDemoMode, subscribeDemoMarkets } from '../lib/demoMarkers'
+import { CopyButton } from '../components/ui/CopyButton'
+import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
 import { useAuth } from '../context/AuthContext'
@@ -100,8 +102,9 @@ export function MarketPage() {
   const { id = '' } = useParams()
   const snapshot = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
   const idBase = useId()
-  // ?tab=chat&peer=…&name=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread.
+  // ?tab=chat&peer=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread; the name comes in router state.
   const [params] = useSearchParams()
+  const peerName = (useLocation().state as { peerName?: unknown } | null)?.peerName
   // ?tab=dashboard opens "Painel" (owner only; anyone else lands on Ofertas).
   const [tab, setTab] = useState<'offers' | 'chat' | 'about' | 'dashboard'>(() => { const p = params.get('tab'); return p === 'chat' || p === 'dashboard' ? p : 'offers' })
   // Same page, new ?tab= (a link to ?tab=dashboard from this market): follow it.
@@ -111,7 +114,7 @@ export function MarketPage() {
   const [asset, setAsset] = useState<string | null>(null)
   const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(() => {
     const peer = params.get('peer')
-    return peer ? { peer: { author: (params.get('name') ?? '').slice(0, 60), seed: peer }, key: 1 } : null
+    return peer ? { peer: { author: (typeof peerName === 'string' ? peerName : '').slice(0, 60) || t('spaces.admin.memberRow'), seed: peer }, key: 1 } : null
   })
   const { user } = useAuth()
   const [rulesOpen, setRulesOpen] = useState(false)
@@ -122,8 +125,11 @@ export function MarketPage() {
   const remember = () => { opener.current = document.activeElement as HTMLElement | null }
   const returnFocus = (e: Event) => { e.preventDefault(); opener.current?.focus() }
   const [inviteOpen, setInviteOpen] = useState(false)
-  const [invites, setInvites] = useState<readonly string[]>([])
   const [inviteKey, setInviteKey] = useState('')
+  const [leaving, setLeaving] = useState(false)
+  // Join steps the operator requires before the request (demo): KYC at the partner, then the social logins.
+  const [kycDone, setKycDone] = useState(false)
+  const [socialDone, setSocialDone] = useState<readonly string[]>([])
   // Demo: the demo backend's offers, a share of them per market (lib/marketSpaces.ts offersForMarket).
   const [demoOffers, setDemoOffers] = useState<Offer[] | null>(null)
   const [offersError, setOffersError] = useState(false)
@@ -180,7 +186,15 @@ export function MarketPage() {
   // Keeps 3:1 in the detail column; capped on wide screens so it never pushes the content below the fold.
   const banner = <MarketBanner market={m} image={m.bannerImage} className="md:max-h-40" />
 
-  const all = page.hasOffers ? offersForMarket(demoOffers ?? [], m.id) : []
+  // Offers published here (demo tag) plus this market's share of the untagged ones.
+  const tagged = (demoOffers ?? []).filter((o) => demoOfferMarket(o.id) === m.id)
+  const all = [...tagged, ...(page.hasOffers ? offersForMarket((demoOffers ?? []).filter((o) => !demoOfferMarket(o.id)), m.id) : [])]
+  const member = m.relation === 'member' || m.relation === 'admin'
+  const publishHere = `${TRADES_ROUTES.newOffer}?market=${encodeURIComponent(m.id)}&back=${encodeURIComponent(marketPath(m.id))}`
+  const invites = demoInvites(m.id)
+  // KYC for everyone ('all') and the required social logins are steps of the join; "above a value" is not.
+  const joinKyc = kyc.kind === 'all'
+  const joinReady = (!joinKyc || kycDone) && social.every((s) => socialDone.includes(s))
   const offers = all.filter((o) => (side === 'all' || viewerSide(o.side) === side) && (!asset || o.asset === asset))
   const assets = [...new Set(all.map((o) => o.asset))]
   const talk = (o: Offer) => {
@@ -240,12 +254,18 @@ export function MarketPage() {
         />
 
         <div {...tabPanelProps(idBase, 'offers')} hidden={shownTab !== 'offers'} className={cn(SECTION, 'space-y-3')}>
-          {page.hasOffers && demoOffers === null && !offersError ? <ListSkeleton label={t('spaces.offers.loading')} rows={3} /> : offersError ? (
+          {member && all.length > 0 && (
+            <div className="flex justify-end">
+              <Link to={publishHere} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('spaces.offers.publishHere')}</Link>
+            </div>
+          )}
+          {demoOffers === null && !offersError ? <ListSkeleton label={t('spaces.offers.loading')} rows={3} /> : offersError ? (
             <StateBlock kind="error" bare title={t('spaces.offers.error')} />
           ) : all.length === 0 ? (
             <div className="space-y-3 py-4 text-center">
               <p className="text-body-sm text-brand-text">{t('spaces.offers.empty')}</p>
-              <Link to={`${TRADES_ROUTES.newOffer}?market=${encodeURIComponent(m.id)}&back=${encodeURIComponent(marketPath(m.id))}`} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.offers.publishHere')}</Link>
+              {member ? <Link to={publishHere} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.offers.publishHere')}</Link>
+                : <p className="text-caption text-brand-text-secondary">{t('spaces.chat.joinToPost')}</p>}
             </div>
           ) : (
             <>
@@ -276,7 +296,7 @@ export function MarketPage() {
         </div>
 
         <div {...tabPanelProps(idBase, 'chat')} hidden={shownTab !== 'chat'} className={SECTION}>
-          <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} canPin={m.relation === 'admin'} />
+          <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} canPin={m.relation === 'admin'} canPost={member} />
         </div>
 
         {owner && (
@@ -321,14 +341,37 @@ export function MarketPage() {
             <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
           </section>
 
+          {m.relation === 'member' && (
+            <section aria-labelledby="market-leave" className={SECTION}>
+              <h2 id="market-leave" className="sr-only">{t('spaces.leave.action')}</h2>
+              <Button type="button" variant="ghost" onClick={() => setLeaving(true)} className="-ml-2 touch:min-h-11"><LogOut aria-hidden="true" />{t('spaces.leave.action')}</Button>
+            </section>
+          )}
           {m.relation === 'admin' && m.visibility === 'private' && (
             <section aria-labelledby="market-invites" className={SECTION}>
               <h2 id="market-invites" className="text-section-title">{t('spaces.invite.title')}</h2>
               <p className="mt-1 text-caption text-brand-text-secondary">{t('markets.create.invites.identifierHelp')}</p>
               <Button type="button" variant="secondary" onClick={() => { remember(); setInviteOpen(true) }} className="mt-2 touch:min-h-11">{t('spaces.invite.open')}</Button>
               {invites.length > 0 && (
-                <ul className="mt-2 divide-y divide-brand-border-subtle">
-                  {invites.map((k) => <li key={k} className="flex items-center gap-2 py-1.5"><span translate="no" className="min-w-0 flex-1 break-all font-mono text-caption text-brand-text">{k}</span><Badge variant="outline" className={TAG}>{t('markets.create.invites.pending')}</Badge></li>)}
+                <ul aria-label={t('markets.create.invites.listLabel')} className="mt-2 divide-y divide-brand-border-subtle">
+                  {invites.map((i) => (
+                    <li key={i.identifier} className="space-y-1.5 py-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span translate="no" className="min-w-0 flex-1 break-all font-mono text-caption text-brand-text">{i.identifier}</span>
+                        <Badge variant="outline" className={TAG}>{t('markets.create.invites.pending')}</Badge>
+                      </div>
+                      {/* A fictional code, never a real credential: the Sails Market Invite format is the Principal's to define. */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-caption text-brand-text-secondary">{t('spaces.invite.code')}</span>
+                        <span translate="no" className="break-all font-mono text-caption text-brand-text">{i.code}</span>
+                        <CopyButton value={i.code} ariaLabel={t('spaces.invite.copyCode', { identifier: i.identifier })} />
+                        <span className="text-caption text-brand-text-muted">{t('markets.list.illustrative')}</span>
+                      </div>
+                      <Button type="button" size="sm" variant="secondary" onClick={() => { demoAcceptInvite(m.id, i.identifier); simulatedToast(t('spaces.invite.acceptedToast')) }} className="touch:min-h-11">
+                        {t('spaces.invite.simulateAccept')}<span className="sr-only">: {i.identifier}</span>
+                      </Button>
+                    </li>
+                  ))}
                 </ul>
               )}
             </section>
@@ -341,8 +384,8 @@ export function MarketPage() {
                   <li key={k} className="flex flex-wrap items-center gap-2 py-1.5">
                     <IdentityAvatar seed={k} size={28} />
                     <span className="min-w-0 flex-1 text-caption text-brand-text-secondary">{t('spaces.admin.requestRow')} · <MonoKey value={k} /></span>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => { demoDecideRequest(k, false); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.reject')}</Button>
-                    <Button type="button" size="sm" variant="secondary" onClick={() => { demoDecideRequest(k, true); simulatedToast() }} className="touch:min-h-11">{t('spaces.admin.approve')}</Button>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => { demoDecideRequest(k, false); simulatedToast(t('spaces.admin.rejectedToast')) }} className="touch:min-h-11">{t('spaces.admin.reject')}</Button>
+                    <Button type="button" size="sm" variant="secondary" onClick={() => { demoDecideRequest(k, true); simulatedToast(t('spaces.admin.approvedToast')) }} className="touch:min-h-11">{t('spaces.admin.approve')}</Button>
                   </li>
                 ))}
               </ul>
@@ -353,7 +396,7 @@ export function MarketPage() {
               <h2 id="market-members" className="text-section-title">{t('spaces.page.membersTitle')}</h2>
               <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.page.membersLead')}</p>
               {page.memberKeys.length === 0 ? (
-                <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
+                invites.length === 0 && <p className="mt-2 text-body-sm text-brand-text-secondary">{t('markets.create.invites.empty')}</p>
               ) : (
                 <ul aria-label={t('spaces.page.membersTitle')} className="mt-2 divide-y divide-brand-border-subtle">
                   {page.memberKeys.map((k) => (
@@ -392,7 +435,29 @@ export function MarketPage() {
             {RULES.map((r) => <li key={r}>{t(r)}</li>)}
           </ul>
           <p className="text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>
-          <Button type="button" variant={user ? 'default' : 'secondary'} onClick={() => { setRulesOpen(false); demoJoin(m.id, m.entryType === 'approval' ? 'request' : 'join'); simulatedToast(m.entryType === 'approval' ? t('spaces.join.requestedToast') : undefined) }} className="touch:min-h-11">
+          {joinKyc && (
+            // The operator's requirement, done at the partner's own flow: nothing is collected or sent here.
+            <section aria-labelledby="join-kyc" className="space-y-1.5 rounded-lg bg-brand-elevated p-3">
+              <h3 id="join-kyc" className="text-sm font-medium text-brand-text">{t('spaces.join.kycStep')}</h3>
+              <p className="text-caption text-brand-text-secondary">{t('spaces.join.kycStepBody')}</p>
+              {kyc.formUrl && <ExternalAdminLink href={kyc.formUrl} label={t('spaces.page.kycForm')} />}
+              {kycDone
+                ? <p role="status" className="flex items-center gap-1.5 text-body-sm text-brand-text"><CircleCheck aria-hidden="true" className="size-icon-sm shrink-0 text-brand-success-fg" />{t('spaces.join.kycDone')}</p>
+                : <Button type="button" size="sm" variant="secondary" onClick={() => setKycDone(true)} className="touch:min-h-11">{t('spaces.join.kycSimulate')}</Button>}
+            </section>
+          )}
+          {social.length > 0 && (
+            <section aria-labelledby="join-social" className="space-y-1.5 rounded-lg bg-brand-elevated p-3">
+              <h3 id="join-social" className="text-sm font-medium text-brand-text">{t('spaces.join.socialStep')}</h3>
+              <div className="flex flex-wrap gap-2">
+                {social.map((s) => socialDone.includes(s)
+                  ? <p key={s} role="status" className="flex min-h-9 items-center gap-1.5 text-body-sm text-brand-text"><CircleCheck aria-hidden="true" className="size-icon-sm shrink-0 text-brand-success-fg" />{t('spaces.join.socialDone', { network: socialNames([s]) })}</p>
+                  : <Button key={s} type="button" size="sm" variant="secondary" onClick={() => setSocialDone((d) => [...d, s])} className="touch:min-h-11">{t('spaces.join.socialSimulate', { network: socialNames([s]) })}</Button>)}
+              </div>
+            </section>
+          )}
+          {!joinReady && <p className="text-caption text-brand-text-muted">{t('spaces.join.stepsFirst')}</p>}
+          <Button type="button" variant={user ? 'default' : 'secondary'} disabled={!joinReady} onClick={() => { setRulesOpen(false); demoJoin(m.id, m.entryType === 'approval' ? 'request' : 'join'); simulatedToast(m.entryType === 'approval' ? t('spaces.join.requestedToast') : undefined) }} className="touch:min-h-11">
             {m.entryType === 'approval' ? t('spaces.join.acceptRequest') : t('spaces.join.accept')}
           </Button>
         </DialogContent>
@@ -403,7 +468,7 @@ export function MarketPage() {
             <DialogTitle>{t('spaces.invite.open')}</DialogTitle>
             <DialogDescription>{t('markets.create.invites.identifierHelp')}</DialogDescription>
           </DialogHeader>
-          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const v = inviteKey.trim(); if (!v) return; setInvites((l) => (l.includes(v) ? l : [...l, v])); setInviteKey(''); setInviteOpen(false); simulatedToast() }}>
+          <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); const v = inviteKey.trim(); if (!v) return; demoAddInvite(m.id, v); setInviteKey(''); setInviteOpen(false); simulatedToast() }}>
             <label htmlFor="invite-identifier" className="text-sm font-medium text-brand-text">{t('markets.create.invites.identifier')}</label>
             <Input id="invite-identifier" name="invite-identifier" autoComplete="off" spellCheck={false} value={inviteKey} onChange={(e) => setInviteKey(e.target.value)} />
             <div className="flex justify-end"><Button type="submit" variant="secondary" disabled={!inviteKey.trim()} className="touch:min-h-11">{t('markets.create.invites.generate')}</Button></div>
@@ -421,10 +486,19 @@ export function MarketPage() {
           </RadioGroup>
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
             <Button type="button" variant="ghost" onClick={() => setRemoving(null)} className="touch:min-h-11">{t('common.cancel')}</Button>
-            <Button type="button" variant="destructive" disabled={!removeRule} onClick={() => { if (removing) demoRemoveMember(removing); setRemoving(null); setRemoveRule(null); simulatedToast(t('spaces.admin.removedToast')) }} className="touch:min-h-11">{t('spaces.admin.remove')}</Button>
+            <Button type="button" variant="destructive" disabled={!removeRule} onClick={() => { if (removing) demoRemoveMember(m.id, removing); setRemoving(null); setRemoveRule(null); simulatedToast(t('spaces.admin.removedToast')) }} className="touch:min-h-11">{t('spaces.admin.remove')}</Button>
           </div>
         </DialogContent>
       </Dialog>
+      <ConfirmActionDialog
+        open={leaving}
+        onOpenChange={setLeaving}
+        title={t('spaces.leave.title', { name: m.name })}
+        consequence={t('spaces.leave.body')}
+        confirmLabel={t('spaces.leave.action')}
+        tone="danger"
+        onConfirm={() => { setLeaving(false); demoJoin(m.id, 'leave'); setTab('offers'); simulatedToast(t('spaces.leave.toast')) }}
+      />
     </Page>
   )
 }

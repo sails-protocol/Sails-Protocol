@@ -14,6 +14,8 @@ import { TabLinks } from '../components/ui/tabs'
 import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { Input } from '../components/ui/input'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -277,6 +279,7 @@ function MineView() {
   const cardCopy = marketCardCopy()
   // "Seu espaço": markets the person administers or created. Transferir is simulated in the demo (no transfer exists).
   const [transferring, setTransferring] = useState<MarketView | null>(null)
+  const [transferTo, setTransferTo] = useState('')
   const yours = (m: MarketView) => m.relation === 'admin' || !!m.ownedByYou
   // CTO 29 (marketOwnershipRecovery wire), demo only: role and hosting in plain words.
   // shortcut: the contract has adminIdentity but no owner/delegate role, so every demo space of yours reads "Proprietário"; use the role field when the Principal adds it.
@@ -293,14 +296,34 @@ function MineView() {
   return (
     <div className="space-y-4">
       {recoveryNotice && <RecoveryObjectionBanner marketName={recoveryNotice.name} />}
-      <ConfirmActionDialog
-        open={transferring !== null}
-        onOpenChange={(o) => { if (!o) setTransferring(null) }}
-        title={t('spaces.transferTitle', { name: transferring?.name ?? '' })}
-        consequence={t('spaces.transferBody')}
-        confirmLabel={t('spaces.transfer')}
-        onConfirm={() => { setTransferring(null); simulatedToast(t('spaces.transferToast')) }}
-      />
+      {/* Transferir (demo): the target identity, then the same 7-day safety period with objection as a recovery (CTO 29). */}
+      <Dialog open={transferring !== null} onOpenChange={(o) => { if (!o) { setTransferring(null); setTransferTo('') } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.transferTitle', { name: transferring?.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('spaces.transferBody')}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const to = transferTo.trim()
+              if (!to || !transferring) return
+              simulatedToast(t('spaces.transferToast', { name: transferring.name, to: to.length > 20 ? `${to.slice(0, 10)}…${to.slice(-6)}` : to }))
+              setTransferring(null)
+              setTransferTo('')
+            }}
+          >
+            <label htmlFor="transfer-to" className="text-sm font-medium text-brand-text">{t('spaces.transferTo')}</label>
+            <Input id="transfer-to" name="transfer-to" autoComplete="off" spellCheck={false} value={transferTo} onChange={(e) => setTransferTo(e.target.value)} className="font-mono" />
+            <p className="text-caption text-brand-text-secondary">{t('spaces.transferSafety')}</p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="ghost" onClick={() => { setTransferring(null); setTransferTo('') }} className="touch:min-h-11">{t('common.cancel')}</Button>
+              <Button type="submit" disabled={!transferTo.trim()} className="touch:min-h-11">{t('spaces.transfer')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* The page h1 already says Meus mercados: this h2 names the list by its size. */}
         <h2 className="text-section-title">{t('spaces.portal.mineCount', { count: markets.length })}</h2>

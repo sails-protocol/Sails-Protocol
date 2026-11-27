@@ -3,6 +3,7 @@ import { Link } from 'react-router'
 import { FaqTextLink } from '../components/faq/FaqLink'
 import { PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
+import { demoOfferMarket } from '../lib/demoMarkers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { OfferTable } from '../components/marketplace/OfferTable'
@@ -119,7 +120,8 @@ export function Marketplace() {
     fetchOffers(asset, side)
       .then(({ offers, hadError }) => {
         if (cancelled) return
-        setAllOffers(offers)
+        // Demo: offers published inside a market are listed only in that market.
+        setAllOffers(offers.filter((o) => !demoOfferMarket(o.id)))
         setOffersError(hadError)
       })
       .finally(() => {
