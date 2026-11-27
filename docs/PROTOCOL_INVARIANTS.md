@@ -674,6 +674,8 @@ behaviors this invariant newly classifies as non-conformant.
 > generalization — read that document for the identity-level statement
 > this invariant expresses at current-protocol-version granularity.
 
+> **Corrected/Implemented 2026-11-27 (cross-reference).** The earlier text of RFC-021 D8 that describes automatic application of uncontested QVAC recommendations is superseded by this correction (see the supersession note at the start of RFC-021 D8). A recommendation, an attributed identity or the absence of a contest never authorizes an economic transition on its own.
+
 ---
 
 ## Level 2 — Derived Properties
