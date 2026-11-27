@@ -295,7 +295,7 @@ that carries judgment is deliberately thin:
   key, bound once by cross-signature (each key signs the other, committed
   into the first receipt) — the same identity↔settlement binding pattern
   D2 already requires per-trade.
-- **Portability (anti-lock-in):** reputation binds to the user-held
+- **Portability (anti-lock-in), proposed objective (Corrected/Implemented 2026-11-27: not implemented or demonstrated; the current score is node-local, and `peerId` is a transport key, not the portability mechanism):** reputation binds to the user-held
   identity key, never to a wallet account — a user carries their full
   matured history into any wallet that speaks this protocol. The
   mechanism is **delegation, never key export**: the identity key signs

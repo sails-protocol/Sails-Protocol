@@ -118,9 +118,11 @@ See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERAT
 - **Liquid Covenant:** script-enforced — not implemented at all yet, same
   live-infrastructure blocker as Lightning above
 
-### 1.2 Portable Reputation
+### 1.2 Reputation (portability is an objective)
 
-Score tied to the Ed25519 keypair — not to a platform account. Built from
+**Corrected/Implemented 2026-11-27:** the score is tied to the participant's key, not to a platform account, but it is computed and held by each node. A node-local score is not independently verifiable evidence for another operator, and cross-operator portability is an objective that is not demonstrated (`docs/CRYPTOGRAPHIC_MODEL.md`; `docs/SYSTEM_DESIGN.md` section 14.4). The `peerId` is a transport key, not an economic identity or an authority over funds.
+
+Score tied to the Ed25519 key. Built from
 completed trades, settlement speed, dispute history, and volume over time.
 
 - **Trade ratings (1–5)** — informational feedback; `rate()` does not mutate `ReputationScore` (RFC-007).

@@ -127,15 +127,13 @@ Use `API_STABLE.md` for the exact frozen surface.
 await sails.reputation.rate(trade.id, 5)
 ```
 
-Reputation is portable across every module and every wallet that
-integrates the protocol — it's tied to the keypair from Step 2, not to
-your app (`ARCHITECTURE.md` section 3).
+Reputation is readable by every module on the same node, and it is keyed to the participant identity from Step 2, not to your app (`ARCHITECTURE.md` section 3). **Corrected/Implemented 2026-11-27:** the score is computed and held by each node, so it does not yet follow a participant across operators; that portability is an objective and is not demonstrated. The `peerId` is a separate, ephemeral transport key and is not the participant's identity.
 
 ### Step 6 — Working Marketplace
 
 Five steps, one SDK, one keypair. What you have at this point is a wallet
 that can discover a counterparty, negotiate, settle under the normative non-custodial model (rail-specific; see `SECURITY_MODEL.md` section 1.1), and
-build portable reputation — the definition of a P2P Financial Marketplace
+build reputation that is node-local today — the definition of a P2P Financial Marketplace
 used throughout this project (`PROJECT_CONTEXT.md` section 1). Everything
 past this — OpenAgents fraud detection, OpenFinance's future modules — is
 additive, not required to reach a working Marketplace.
