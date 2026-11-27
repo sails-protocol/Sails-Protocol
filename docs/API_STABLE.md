@@ -301,7 +301,7 @@ as `proposeTrade` was when it first shipped); expected to stabilize
 alongside it.
 
 ### Errors added without a type change
-➕ **ADDITIVE (Despacho 064, 2026-11-21)**: `RAIL_CLOSED` (HTTP 409). LN_BTC and the LIGHTNING_HODL (Arkade) escrow are
+➕ **ADDITIVE (the Day-0 rail closure decision, 2026-11-21; see Issue #147 and PR #759)**: `RAIL_CLOSED` (HTTP 409). LN_BTC and the LIGHTNING_HODL (Arkade) escrow are
 closed for Day 0 in every environment. The calls behind `POST /v1/liquidity/offers`, `POST /v1/intents`,
 `POST /v1/openp2p/trades` and `POST /v1/settlement/escrow` (asset LN_BTC, or `type: 'LIGHTNING_HODL'` with any asset)
 refuse with a `SailsError` whose
