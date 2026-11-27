@@ -164,6 +164,8 @@ implemented'` — the same pattern `escrow.service.ts`'s
 unverified providers, rather than shipping code that looks complete but
 was never exercised.
 
+> **Corrected/Implemented 2026-11-27:** the paragraph above is historical. `RedisStreamsEventStore` is implemented in `common/events/event-store.ts` (XADD-based) and has an integration test (`tests/integration/redisStreamsEventStore.test.ts`), but it is not the default store (`PostgresEventStore` is). Being implemented and tested does not by itself make it eligible for production use, and no such eligibility is established here.
+
 **Historical correction (2026-09-10, Product Truth Sweep, F5).** The
 reference to `LiquidCovenantProvider` above was already stale when
 written and is preserved verbatim, not deleted. No file implementing a
@@ -208,7 +210,7 @@ without promoting it to anything more than it already was.
 
 | Component | Change |
 |---|---|
-| `common/events/event-store.ts` (new file) | `DurableEvent`, `EventStore` interfaces; `InMemoryEventStore` (working, default); `RedisStreamsEventStore` (throws, not wired) |
+| `common/events/event-store.ts` (new file) | `DurableEvent`, `EventStore` interfaces; `InMemoryEventStore` (working, default); `RedisStreamsEventStore` (throws, not wired when this RFC was written; implemented later, see the dated note above) |
 | `common/events/event-bus.ts` | `SailsEventBus` no longer extends `EventEmitter`; wraps an injected `EventStore`. `emit()` requires `correlationId: string`. `once()`/`off()` removed (unused anywhere in the codebase, and semantically unclear once at-least-once/replay delivery is possible) |
 | `escrow.service.ts`, `handlers.ts`, `negotiation.service.ts`, `pear.service.ts` | All 13 `eventBus.emit()` call sites updated with a `correlationId` argument (`tradeId` or `userId` per the rule above) |
 | `ARCHITECTURE.md` §1B | Event Bus component description updated: durability now pluggable via `EventStore` |

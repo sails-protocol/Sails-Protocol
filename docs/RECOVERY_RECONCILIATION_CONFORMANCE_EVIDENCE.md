@@ -96,7 +96,17 @@ Core-authoritative Outcome (`applyRulingCoreAuthoritative()`) for
 `applyRuling()` path, which produces no durable Outcome record for C4
 recovery to ever find. `escrow-settlement-reconciliation.service.ts`'s
 own header states PASS 1 "asks the chain, for MULTISIG only ... every
-other rail fails closed" verbatim. See §16 BACKLOG DELTA.
+every other rail fails closed" verbatim. See §16 BACKLOG DELTA.
+
+**Recovery limits by rail (Corrected/Implemented 2026-11-27).** Summary of what this record and the WDK evidence documents establish; a durable store of events is not a recovery guarantee, and an external result that is unknown stays unknown until a reconciler asks the external system.
+
+| Rail | What recovers after a crash or an unknown external result | Limits |
+|---|---|---|
+| `MULTISIG` | Crash reconstruction, chain-first reconciliation of pending settlements, pending-state reconciliation, reorg sweeps and correspondence recording (R1, R3, R4, R5, R8 above): the reconciler asks the chain before acting and never blindly retries the provider. | Scoped per sweep confirmation depth, not a universal finality model; a release reorg is flagged for manual review, never rebroadcast automatically; one disclosed micro-value mainnet rehearsal only. |
+| `WDK_USDT_EVM` | A provider-local execution-truth layer (`WdkTransferAttempt`, `docs/WDK_UNKNOWN_OUTCOME_RETRY_SAFETY.md` section 22; `docs/WDK_FUND_MOVING_OPERATIONS_SAFETY.md` section 15): unknown submission outcomes block a repeat transfer until reconciled, and a split tracks its two legs as independent attempts so a confirmed leg is never replayed. | Not the chain-first reconciler above, and no automatic resolution of an unknown outcome; residuals are listed in the section 22 text; no live network test; the rail is production-ineligible (RFC-019). |
+| `LIGHTNING_HODL` | Uses the legacy ruling path, which produces no durable Outcome record for the recovery above to find, and the settlement reconciler fails closed for it. Existing escrows keep their dispatch, refund and recovery paths after the Day-0 closure. | Testnet only; closed to new admissions; no per-rail recovery evidence is recorded in this document. |
+| `SAFE_GUARD_EVM` | Same legacy ruling path and fail-closed reconciler as above. | Never exercised against a live bundler, key service or funded account; no recovery evidence. |
+| `MOCK` | No external side effect exists to recover. | Development only; refused in production. |
 
 ## 5. Fact Taxonomy
 
