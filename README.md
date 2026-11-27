@@ -85,7 +85,7 @@ Sails developer products are listed here so integrators can go directly from the
 
 | SDK | Package | Install | Start here | Status |
 |---|---|---|---|---|
-| **Sails P2P Trading SDK** | [`@satsails/p2p-trading-sdk` on npm](https://www.npmjs.com/package/@satsails/p2p-trading-sdk) | `npm install @satsails/p2p-trading-sdk` | [Getting Started](docs/GETTING_STARTED.md) · [SDK Guide](docs/SDK_GUIDE.md) · [`examples/simple-wallet`](examples/simple-wallet) | First concrete developer product |
+| **Sails P2P Trading SDK** | [`@satsails/p2p-trading-sdk` on npm](https://www.npmjs.com/package/@satsails/p2p-trading-sdk) | `npm install @satsails/p2p-trading-sdk` | [Getting Started](docs/GETTING_STARTED.md) · [SDK Guide](docs/SDK_GUIDE.md) · [`examples/simple-wallet`](examples/simple-wallet) | First concrete developer product (published SDK; runtime not production-homologated) |
 
 Minimal local example:
 

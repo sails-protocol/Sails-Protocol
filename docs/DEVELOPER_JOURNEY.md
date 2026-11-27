@@ -28,7 +28,7 @@ this without reading `PROTOCOL_SPECIFICATION.md`.
 ### Step 1 — Install the Sails P2P Trading SDK
 
 **Status: ✅ Real / published.** The repository package is currently
-`@satsails/p2p-trading-sdk@0.2.0`. Install it with:
+`@satsails/p2p-trading-sdk@0.2.0`. Publishing the SDK is not a homologation of the runtime it talks to. Install it with:
 
 ```bash
 npm install @satsails/p2p-trading-sdk

@@ -35,7 +35,7 @@ Same legend `ROADMAP.md` already uses, applied here per use case so
 this document can't be read as claiming more than what's actually true
 today:
 
-- **✅ Proven** — implemented and functional in the reference implementation
+- **✅ Proven** — implemented and functional in a reference implementation, with the evidence named in its row. It is not a production homologation, not a conformance certification, and not a claim about third-party deployments
 - **🏗️ Specified** — interface/contract defined, implementation partial or stubbed
 - **📋 Aspirational** — on the roadmap, spec not yet written
 
@@ -63,7 +63,7 @@ document.
 
 ### 🔄 Trading — *the one that already ships*
 
-- **Status: ✅ Proven.** This is not a future use case — it's
+- **Status: ✅ Proven (published SDK; the runtime is not production-homologated).** This is not a future use case — it's
   `PROJECT_CONTEXT.md`'s **Sails P2P Trading SDK**, shipping today
   (`@satsails/p2p-trading-sdk`, OpenP2P + OpenSettlement + OpenReputation +
   OpenIdentity). Included here only so the comparison table below has
@@ -171,7 +171,7 @@ document.
 
 | Use case | Market equivalent | Similarity | Differentiator | Status |
 |---|---|---|---|---|
-| Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; cross-wallet reputation is an objective (the score is node-local today) | ✅ Proven — shipping today as the Sails P2P Trading SDK |
+| Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; cross-wallet reputation is an objective (the score is node-local today) | ✅ Proven — published as the Sails P2P Trading SDK; runtime not production-homologated |
 | Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (closed to new admissions for Day 0, `RAIL_CLOSED`; see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
 | Liquidity | 1inch, CowSwap, OTC books | Liquidity discovery, order matching | Fiat rails (PIX/BRL) first-class, not EVM-only | 🏗️ Specified — real order book, cross-rail *routing* not yet proven live |
 | Reputation | Binance P2P ratings, Bisq | Trade-history-based score | Objective: portable across wallets and operators, not platform-locked (node-local score today; portability not demonstrated) | ✅ Proven as a module / 📋 Aspirational as a standalone SDK |

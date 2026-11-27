@@ -251,9 +251,9 @@ any third-party adoption is required.
 
 ```
 Stage 1 (✅ already true today)
-  Satsails Wallet proves Sails OpenP2P in production.
+  Satsails Wallet operates this flow in production (Corrected/Implemented 2026-11-27: that operation is not by itself evidence of a production integration of Sails Protocol).
   Real PIX-to-Bitcoin flow via Plebank/Fitbank + Eulen + SideSwap + Boltz.
-  Non-custodial guarantee held throughout — the wallet never touches fiat.
+  The wallet never touches fiat in this flow; that is a property of the wallet's own flows, not a protocol-level guarantee.
 
 Stage 2 (near-term, reuses existing integrations)
   Sails Finance proves Sails OpenFinance against real external liquidity:

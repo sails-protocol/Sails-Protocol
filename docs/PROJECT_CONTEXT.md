@@ -2004,20 +2004,20 @@ OpenFinance remains genuinely unbuilt.
 
 Use this status legend everywhere — it is mandatory, not optional:
 
-- **✅ Proven** — implemented and functional in a reference implementation
+- **✅ Proven** — implemented and functional in a reference implementation, with the evidence named in its row. It is not a production homologation, not a conformance certification, and not a claim about third-party deployments
 - **🏗️ Specified** — interface/contract defined, implementation partial or stubbed
 - **📋 Aspirational** — on the roadmap, spec not yet written
 
 | Module | Status |
 |---|---|
-| Sails OpenP2P | ✅ Proven (Satsails Wallet) |
+| Sails OpenP2P | ✅ Proven in the reference implementation (Corrected/Implemented 2026-11-27: the Satsails Wallet is a separate product, and its operation is not by itself evidence of a production integration of Sails Protocol) |
 | Sails OpenIdentity | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenReputation | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody, production-ineligible — see that file's own caveat) implemented |
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
 | Sails OpenAgents | 🏗️ Specified — real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). **Corrected 2026-08-09** — RFC-007 D7's Social Engineering Agent is real as of RFC-017 (`social-engineering-agent.ts`, 2 of 3 patterns detected, off by default); this row was stale. `POST /v1/agents/*` (2026-08-09) exposes `generateTradeIntent`/`generateOfferIntent`/`assessIntentRisk` over HTTP for the first time. Genuinely remaining: the `unexpected_flow_deviation` social-engineering pattern (needs real trade-state-machine awareness) and the `learn()` step |
 | Sails OpenFinance | 📋 Aspirational |
-| Sails SDK (MVP release: Sails P2P Trading SDK) | ✅ Proven — **Corrected 2026-08-24** (previously read "Aspirational — interface fully specified, zero implementation"; stale). `packages/sails-sdk/src/index.ts` is a real, ~220-line barrel export — `SailsClient` plus 10+ real modules (identity, reputation, liquidity, openp2p, settlement, proof, agents, peers, capabilities, arbitration, payout addresses), real PSBT-verification cryptography (`wallet-verification.ts`), and real EVM/Bitcoin custody primitives — verified directly against the file, not assumed from an older status |
+| Sails SDK (MVP release: Sails P2P Trading SDK) | ✅ Proven as published code (Corrected/Implemented 2026-11-27: the package is published, but publication is not a homologation of the runtime it talks to) — **Corrected 2026-08-24** (previously read "Aspirational — interface fully specified, zero implementation"; stale). `packages/sails-sdk/src/index.ts` is a real, ~220-line barrel export — `SailsClient` plus 10+ real modules (identity, reputation, liquidity, openp2p, settlement, proof, agents, peers, capabilities, arbitration, payout addresses), real PSBT-verification cryptography (`wallet-verification.ts`), and real EVM/Bitcoin custody primitives — verified directly against the file, not assumed from an older status |
 
 ### What actually exists in the codebase right now
 
