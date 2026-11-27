@@ -745,7 +745,7 @@ Four concrete mechanisms:
    10-12), changes to the fee rate or the bucket-split percentages require
    the multi-stakeholder governance process, not a unilateral decision by
    whichever company happens to run the most-used reference implementation.
-4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** there is no per-integrator or per-node fee setting; the fee is one global policy, versioned and not decided yet (the percentages are on hold), and a Merchant discount is applied at collection, not through an integrator-level rate. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
+4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** there is no per-integrator or per-node fee setting; the fee is one global policy, versioned and not decided yet (the percentages are on hold), and a Merchant discount at collection is a proposed direction under the global policy; no fee or discount is approved. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
 
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 
