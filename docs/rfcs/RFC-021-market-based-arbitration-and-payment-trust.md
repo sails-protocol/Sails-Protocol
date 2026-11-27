@@ -255,7 +255,7 @@ verified against the real code before implementing, not assumed:
 computed anywhere in `escrow.service.ts`. Real fee collection needed to
 be built first (**Phase 0**, resolving that stub) before this floor
 could be anything but a formula — `config.settlement.protocolFeeRate`
-(code default `0` for safety — no production env should ever charge a
+(**Corrected/Implemented 2026-11-27:** this setting and Phase 0's `FeeDistribution` split were retired; the current mechanism is a published `FeePolicyVersion` (global, versioned) -> `FeeObligation` -> a frozen `DistributionPolicyVersion` -> `EntitlementLedgerEntry`, which is accounting attribution and not a payment, and none of it is economically activated. Original text follows) (code default `0` for safety — no production env should ever charge a
 fee by silent fallback; see the 2026-08-11 note below for what the real
 production value is), `Escrow.feeCharged`, and a `FeeDistribution` row
 recording the same Node Operator/Treasury/Wallet Rebate/Arbitrator
@@ -880,7 +880,7 @@ status per this repo's convention (`docs/DEVELOPER_JOURNEY.md`) so the
 history of what was proposed vs. what shipped stays visible, not
 overwritten.
 
-0. ✅ Real Protocol Fee collection — resolved `policy-engine.ts`'s
+0. ✅ (**Corrected/Implemented 2026-11-27:** superseded, see the note in the Phase 0 text above; this line records history, not the current mechanism) Real Protocol Fee collection — resolved `policy-engine.ts`'s
    disclosed `FeePolicy` stub (a genuine prerequisite this RFC
    surfaced, not originally one of D1-D7): `config.settlement.protocolFeeRate`
    (code default `0`, production expected to set `0.004`), `Escrow.feeCharged`,

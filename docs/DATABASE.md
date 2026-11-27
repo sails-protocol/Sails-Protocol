@@ -275,6 +275,8 @@ model Escrow {
   txLockId        String?
   txReleaseId     String?
   timelockHours   Int          @default(24)
+  // Corrected/Implemented 2026-11-27: historical comment. RFC-021 Phase 0's fee collection and the
+  // protocolFeeRate setting were retired (Missao 11 Fase 6.5.2); the current mechanism is a published `FeePolicyVersion` (global, versioned) -> `FeeObligation` -> a frozen `DistributionPolicyVersion` -> `EntitlementLedgerEntry`, which is accounting attribution and not a payment, and none of it is economically activated.
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
   // Nullable, not defaulted to 0: null means "no fee was computed for
   // this escrow" (protocolFeeRate was 0 at release time, or this escrow

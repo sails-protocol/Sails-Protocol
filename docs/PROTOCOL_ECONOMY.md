@@ -125,7 +125,7 @@ fiat — never a protocol-native token:
 
 | Mechanism | Description | Who pays |
 |---|---|---|
-| **Protocol Fee** | A small, configurable fee on successful settlement (trade, future loan/swap) | Split between the two counterparties |
+| **Protocol Fee** | A fee on successful settlement (trade, future loan/swap), set by one global, versioned fee policy rather than per node or integrator; percentages and economic activation are not decided | Split between the two counterparties |
 | **API / SDK Usage Tiers** | Free sandbox + low-volume tier; paid tier for high-volume integrators needing SLA | Integrators above the free tier |
 | **Enterprise Licensing** | White-label protocol access with dedicated support for OTCs, fintechs, exchanges | Enterprise licensees |
 | **Premium Reputation Services** | Optional advanced verification, analytics, badges for high-volume participants | Opt-in participants |
@@ -745,12 +745,7 @@ Four concrete mechanisms:
    10-12), changes to the fee rate or the bucket-split percentages require
    the multi-stakeholder governance process, not a unilateral decision by
    whichever company happens to run the most-used reference implementation.
-4. **The fee is optional per integrator, not mandatory.** Any wallet or
-   fintech integrating the SDK can configure a 0% Protocol Fee for their
-   own users if their business model doesn't need it — see the "Protocol
-   Fee is OFF (0%)" bootstrap-phase default in section 3. This prevents the
-   protocol itself from becoming a mandatory rent-extraction layer that
-   integrators have no way to opt out of.
+4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** there is no per-integrator or per-node fee setting; the fee is one global policy, versioned and not decided yet (the percentages are on hold), and a Merchant discount is applied at collection, not through an integrator-level rate. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
 
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
 

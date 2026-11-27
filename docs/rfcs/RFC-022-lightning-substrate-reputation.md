@@ -230,7 +230,7 @@ Relationship to RFC-021, stated precisely: RFC-021 D4's
 `cumulativeFeesObserved` (audio 06 of the same design line) is the
 shipped, narrow form of this cost-to-fabricate principle — protocol fees
 as a worst-case floor, with its acknowledged limitations (slow growth,
-audio 07; zero at bootstrap while `protocolFeeRate` is 0). This D4
+audio 07; zero at bootstrap while no fee is economically active; Corrected/Implemented 2026-11-27: the `protocolFeeRate` setting named here was retired and fees are now a global `FeePolicyVersion`). This D4
 generalizes the floor from fees to matured settled volume, indexed by
 size — and where RFC-021 D7 registered cold-start as a requirement for
 *external* trust anchors (a vouch, a signed introduction), the ladder is

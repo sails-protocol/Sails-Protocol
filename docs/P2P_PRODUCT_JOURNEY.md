@@ -180,7 +180,7 @@ implemented or proposed here — only what the product must make legible.
 | Payment method | `Offer.paymentMethod` (single enum value per Offer) | ✅ | An `Offer` names exactly one `PaymentMethod` — the commitment is real and legible, but see Payment Destination (§16) for why "payment method" ≠ "payment destination." |
 | Payment-destination commitment | Negotiation (chat) only | ❌ not a structured commitment | The actual PIX key/bank account is exchanged as free-text chat content (`Message.msgType`), never a structured, bound field. This is `PaymentAccount` territory (real model, real trust ramp) but nothing in `Trade`/`Escrow` *binds* which registered `PaymentAccount` a given trade used. Real gap (classification A) — see §16. |
 | Settlement/custody mechanism | `Escrow.type` at escrow-creation | ✅ | Disclosed to the participant via UI, not a separate consent artifact. |
-| Fee/policy version | `FeeCollectionEvidence.distributionPolicyVersionId`, frozen at `COLLECTED` time (`docs/DATABASE.md` §3) | ✅ for the *distribution* side; **`protocolFeeRate` itself defaults to `0`** in every environment this repo evidences | The mechanism to freeze a fee/policy version at commitment time is real and CTO-frozen (Missão 11 Fase 7.2) — but since `protocolFeeRate` has never been non-zero in evidence, this axis is real infrastructure with no live economic instance yet. Legitimate deferral (G). |
+| Fee/policy version | `FeeCollectionEvidence.distributionPolicyVersionId`, frozen at `COLLECTED` time (`docs/DATABASE.md` §3) | ✅ for the *distribution* side; **no fee is economically live** in any environment this repo evidences (the old `protocolFeeRate` setting was retired; the current mechanism is a global `FeePolicyVersion`) | The mechanism to freeze a fee/policy version at commitment time is real and CTO-frozen (Missão 11 Fase 7.2) — but since `protocolFeeRate` has never been non-zero in evidence, this axis is real infrastructure with no live economic instance yet. Legitimate deferral (G). |
 | Arbitration authority/policy | `.env`'s `TRUSTED_ARBITRATORS`, `ARBITRATION_MODE` | ✅ but **not bound per-trade** — it is a deployment-wide setting, read at dispute time, not committed at trade-creation time | A participant commits to a trade without knowing, at that moment, which specific arbiter identity would resolve a future dispute (only that *some* trusted/market arbiter exists under the deployment's current policy). Legitimate deferral (G) — binding a specific arbiter ahead of any dispute would be over-engineering for a mechanism most trades never use. |
 
 ### 2.2 Current Runtime Coordination Commitment (corrected `P2P-JOURNEY-GATE-R1`, 2026-09-13 — was mislabeled "the Economic Commitment Boundary")
@@ -257,7 +257,7 @@ gap list, nothing new):**
 | 31 — payment-destination commitment | **No** — exchanged as free-text chat, not a structured, bound field |
 | 32 — authenticated amendment for post-commit payment-instruction change | **No** mechanism exists to bind or amend one at all yet (31 is a precondition) |
 | 33 — settlement mechanism/`EscrowType` bound before commitment | **Yes** — resolved and persisted at escrow-creation, immediately after `Trade` creation |
-| 34 — fee/policy version frozen | **Yes, mechanically** (`FeeCollectionEvidence.distributionPolicyVersionId`) — but never yet economically live (`protocolFeeRate` always `0`) |
+| 34 — fee/policy version frozen | **Yes, mechanically** (`FeeCollectionEvidence.distributionPolicyVersionId`) — but never yet economically live (no published fee policy is activated; the old `protocolFeeRate` setting no longer exists) |
 | 35 — arbitration authority/policy fixed per-trade | **No** — deployment-wide setting, read at dispute time |
 
 **No cryptographic anchor is implemented, designed, or proposed by this
@@ -895,7 +895,7 @@ already took, reapplied rather than re-litigated.
 | Public `resolveDispute()` API still accepting now-ignored destination params | **F** — maturity/API-honesty nuance, not a live vulnerability |
 | No "trade history with this specific counterparty" surface | **A** — Product truth omitted |
 | `AUTO_PROPOSED` dispute state has no dedicated `TradeState` distinction from other open states | **F** — hidden capability, not surfaced |
-| Fee/policy-version freeze mechanism real but never economically live (`protocolFeeRate` always `0`) | **G** — legitimate deferral |
+| Fee/policy-version freeze mechanism real but never economically live (no published fee policy is activated) | **G** — legitimate deferral |
 | Arbitration policy not bound per-trade at commitment time | **G** — legitimate deferral |
 | Offer revision/envelope not separately snapshotted from the live `Offer` at acceptance time | **A** — Product truth omitted |
 
