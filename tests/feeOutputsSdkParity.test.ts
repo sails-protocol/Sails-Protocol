@@ -146,4 +146,8 @@ describe("checkFeeAwarePsbt refuses tampering", () => {
     expect(checkFeeAwarePsbt(psbtWith(noBE, inflated), noBE, o, network, CAP)).toMatchObject({ ok: false })
     expect(checkFeeAwarePsbt(psbtWith(noBE, buildExpectedFeeAwareOutputs(noBE, o, 150, network)), noBE, o, network, CAP)).toMatchObject({ ok: true })
   })
+  it.each([[Infinity], [NaN], [0], [-1]])("a client cap of %s is refused instead of switching the bound off", (cap) => {
+    const honest = psbtWith(noBE, buildExpectedFeeAwareOutputs(noBE, o, 10, network))
+    expect(checkFeeAwarePsbt(honest, noBE, o, network, { maxFeeRateSatPerVb: cap })).toMatchObject({ ok: false, reason: 'a finite, positive client fee-rate cap is required' })
+  })
 })

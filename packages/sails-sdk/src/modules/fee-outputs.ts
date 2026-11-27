@@ -166,6 +166,8 @@ export function checkFeeAwarePsbt(
   const outs = psbt.txOutputs.map((x) => ({ address: bitcoin.address.fromOutputScript(x.script, network), value: BigInt(x.value) }))
   const miner = input - outs.reduce((s, x) => s + x.value, 0n)
   if (miner <= 0n) return { ok: false, reason: 'no miner fee' }
+  // A non-finite or non-positive client cap would switch the miner-fee bound off: refuse instead.
+  if (!Number.isFinite(opts.maxFeeRateSatPerVb) || opts.maxFeeRateSatPerVb <= 0) return { ok: false, reason: 'a finite, positive client fee-rate cap is required' }
   const cap = Math.min(opts.maxFeeRateSatPerVb, e.breakEven ? e.breakEven.fMaxSatPerVb : Infinity)
   const rates = candidateRates(miner, outs.length).filter((f) => f <= cap)
   if (rates.length === 0) return { ok: false, reason: `miner fee ${miner} implies a fee rate above the cap ${cap} sat/vB` }
