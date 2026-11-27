@@ -6,7 +6,7 @@
  * (404): "não encontrado ou sem acesso", never confirming that it exists. The group chat is demonstration/roadmap,
  * apart from the per-trade chat (the only real chat).
  */
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router'
 import { ArrowLeft, ChartColumn, CircleCheck, ExternalLink, LogOut, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
@@ -125,10 +125,6 @@ function MarketPageView({ id }: { id: string }) {
   const [rulesOpen, setRulesOpen] = useState(false)
   const [removing, setRemoving] = useState<string | null>(null)
   const [removeRule, setRemoveRule] = useState<string | null>(null)
-  // These dialogs open without a Radix trigger: remember who opened them and give focus back on close.
-  const opener = useRef<HTMLElement | null>(null)
-  const remember = () => { opener.current = document.activeElement as HTMLElement | null }
-  const returnFocus = (e: Event) => { e.preventDefault(); opener.current?.focus() }
   const [inviteOpen, setInviteOpen] = useState(false)
   const [inviteKey, setInviteKey] = useState('')
   const [leaving, setLeaving] = useState(false)
@@ -222,7 +218,7 @@ function MarketPageView({ id }: { id: string }) {
       <Button type="button" size="sm" variant="secondary" onClick={() => { demoJoin(m.id, 'approved'); simulatedToast(t('spaces.join.approvedToast')) }} className="touch:min-h-11">{t('spaces.join.simulateApprove')}</Button>
     </>
   ) : (
-    <Button type="button" size="sm" variant="secondary" onClick={() => { remember(); setRulesOpen(true) }} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
+    <Button type="button" size="sm" variant="secondary" onClick={() => { setRulesOpen(true) }} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
   )
 
   return (
@@ -356,7 +352,7 @@ function MarketPageView({ id }: { id: string }) {
             <section aria-labelledby="market-invites" className={SECTION}>
               <h2 id="market-invites" className="text-section-title">{t('spaces.invite.title')}</h2>
               <p className="mt-1 text-caption text-brand-text-secondary">{t('markets.create.invites.identifierHelp')}</p>
-              <Button type="button" variant="secondary" onClick={() => { remember(); setInviteOpen(true) }} className="mt-2 touch:min-h-11">{t('spaces.invite.open')}</Button>
+              <Button type="button" variant="secondary" onClick={() => { setInviteOpen(true) }} className="mt-2 touch:min-h-11">{t('spaces.invite.open')}</Button>
               {invites.length > 0 && (
                 <ul aria-label={t('markets.create.invites.listLabel')} className="mt-2 divide-y divide-brand-border-subtle">
                   {invites.map((i) => (
@@ -415,7 +411,7 @@ function MarketPageView({ id }: { id: string }) {
                       >
                         <MessageCircle aria-hidden="true" />
                       </IconButton>
-                      <IconButton label={t('spaces.admin.removeWho', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => { remember(); setRemoving(k) }}>
+                      <IconButton label={t('spaces.admin.removeWho', { name: `${k.slice(0, 10)}…` })} size="sm" onClick={() => { setRemoving(k) }}>
                         <UserMinus aria-hidden="true" />
                       </IconButton>
                     </li>
@@ -428,7 +424,7 @@ function MarketPageView({ id }: { id: string }) {
       </div>
       {/* "Regras da comunidade": one decision, one button. */}
       <Dialog open={rulesOpen} onOpenChange={setRulesOpen}>
-        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
+        <DialogContent className="max-w-lg">
           <DialogHeader className="pr-10 text-left">
             <DialogTitle>{t('spaces.join.rulesTitle')}</DialogTitle>
             <DialogDescription>{m.entryType === 'approval' ? t('spaces.join.rulesLeadApproval') : t('spaces.join.rulesLead')}</DialogDescription>
@@ -468,7 +464,7 @@ function MarketPageView({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
       <Dialog open={inviteOpen} onOpenChange={setInviteOpen}>
-        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
+        <DialogContent className="max-w-lg">
           <DialogHeader className="pr-10 text-left">
             <DialogTitle>{t('spaces.invite.open')}</DialogTitle>
             <DialogDescription>{t('markets.create.invites.identifierHelp')}</DialogDescription>
@@ -481,7 +477,7 @@ function MarketPageView({ id }: { id: string }) {
         </DialogContent>
       </Dialog>
       <Dialog open={removing !== null} onOpenChange={(o) => { if (!o) setRemoving(null) }}>
-        <DialogContent className="max-w-lg" onCloseAutoFocus={returnFocus}>
+        <DialogContent className="max-w-lg">
           <DialogHeader className="pr-10 text-left">
             <DialogTitle>{t('spaces.admin.removeTitle')}</DialogTitle>
             <DialogDescription>{t('spaces.admin.removeLead')}</DialogDescription>
