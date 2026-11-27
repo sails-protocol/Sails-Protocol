@@ -1,7 +1,8 @@
 /**
- * G4: the SDK's buildExpectedFeeAwareOutputs reproduces, output by output, the PSBT the MULTISIG provider actually
- * builds, with and without break-even; and checkFeeAwarePsbt refuses a redirected or mis-sized fee output, an extra
- * output, and a declared rate above the committed cap.
+ * G4: from data the client verified itself (the signed committed policy and T), the SDK reproduces, output by output,
+ * the PSBT the MULTISIG provider actually builds, with and without break-even; checkFeeAwarePsbt derives the fee rate
+ * from the PSBT and refuses a redirected or mis-sized fee output, an extra output, a wrong funding input, and a miner
+ * fee above the client's cap even without break-even.
  */
 export {}
 
@@ -13,11 +14,12 @@ bitcoin.initEccLib(ecc)
 const ECPair = ECPairFactory(ecc)
 const network = bitcoin.networks.testnet
 
-const { buildExpectedFeeAwareOutputs, checkFeeAwarePsbt, dustSats } = require('../packages/sails-sdk/src/modules/fee-outputs')
+const { buildExpectedFeeAwareOutputs, checkFeeAwarePsbt, dustSats, feeAwareEscrowFromPolicy } = require('../packages/sails-sdk/src/modules/fee-outputs')
 const { dustThresholdSats } = require('../src/modules/open-settlement/bitcoin-dust-policy')
 
 const BE = { fMaxSatPerVb: 25, vBytes: 43, dMaxSats: 330, collectionDustSats: 330, allowedPayoutTypes: ['P2WPKH', 'P2WSH', 'P2TR'] }
 const RATE = '0.004'
+const CAP = { maxFeeRateSatPerVb: 200 }
 const key = (seed: string) => ECPair.fromPrivateKey(crypto.createHash('sha256').update(seed).digest(), { network })
 const p2wpkh = (seed: string) => bitcoin.payments.p2wpkh({ pubkey: Buffer.from(key(seed).publicKey), network }).address
 const p2tr = (seed: string) => bitcoin.payments.p2tr({ internalPubkey: Buffer.from(key(seed).publicKey).subarray(1, 33), network }).address
@@ -35,14 +37,25 @@ beforeEach(() => { fetchMock.mockReset(); (global as any).fetch = fetchMock })
 const collection = p2wpkh('parity-collection')
 const buyer = p2tr('parity-buyer')
 const seller = p2wpkh('parity-seller')
+const policyOf = (withBreakEven: boolean) => ({
+  version: 2, protocolFeeRate: RATE, payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2,
+  smallTradeRule: withBreakEven ? { breakEven: BE } : {}, rail: 'MULTISIG', network: 'testnet',
+  destination: { kind: 'address', value: collection }, validFrom: '2026-11-01T00:00:00.000Z', validUntil: null,
+})
 
-it('the SDK dust formula matches the node for every output type used here', () => {
+it("the SDK dust formula matches the node for every output type used here", () => {
   for (const a of [collection, buyer, seller]) {
     expect(dustSats(a, network)).toBe(dustThresholdSats(Buffer.from(bitcoin.address.toOutputScript(a, network))))
   }
 })
 
-describe('SDK expected outputs == the PSBT the provider builds', () => {
+it("the SDK recomputes the pre-funding waiver from the policy, never from a node flag", () => {
+  expect(feeAwareEscrowFromPolicy(policyOf(true), 100_000n, network)).toMatchObject({ waivedPreFunding: true, collectionAddress: null })
+  expect(feeAwareEscrowFromPolicy(policyOf(true), 2_000_000n, network)).toMatchObject({ waivedPreFunding: false, collectionAddress: collection })
+  expect(feeAwareEscrowFromPolicy(policyOf(false), 100_000n, network)).toMatchObject({ waivedPreFunding: false, collectionAddress: collection })
+})
+
+describe("SDK expected outputs == the PSBT the provider builds", () => {
   for (const withBreakEven of [true, false]) {
     it(`${withBreakEven ? 'with' : 'without'} break-even: every outcome, size and fee rate`, async () => {
       const { multisigProvider } = loadProvider(collection)
@@ -50,10 +63,11 @@ describe('SDK expected outputs == the PSBT the provider builds', () => {
       const bk = key('parity-buyer-key'); const sk = key('parity-seller-key')
       let checked = 0
       for (const T of [100_000, 351_250, 2_000_000]) {
-        const fmaxCandidate = Math.floor(T * Number(RATE))
-        const reserve = withBreakEven ? fmaxCandidate >= BE.dMaxSats + BE.vBytes * BE.fMaxSatPerVb : fmaxCandidate >= Number(dustSats(collection, network))
+        // The client's terms come only from the signed policy and T; the provider gets the node's frozen snapshot.
+        const sdkEscrow = feeAwareEscrowFromPolicy(policyOf(withBreakEven), BigInt(T), network)
+        const reserve = sdkEscrow.collectionAddress !== null
+        const fmax = reserve ? Math.floor(T * Number(RATE)) : 0
         for (const market of [1, 7.5, 25, 60]) {
-          const f = withBreakEven ? Math.min(market, BE.fMaxSatPerVb) : market
           const txid = crypto.createHash('sha256').update(`${withBreakEven}-${T}-${market}`).digest('hex')
           const escrow = {
             tradeId: `p-${T}-${market}`, buyerId: 'buyer-1', sellerId: 'seller-1', status: 'DISPUTED', triggeredBy: 'arb-1',
@@ -63,8 +77,7 @@ describe('SDK expected outputs == the PSBT the provider builds', () => {
             snapshotFeeCollectionAddress: reserve ? collection : null, snapshotFeeCollectionWaivedPreFunding: !reserve,
             feeBreakEven: withBreakEven ? BE : null,
           }
-          const sdkEscrow = { lockedSats: BigInt(T), protocolFeeRate: RATE, waivedPreFunding: !reserve, collectionAddress: reserve ? collection : null, breakEven: withBreakEven ? BE : null }
-          const R = T + (reserve ? fmaxCandidate : 0)
+          const R = T + fmax
           const fund = () => {
             if (withBreakEven) fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ halfHourFee: market }) })
             fetchMock.mockResolvedValueOnce({ ok: true, json: async () => [{ txid, vout: 0, value: R, status: { confirmed: true } }] })
@@ -81,8 +94,10 @@ describe('SDK expected outputs == the PSBT the provider builds', () => {
               : await multisigProvider.buildUnsignedSplit(escrow, buyer, seller, (o as any).buyerBps)
             const psbt = bitcoin.Psbt.fromBase64(built.psbtBase64, { network })
             const actual = psbt.txOutputs.map((x: any) => ({ address: bitcoin.address.fromOutputScript(x.script, network), value: BigInt(x.value) }))
+            const f = withBreakEven ? Math.min(market, BE.fMaxSatPerVb) : market
             expect(buildExpectedFeeAwareOutputs(sdkEscrow, o, f, network)).toEqual(actual)
-            expect(checkFeeAwarePsbt(built.psbtBase64, sdkEscrow, o, f, network)).toEqual({ ok: true })
+            // The fee rate is derived from the PSBT itself; the node never tells it.
+            expect(checkFeeAwarePsbt(built.psbtBase64, sdkEscrow, o, network, CAP)).toMatchObject({ ok: true })
             checked++
           }
         }
@@ -92,33 +107,43 @@ describe('SDK expected outputs == the PSBT the provider builds', () => {
   }
 })
 
-describe('checkFeeAwarePsbt refuses tampering', () => {
+describe("checkFeeAwarePsbt refuses tampering", () => {
   const T = 2_000_000
-  const fmax = Math.floor(T * Number(RATE))
-  const e = { lockedSats: BigInt(T), protocolFeeRate: RATE, waivedPreFunding: false, collectionAddress: collection, breakEven: BE }
-  const o = { kind: 'RELEASE', buyer }
-  function psbtWith(outputs: Array<{ address: string; value: bigint }>) {
+  const psbtWith = (e: any, outputs: Array<{ address: string; value: bigint }>, inputValue?: bigint) => {
     const p = new bitcoin.Psbt({ network })
     const script = bitcoin.payments.p2wpkh({ pubkey: Buffer.from(key('in').publicKey), network }).output
-    p.addInput({ hash: '00'.repeat(32), index: 0, witnessUtxo: { script, value: BigInt(T + fmax) } })
+    const fmax = e.waivedPreFunding ? 0n : (e.lockedSats * 400_000n) / 100_000_000n
+    p.addInput({ hash: '00'.repeat(32), index: 0, witnessUtxo: { script, value: inputValue ?? e.lockedSats + fmax } })
     for (const x of outputs) p.addOutput({ address: x.address, value: x.value })
     return p.toBase64()
   }
-  const good = buildExpectedFeeAwareOutputs(e, o, 10, network)
+  const withBE = feeAwareEscrowFromPolicy(policyOf(true), BigInt(T), network)
+  const noBE = feeAwareEscrowFromPolicy(policyOf(false), BigInt(T), network)
+  const o = { kind: 'RELEASE', buyer }
+  const good = buildExpectedFeeAwareOutputs(withBE, o, 10, network)
 
-  it('the honest PSBT passes', () => {
-    expect(checkFeeAwarePsbt(psbtWith(good), e, o, 10, network)).toEqual({ ok: true })
+  it("the honest PSBT passes, and the derived rate is reported", () => {
+    expect(checkFeeAwarePsbt(psbtWith(withBE, good), withBE, o, network, CAP)).toMatchObject({ ok: true })
   })
-  it('a fee output redirected to another address is refused', () => {
-    expect(checkFeeAwarePsbt(psbtWith([good[0], { ...good[1], address: p2wpkh('attacker') }]), e, o, 10, network).ok).toBe(false)
+  it("a fee output redirected to another address is refused", () => {
+    expect(checkFeeAwarePsbt(psbtWith(withBE, [good[0], { ...good[1], address: p2wpkh('attacker') }]), withBE, o, network, CAP).ok).toBe(false)
   })
-  it.each([1n, -1n])('a collected amount off by %s sat is refused', (d) => {
-    expect(checkFeeAwarePsbt(psbtWith([{ ...good[0], value: good[0].value - d }, { ...good[1], value: good[1].value + d }]), e, o, 10, network).ok).toBe(false)
+  it.each([1n, -1n])("a collected amount off by %s sat is refused", (d) => {
+    expect(checkFeeAwarePsbt(psbtWith(withBE, [{ ...good[0], value: good[0].value - d }, { ...good[1], value: good[1].value + d }]), withBE, o, network, CAP).ok).toBe(false)
   })
-  it('an extra output is refused', () => {
-    expect(checkFeeAwarePsbt(psbtWith([...good, { address: p2wpkh('extra'), value: 1000n }]), e, o, 10, network).ok).toBe(false)
+  it("an extra output is refused", () => {
+    expect(checkFeeAwarePsbt(psbtWith(withBE, [...good, { address: p2wpkh('extra'), value: 1000n }]), withBE, o, network, CAP).ok).toBe(false)
   })
-  it('a declared fee rate above the committed cap is refused', () => {
-    expect(checkFeeAwarePsbt(psbtWith(good), e, o, 26, network)).toMatchObject({ ok: false })
+  it("a funding input that is not T + Fmax is refused", () => {
+    expect(checkFeeAwarePsbt(psbtWith(withBE, good, BigInt(T)), withBE, o, network, CAP).ok).toBe(false)
+  })
+  it("with break-even, a miner fee implying more than the committed cap is refused", () => {
+    const high = buildExpectedFeeAwareOutputs({ ...withBE, breakEven: null }, o, 26, network)
+    expect(checkFeeAwarePsbt(psbtWith(withBE, high), withBE, o, network, CAP).ok).toBe(false)
+  })
+  it("without break-even, the client's own cap still refuses an inflated miner fee", () => {
+    const inflated = buildExpectedFeeAwareOutputs(noBE, o, 300, network)
+    expect(checkFeeAwarePsbt(psbtWith(noBE, inflated), noBE, o, network, CAP)).toMatchObject({ ok: false })
+    expect(checkFeeAwarePsbt(psbtWith(noBE, buildExpectedFeeAwareOutputs(noBE, o, 150, network)), noBE, o, network, CAP)).toMatchObject({ ok: true })
   })
 })

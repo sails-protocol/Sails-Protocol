@@ -1,22 +1,24 @@
 /**
- * @satsails/p2p-trading-sdk — recomputes the outputs a fee-aware MULTISIG settlement must have, from the COMMITTED fee
- * policy and the fee rate the round declares, so a party can refuse to sign a PSBT whose fee output is redirected or
- * mis-sized (G4, CTO 38). Mirrors the node's construction (`multisig.provider.ts`); a parity test against the provider
- * proves the two agree. The declared fee rate is untrusted: it must be at most the committed cap (with break-even) and
- * must reproduce the PSBT's own miner fee exactly, otherwise the PSBT is refused.
+ * @satsails/p2p-trading-sdk — recomputes the outputs a fee-aware MULTISIG settlement must have, so a party can refuse to
+ * sign a PSBT whose fee output is redirected or mis-sized, or whose miner fee is inflated (G4, CTO 38).
+ *
+ * Every input is data the client has verified itself, never the node's word:
+ * - the rate, the destination and the break-even come from the SIGNED, COMMITTED policy (`feeAwareEscrowFromPolicy`);
+ * - T comes from the commitment the client signed;
+ * - the pre-funding waiver is recomputed here with the node's snapshot rule, never taken from a node flag;
+ * - the fee rate is derived from the PSBT itself and must not exceed the client's own cap (and the committed cap with
+ *   break-even).
+ * Mirrors multisig.provider.ts; a parity test against the provider proves the two agree.
  */
 import * as bitcoin from 'bitcoinjs-lib'
+import type { FeePolicyV2 } from './fee-policy'
 
 export interface BreakEvenParams { fMaxSatPerVb: number; vBytes: number; dMaxSats: number; collectionDustSats: number }
 
 export interface FeeAwareEscrow {
-  /** T, the trade notional, in sats. */
   lockedSats: bigint
-  /** The committed protocol fee rate, a decimal string with at most 8 places. */
   protocolFeeRate: string
-  /** The pre-funding waiver frozen on the escrow. */
   waivedPreFunding: boolean
-  /** The committed collection destination; null when there is no reserve. */
   collectionAddress: string | null
   breakEven: BreakEvenParams | null
 }
@@ -52,17 +54,39 @@ export function dustSats(address: string, network: bitcoin.Network): bigint {
   return (3000n * BigInt(8 + 1 + s.length + overhead) + 999n) / 1000n
 }
 
+function breakEvenOf(rule: unknown): BreakEvenParams | null {
+  const be = rule && typeof rule === 'object' ? (rule as Record<string, unknown>).breakEven : undefined
+  if (!be || typeof be !== 'object') return null
+  const o = be as Record<string, number>
+  return { fMaxSatPerVb: o.fMaxSatPerVb, vBytes: o.vBytes, dMaxSats: o.dMaxSats, collectionDustSats: o.collectionDustSats }
+}
+
+/**
+ * The escrow's fee terms from data the client verified: the signed committed policy and T from the commitment. The
+ * pre-funding waiver follows the node's snapshot rule (escrow-fee-snapshot.service.ts) with the policy's destination.
+ */
+export function feeAwareEscrowFromPolicy(policy: FeePolicyV2, lockedSats: bigint, network: bitcoin.Network): FeeAwareEscrow {
+  const breakEven = breakEvenOf(policy.smallTradeRule)
+  const destination = policy.destination.value
+  const fmax = feeSats(lockedSats, policy.protocolFeeRate)
+  let reserve = false
+  if (fmax > 0n) {
+    const dust = dustSats(destination, network)
+    const collectible = fmax >= dust
+    const breakEvenOk = !breakEven || (fmax >= BigInt(breakEven.dMaxSats + breakEven.vBytes * breakEven.fMaxSatPerVb) && dust <= BigInt(breakEven.collectionDustSats))
+    reserve = collectible && breakEvenOk
+  }
+  // As in the node: a positive rate whose reserve is not collectible is waived before funding; a zero rate is not.
+  return { lockedSats, protocolFeeRate: policy.protocolFeeRate, waivedPreFunding: rateUnits(policy.protocolFeeRate) > 0n && !reserve, collectionAddress: reserve ? destination : null, breakEven }
+}
+
 function maxFeeSats(e: FeeAwareEscrow): bigint {
   return e.waivedPreFunding ? 0n : feeSats(e.lockedSats, e.protocolFeeRate)
 }
 
-/**
- * The exact outputs, in order, for the given outcome and fee rate. Throws when the rate exceeds the committed cap or the
- * construction would be invalid; the caller refuses to sign in that case.
- */
+/** The exact outputs, in order, for the given outcome and fee rate. Throws when the construction would be invalid. */
 export function buildExpectedFeeAwareOutputs(e: FeeAwareEscrow, o: Outcome, feeRate: number, network: bitcoin.Network): ExpectedOutput[] {
   if (!(feeRate > 0)) throw new Error('fee rate must be positive')
-  if (e.breakEven && feeRate > e.breakEven.fMaxSatPerVb) throw new Error(`fee rate ${feeRate} above the committed cap ${e.breakEven.fMaxSatPerVb}`)
   const fmax = maxFeeSats(e)
   const input = e.lockedSats + fmax
   const be = e.breakEven
@@ -106,20 +130,49 @@ export function buildExpectedFeeAwareOutputs(e: FeeAwareEscrow, o: Outcome, feeR
 }
 
 /**
- * Refuses unless the PSBT pays exactly the expected outputs (same count, order, addresses and amounts) and its miner fee
- * equals the one the declared rate implies. Returns the reason on refusal.
+ * Every fee rate that reproduces a miner fee M for an n-output spend lies in ((M - 1) / est(n), M / est(n)]. Within that
+ * interval the other output counts' fees change only at j / est(k); one probe per sub-interval covers every outcome.
  */
-export function checkFeeAwarePsbt(psbtBase64: string, e: FeeAwareEscrow, o: Outcome, feeRate: number, network: bitcoin.Network): { ok: true } | { ok: false; reason: string } {
-  let expected: ExpectedOutput[]
-  try { expected = buildExpectedFeeAwareOutputs(e, o, feeRate, network) } catch (err) { return { ok: false, reason: (err as Error).message } }
-  const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
-  const outs = psbt.txOutputs.map((x) => ({ address: bitcoin.address.fromOutputScript(x.script, network), value: BigInt(x.value) }))
-  if (outs.length !== expected.length) return { ok: false, reason: `expected ${expected.length} outputs, PSBT has ${outs.length}` }
-  for (let i = 0; i < outs.length; i++) {
-    if (outs[i].address !== expected[i].address) return { ok: false, reason: `output ${i} pays ${outs[i].address}, expected ${expected[i].address}` }
-    if (outs[i].value !== expected[i].value) return { ok: false, reason: `output ${i} carries ${outs[i].value} sats, expected ${expected[i].value}` }
+function candidateRates(miner: bigint, outputs: number): number[] {
+  const m = Number(miner)
+  const lo = (m - 1) / estimatedVBytes(outputs)
+  const hi = m / estimatedVBytes(outputs)
+  const points = new Set<number>([hi])
+  for (const k of [1, 2, 3]) {
+    const est = estimatedVBytes(k)
+    for (let j = Math.floor(lo * est); j <= Math.ceil(hi * est); j++) {
+      const x = j / est
+      if (x > lo && x < hi) points.add(x)
+    }
   }
+  const sorted = [lo, ...[...points].sort((a, b) => a - b)]
+  const probes: number[] = [hi]
+  for (let i = 1; i < sorted.length; i++) probes.push((sorted[i - 1] + sorted[i]) / 2, sorted[i])
+  return probes.filter((f) => f > 0 && minerFee(f, outputs) === miner)
+}
+
+/**
+ * Refuses unless: the funding input is T + Fmax; the miner fee implies a fee rate within the client's cap (and the
+ * committed cap with break-even); and, for some such rate, the PSBT pays exactly the expected outputs (count, order,
+ * addresses and amounts). The node never tells the client the fee rate.
+ */
+export function checkFeeAwarePsbt(
+  psbtBase64: string, e: FeeAwareEscrow, o: Outcome, network: bitcoin.Network, opts: { maxFeeRateSatPerVb: number },
+): { ok: true; feeRate: number } | { ok: false; reason: string } {
+  const psbt = bitcoin.Psbt.fromBase64(psbtBase64, { network })
+  if (psbt.data.inputs.length !== 1) return { ok: false, reason: 'expected exactly one funding input' }
   const input = BigInt(psbt.data.inputs[0]?.witnessUtxo?.value ?? -1)
   if (input !== e.lockedSats + maxFeeSats(e)) return { ok: false, reason: 'the funding input is not the escrow amount' }
-  return { ok: true }
+  const outs = psbt.txOutputs.map((x) => ({ address: bitcoin.address.fromOutputScript(x.script, network), value: BigInt(x.value) }))
+  const miner = input - outs.reduce((s, x) => s + x.value, 0n)
+  if (miner <= 0n) return { ok: false, reason: 'no miner fee' }
+  const cap = Math.min(opts.maxFeeRateSatPerVb, e.breakEven ? e.breakEven.fMaxSatPerVb : Infinity)
+  const rates = candidateRates(miner, outs.length).filter((f) => f <= cap)
+  if (rates.length === 0) return { ok: false, reason: `miner fee ${miner} implies a fee rate above the cap ${cap} sat/vB` }
+  for (const f of rates) {
+    let expected: ExpectedOutput[]
+    try { expected = buildExpectedFeeAwareOutputs(e, o, f, network) } catch { continue }
+    if (expected.length === outs.length && expected.every((x, i) => x.address === outs[i].address && x.value === outs[i].value)) return { ok: true, feeRate: f }
+  }
+  return { ok: false, reason: 'the outputs do not match the committed fee terms' }
 }

@@ -144,6 +144,23 @@ export function canonicalJson(value: unknown): string {
   return enc(value)
 }
 
+export const FEE_POLICY_V2_DOMAIN_TAG = 'sails-fee-policy-v2'
+
+/** `FeePolicyDigestV2`: sha256 over the V2 domain tag, a newline and the canonical JSON of the whole policy. */
+export function feePolicyDigestV2(p: object): string {
+  return createHash('sha256').update(FEE_POLICY_V2_DOMAIN_TAG + '\n' + canonicalJson(p), 'utf8').digest('hex')
+}
+
+/**
+ * The digest a commitment holds for a policy, chosen by the policy's explicit version: no `version` field is V1, 2 is
+ * V2, anything else is refused (null). A V2 policy is never digested, and so never accepted, as V1.
+ */
+export function feePolicyDigest(p: FeePolicyV1 & { version?: unknown }): string | null {
+  if (!('version' in p) || p.version === undefined) return feePolicyDigestV1(p)
+  if (p.version === 2) { try { return feePolicyDigestV2(p) } catch { return null } }
+  return null
+}
+
 /** `FeePolicyDigestV1`, or null when a field is not in its canonical form. */
 export function feePolicyDigestV1(p: FeePolicyV1): string | null {
   if (!RATE.test(p.protocolFeeRate) || !IDENT.test(p.payerModel) || !IDENT.test(p.economicBasis) || !isInt(p.requiredConfirmations, 0)) return null
@@ -203,7 +220,7 @@ export function evaluateTradeCommitment(e: TradeCommitmentEvaluation): TradeComm
   if (!isPositiveDecimal8(o.minAmount) || !isPositiveDecimal8(o.maxAmount)) return refuse('E25_OFFER_ENVELOPE_INVALID', 'limits')
   if (units(c.amount) < units(o.minAmount) || units(c.amount) > units(o.maxAmount)) return refuse('E25_OFFER_LIMITS_VIOLATED')
   if (!e.enabledRails.has(c.rail)) return refuse('E25_RAIL_NOT_ENABLED')
-  if (feePolicyDigestV1(e.feePolicy) !== c.feePolicyDigest) return refuse('E25_FEE_POLICY_DIGEST_MISMATCH')
+  if (feePolicyDigest(e.feePolicy) !== c.feePolicyDigest) return refuse('E25_FEE_POLICY_DIGEST_MISMATCH')
   for (const [role, sig, key] of [['maker', e.maker, c.makerPublicKey], ['taker', e.taker, c.takerPublicKey]] as const) {
     if (!sig) continue
     if (!verifyDigestSignature(digest, sig.signature, key)) return refuse('E25_SIGNATURE_INVALID', role)
