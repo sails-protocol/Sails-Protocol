@@ -527,7 +527,7 @@ FundingInstruction {
 
 | Rail | Instruction shape today | Real backing |
 |---|---|---|
-| `MULTISIG` | On-chain BTC address (`Escrow.multisigAddr`), buyer/seller self-fund | Real, mainnet-proven (`docs/MAINNET_MULTISIG_PROOF.md`) |
+| `MULTISIG` | On-chain BTC address (`Escrow.multisigAddr`), buyer/seller self-fund | Real code; one micro-value mainnet rehearsal is recorded (`docs/MAINNET_MULTISIG_PROOF.md`), a historical record and not a production authorization |
 | `LIGHTNING_HODL` | Ark/Arkade VTXO address, not a plain Lightning invoice (`docs/DATABASE.md`'s own 2026-09-10 correction) | Real, testnet-evidenced |
 | `WDK_USDT_EVM` | Deterministic EVM sub-account address, server-custodial | Real, but `PRODUCTION-INELIGIBLE` (§10) |
 | `SAFE_GUARD_EVM` | Predicted Safe/Guard CREATE2 address | Real, Sepolia-verified, never live-funded |
@@ -736,7 +736,7 @@ Discovery (browse/filter Offers)
   → Escrow COMPLETED, Trade COMPLETED, Reputation updated (POSITIVE)
 ```
 
-Every step above is Real/Evidenced for at least `MULTISIG` (mainnet-proven)
+Every step above is Real/Evidenced for at least `MULTISIG` (one micro-value mainnet rehearsal, not a production authorization)
 and `MOCK` (fully exercised in tests); `WDK_USDT_EVM`/`SAFE_GUARD_EVM`
 follow the identical orchestration path with rail-specific caveats
 (§9, §10).
@@ -907,7 +907,7 @@ instruction.
 ## 22. Current Reality vs. Product Direction (summary)
 
 The canonical journey (§1) is **substantially real** end to end for at
-least one fully-evidenced rail (`MULTISIG`, mainnet-proven) and for
+least one fully-evidenced rail (`MULTISIG`, with one micro-value mainnet rehearsal and no production authorization) and for
 `MOCK` (fully test-covered). The **Economic Commitment Boundary is real
 and legible** (Trade creation, §2), though the exact accepted-Offer
 snapshot is not separately preserved. The **largest, most material gap

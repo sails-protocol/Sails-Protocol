@@ -1787,7 +1787,7 @@ strategic/grant/partnership context, not developer onboarding)
 
 *(Architectural breadth, not equal build status — Bitcoin/USDT are
 implemented and real-path validated, Lightning is real-path validated on
-testnet only, Liquid is designed only with zero implementation. See
+testnet only (via the Ark/Arkade rail, closed to new admissions for Day 0), Liquid is designed only with zero implementation. See
 README.md's "Rail readiness" section for the full per-rail disclosure.)*
 
 Read bottom-to-top for "what does this run on" (settlement assets → Tether
