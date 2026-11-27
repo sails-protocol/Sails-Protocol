@@ -1,5 +1,7 @@
 # Market Spaces (CTO 31): mercados P2P independentes e personalizáveis
 
+> **Implementation status (English summary):** this document is a design direction and a UI demonstration. No market model, route or service exists in the reference implementation yet. Ownership and recovery are specified in [ADR-008](../../adr/ADR-008-portable-identity-market-ownership.md) and summarised in the last section. The rest of this file is still in Portuguese; a translation pass is planned.
+
 > **Status:** visão aprovada conceitualmente pelo CTO (2026-11-22). **Decisão do PO (2026-11-22): Market Spaces entra no escopo Day 0; a ratificação formal do CTO do recorte Day 0 vem com a proposta técnica. Não implementado.** Este documento registra a decisão de produto e arquitetura; o mapeamento técnico (o que já existe, o que é reaproveitável, o que é novo) e a proposta de escopo são entregas separadas. Rastreabilidade: GitHub Project #3 (cartão "Market Spaces").
 
 ## 1. Visão
@@ -46,3 +48,22 @@ Por decisão do PO, Market Spaces integra o Day 0; a UI constrói a experiência
 - **Experiência aprovada:** "Meus mercados" (grade ou lista); página própria por mercado; criação de mercado com ícone 1:1 e banner 3:1; política opcional de KYC com o provedor do próprio administrador; login social opcional (X, LinkedIn, GitHub); selo **P2P** ou **Empresa/OTC** por mercado; selo "Verificado" **somente na demonstração**.
 - **Somente demonstração ou roadmap (nada real):** compra de espaço (produto Satsails, pagamento único; **preços fictícios de demonstração: US$ 497 / 997 / 1.997, não são os preços comerciais definitivos**); nó gerenciado ("Em breve"); chat em grupo (roadmap). Nenhum pagamento, KYC ou provisionamento reais nesta etapa.
 - Decisões de interface registradas em `packages/sails-ui/DECISIONS.md`.
+
+## Ownership and administrative recovery
+
+A market is owned by an identity, not by the node that hosts it, the device that created it or the wallet that paid for it. Hosting, ownership and data availability are separate responsibilities, and the same contract applies to a public node and to a self-hosted node. The decision, its limits and the user journey are in [ADR-008](../../adr/ADR-008-portable-identity-market-ownership.md); the diagrams are in [SYSTEM_DESIGN.md section 14.5](../../SYSTEM_DESIGN.md).
+
+| Topic | Statement | Label |
+| --- | --- | --- |
+| Status today | No market model, route or service exists in the reference implementation. The UI shows a demonstration. | Implemented (demonstration only) |
+| Creation and proof | The owner's Sails participant key signs a genesis record, and ownership is the chain of signed revisions from it. A row in a node database is a cache, never the source. | Approved (direction) |
+| Administration | Administrators act only within a scope and validity the owner signed. They cannot transfer the market or widen their powers. The node operator has no implicit power. | Approved (direction) |
+| Payment | Paying for activation does not make anyone the owner. | Approved (direction) |
+| Recovery authority | The owner names a recovery authority before any loss (default: the owner's own Pubky identity; k of n optional). It authorises a new key. The old key is never reused. | Approved (direction) |
+| Waiting period | A recovery, a transfer or a change of the authority takes effect no earlier than 7 days later, and the current key can veto it. This is a minimum security period, not a promise of recovery within 7 days: if the host is unavailable or refuses, the recovery stays blocked. | Approved (direction) |
+| Who counts the period | The market host, with an append-only log. The owner's homeserver is a transparency mirror only. | Approved (direction) |
+| Validation by the SDK | The SDK verifies the signature chain and the recovery binding, and flags a recovery declared effective earlier than it saw. | Approved (direction) |
+| Social data | First release: contacts stay on the device. Recovery of contacts depends on a signer release that delivers scoped encryption keys, verified on real devices. | Unvalidated dependency |
+| Moving a market to another host | Export and import of the signed revisions. Until it exists, a host that refuses can block a recovery. | Unvalidated dependency |
+
+**Labels.** *Implemented* exists in code. *Approved (direction)* is accepted product direction that is **not implemented**. *Unvalidated dependency* depends on implementation or upstream support that has not been signed off.
