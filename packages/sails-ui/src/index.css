@@ -604,6 +604,30 @@ body {
   }
 }
 
+/* Windows high contrast (forced colors): the system drops box-shadow and every background tone, so the
+   field focus (border + inset shadow) and borderless controls and surfaces vanish. Normal colors unchanged.
+   Focus: a real outline, unlayered and !important so it beats `field-focus`'s outline: none.
+   Boundaries: a 1px border on controls and toned surfaces; forced colors paint it in the system color.
+   In the base layer, so a control's own border utility (border-2, border-0) still wins. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-style: solid !important;
+    outline-width: 2px !important;
+    outline-color: Highlight !important;
+  }
+}
+@layer base {
+  @media (forced-colors: active) {
+    button, [role=button], [role=tab], select, textarea,
+    input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
+    a[class*="inline-flex"][class*="rounded"],
+    [class*="bg-brand-surface"], [class*="bg-brand-elevated"], [class*="bg-brand-tonal"] {
+      border-width: 1px;
+      border-style: solid;
+    }
+  }
+}
+
 /* Fields (input, textarea, select, picker chips): one boundary only. No outer
    outline; on focus the field's own 1px border turns focus color and an inset
    1px shadow makes it 2px without shifting layout. Error = same, in danger. */
