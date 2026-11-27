@@ -142,3 +142,19 @@ export const MIN_AGGREGATE_COUNT = 5
 export function aggregatesHidden(i: { completed: number; members: number | null | undefined }): boolean {
   return i.completed < MIN_AGGREGATE_COUNT || i.members === null || i.members === undefined || i.members < MIN_AGGREGATE_COUNT
 }
+
+/**
+ * One call per key while it is in flight: callers that ask for the same key before it settles share its promise
+ * (Perfil's "Minhas estatísticas" and "Seu caminho" read the same trade list). Settled calls are forgotten, so the
+ * next visit or a retry reads fresh data.
+ */
+export function inFlightOnce<R>(run: (key: string) => Promise<R>): (key: string) => Promise<R> {
+  const pending = new Map<string, Promise<R>>()
+  return (key) => {
+    const known = pending.get(key)
+    if (known) return known
+    const p = run(key).finally(() => { if (pending.get(key) === p) pending.delete(key) })
+    pending.set(key, p)
+    return p
+  }
+}

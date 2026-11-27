@@ -469,6 +469,9 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
 - A demonstração percorre toda jornada até a tela final: compra, venda repetida, disputa e contestação, devolução, cancelamento, mercados (criar, convidar, entrar, chats, publicar, sair, transferir), ativação, recuperação e sessão mantida ao recarregar. Todo passo simulado leva o selo "Simulado"; no modo real nada muda e o que falta continua "Em breve".
 - A página de um mercado recomeça do zero quando o mercado muda: aba, filtros, passos de KYC/login social e conversa privada nunca passam de um mercado para outro.
 - A rodada de devolução do MULTISIG ("Cancelar e devolver") é só simulada: no modo real a interface não assina nenhuma rodada MULTISIG (Despacho 033 em HOLD).
+- Na demonstração, as conversas privadas de um mercado ficam guardadas na sessão, separadas por mercado: depois de "Propor negociação", "Voltar à conversa" reabre a conversa com o histórico (2026-11-27).
+- Na demonstração, entrar num mercado soma 1 ao número de participantes e sair subtrai 1 (2026-11-27).
+- "Mercado que abre por padrão" passa a valer: o Market abre no mercado salvo quando o endereço não indica outro; se esse mercado não existe mais ou a pessoa não participa mais dele, abre o Mercado aberto. "Abrir" no Mercado aberto (Explorar mercados) e o endereço do Mercado aberto continuam levando a ele. No modo real só o Mercado aberto pode ser escolhido, então nada muda lá (2026-11-27).
 
 ## Pendente de decisão (não tratar como fechado)
 

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { FaqTextLink } from '../components/faq/FaqLink'
 import { PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
@@ -19,7 +19,7 @@ import { ListSkeleton } from '../components/ui/skeleton'
 import { cn } from '../lib/utils'
 import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { TRADES_ROUTES } from '../components/layout/navMatch'
+import { TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { Alert } from '../components/ui/alert'
 import { Input } from '../components/ui/input'
@@ -34,6 +34,8 @@ import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { acceptsAnyMethod, offerPaymentMethods } from '../lib/paymentMethods'
 import { MarketPortalButton, MarketsCallToAction, MarketsDiscoveryCard } from './markets/MarketsEntry'
+import { readDefaultMarketChoice, useVisibleMarkets } from './markets/shared'
+import { defaultMarketTarget } from '../lib/myMarkets'
 import { t } from '../i18n'
 
 const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: () => string }[] = [
@@ -43,6 +45,17 @@ const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: () => string }[] = [
 ]
 
 const FILTERS_STORAGE_KEY = 'sails_ui_marketplace_filters'
+
+/**
+ * "/": opens the market saved in Configurações → Mercados while the person still belongs to it, otherwise Mercado
+ * aberto. A market named in the URL wins (`?market=public` is Mercado aberto itself, MARKET_OPEN_PATH).
+ */
+export function MarketHome() {
+  const [params] = useSearchParams()
+  const markets = useVisibleMarkets()
+  const target = params.has('market') ? null : defaultMarketTarget(readDefaultMarketChoice(), markets)
+  return target ? <Navigate to={marketPath(target)} replace /> : <Marketplace />
+}
 
 export function Marketplace() {
   const [asset, setAsset] = useState<AssetType | 'Todos'>('Todos')

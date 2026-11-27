@@ -36,6 +36,15 @@ interface Intent { type: IntentType; min: number; max?: number; method: string }
 interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean; risky?: boolean; demoReply?: boolean }
 interface Peer { author: string; seed: string }
 type Tab = 'group' | 'private'
+type Threads = Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>
+
+// Demo private threads by market (a `sails_demo_` key, so the demo reset clears it); unreadable storage = empty.
+const THREADS_KEY = 'sails_demo_market_chats_v1'
+const readAllThreads = (): Record<string, Threads> => { try { return JSON.parse(sessionStorage.getItem(THREADS_KEY) ?? '{}') as Record<string, Threads> } catch { return {} } }
+const loadThreads = (market: string): Threads => readAllThreads()[market] ?? {}
+function saveThreads(market: string, threads: Threads): void {
+  try { sessionStorage.setItem(THREADS_KEY, JSON.stringify({ ...readAllThreads(), [market]: threads })) } catch { /* stays in memory */ }
+}
 
 const INTENT_TYPES: readonly IntentType[] = ['payBill', 'buyUsdt', 'buyBtc', 'sellBtc']
 // The side of the person who answers: they sell what the poster wants to buy, and buy what the poster sells.
@@ -193,11 +202,13 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false, can
   const [pinned, setPinned] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const postButton = useRef<HTMLButtonElement>(null)
-  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
+  const [threads, setThreads] = useState<Threads>(() => loadThreads(backTo ?? ''))
+  // Kept per market in sessionStorage, so "Voltar à conversa" after "Propor negociação" finds the history.
+  useEffect(() => { saveThreads(backTo ?? '', threads) }, [backTo, threads])
   const [open, setOpen] = useState<string | null>(null)
 
   const openPrivate = (peer: Peer, intent?: Intent, context?: string, side?: 'BUY' | 'SELL', offerId?: string) => {
-    setThreads((th) => ({ ...th, [peer.seed]: { peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side, offerId: offerId ?? th[peer.seed]?.offerId } }))
+    setThreads((th) => ({ ...th, [peer.seed]: { peer: th[peer.seed]?.peer ?? peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side, offerId: offerId ?? th[peer.seed]?.offerId } }))
     setOpen(peer.seed)
     setTab('private')
   }

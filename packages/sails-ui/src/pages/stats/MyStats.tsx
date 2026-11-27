@@ -22,7 +22,7 @@ import { errorMessage } from '../../lib/errors'
 import { isDemoMode } from '../../lib/demoMarkers'
 import { ASSET_SHORT_LABELS } from '../../lib/labels'
 import { bucketSizeFor, bucketStarts, formatBucket, inRange, type DateRange } from '../../lib/periods'
-import { averageDuration, durationParts, mapLimited, periodFigures, releaseDurationMs, releaseSample, type TradeRecord } from '../../lib/tradeStats'
+import { averageDuration, durationParts, inFlightOnce, mapLimited, periodFigures, releaseDurationMs, releaseSample, type TradeRecord } from '../../lib/tradeStats'
 import { getLocale } from '../../lib/locale'
 import { t } from '../../i18n'
 import { chartCopy, countDelta, DASHBOARD_SECTION, DashboardHeader, DashboardPicker, usePeriod, useResolvedPeriod, VolumeChart, VolumeValue } from './DashboardParts'
@@ -41,30 +41,33 @@ export function toRecord(tr: Trade): TradeRecord {
 
 type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; trades: TradeRecord[]; total: number }
 
-/** Walks every page with hasMore, up to MAX_TRADES. */
-export function useOwnTrades(enabled: boolean): [Load, () => void] {
+/** Walks every page with hasMore, up to MAX_TRADES; one walk per identity while it runs (shared by the Perfil sections). */
+const walkOwnTrades = inFlightOnce(async () => {
+  const all: Trade[] = []
+  let total = 0
+  for (let offset = 0; all.length < MAX_TRADES; offset += PAGE) {
+    const page = await sailsClient.openp2p.getTrades({ limit: PAGE, offset })
+    all.push(...page.trades)
+    total = page.total
+    if (!page.hasMore || page.trades.length === 0) break
+  }
+  return { trades: all.slice(0, MAX_TRADES).map(toRecord), total: Math.max(total, all.length) }
+})
+
+/** The signed-in person's trades (`identity` = their public key; nothing is read without one). */
+export function useOwnTrades(identity: string | null | undefined): [Load, () => void] {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
-    if (!enabled) return
+    if (!identity) return
     let cancelled = false
     setLoad({ state: 'loading' })
-    ;(async () => {
-      const all: Trade[] = []
-      let total = 0
-      for (let offset = 0; all.length < MAX_TRADES; offset += PAGE) {
-        const page = await sailsClient.openp2p.getTrades({ limit: PAGE, offset })
-        all.push(...page.trades)
-        total = page.total
-        if (!page.hasMore || page.trades.length === 0) break
-      }
-      return { trades: all.slice(0, MAX_TRADES).map(toRecord), total: Math.max(total, all.length) }
-    })().then(
+    walkOwnTrades(identity).then(
       (r) => { if (!cancelled) setLoad({ state: 'ready', ...r }) },
       (err) => { if (!cancelled) setLoad({ state: 'error', message: errorMessage(err, t('stats.me.error')) }) },
     )
     return () => { cancelled = true }
-  }, [enabled, attempt])
+  }, [identity, attempt])
   return [load, useCallback(() => setAttempt((a) => a + 1), [])]
 }
 
@@ -130,7 +133,7 @@ const percent = (n: number) => new Intl.NumberFormat(getLocale(), { style: 'perc
 export function MyStatsSection({ user, className }: { user: User; className?: string }) {
   const demo = isDemoMode()
   const now = useMemo(() => new Date(), [])
-  const [load, retry] = useOwnTrades(true)
+  const [load, retry] = useOwnTrades(user.publicKey)
   const accountStart = useMemo(() => {
     const d = new Date(user.createdAt)
     return Number.isNaN(d.getTime()) ? now : d

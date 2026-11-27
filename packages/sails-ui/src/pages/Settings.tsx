@@ -36,7 +36,7 @@ import { PortableIdentityRows } from '../components/settings/PortableIdentityDem
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { MarketIcon } from '../components/markets/MarketIcon'
-import { useVisibleMarkets } from './markets/shared'
+import { DEFAULT_MARKET_KEY, readDefaultMarketChoice, useVisibleMarkets } from './markets/shared'
 import { ownMarkets } from '../lib/myMarkets'
 import { demoReceivedInvites, isDemoMode } from '../lib/demoMarkers'
 import { BASE_URL } from '../lib/sailsClient'
@@ -118,14 +118,13 @@ function PreferenceItem({ icon: Icon, children }: { icon: LucideIcon; children: 
  * "Mercado que abre por padrão" (DECISIONS.md "Configurações → Mercados"). Only Mercado aberto can open today: market
  * offers do not exist in the protocol (LOOSE_WIRES.marketMembership), so every other market is listed but disabled.
  */
-const DEFAULT_MARKET_KEY = 'sails_ui_default_market'
 function DefaultMarketChoice() {
   const markets = ownMarkets(useVisibleMarkets())
   const soon = t('common.soon')
-  // Demo: every market of yours can be picked and the pick is saved in this browser (simulated: the Market still
-  // opens on Mercado aberto). Real mode: only Mercado aberto, the rest "Em breve".
+  // Demo: every market of yours can be picked and the pick is saved in this browser; the Market ("/") then opens on it
+  // (MarketHome). Real mode: only Mercado aberto, the rest "Em breve".
   const demo = isDemoMode()
-  const [picked, setPicked] = useState<string | null>(() => { try { return localStorage.getItem(DEFAULT_MARKET_KEY) } catch { return null } })
+  const [picked, setPicked] = useState<string | null>(readDefaultMarketChoice)
   const current = demo && markets.some((m) => m.id === picked) ? picked : markets.find((m) => m.relation === 'default')?.id
   const pick = (id: string) => {
     setPicked(id)

@@ -10,7 +10,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNod
 import { Link, Navigate, useLocation, useParams, useSearchParams } from 'react-router'
 import { ArrowLeft, ChartColumn, CircleCheck, ExternalLink, LogOut, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
+import { MARKETS_ROUTES, TRADES_ROUTES, MARKET_OPEN_PATH, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { buttonVariants } from '../components/ui/button'
 import { StateBlock } from '../components/ui/StateBlock'
@@ -144,7 +144,7 @@ function MarketPageView({ id }: { id: string }) {
     fetchOffers('Todos', 'Todos').then(({ offers, hadError }) => { if (!cancelled) { setDemoOffers(offers); setOffersError(hadError && offers.length === 0) } })
     return () => { cancelled = true }
   }, [])
-  if (id === 'public') return <Navigate to="/" replace />
+  if (id === 'public') return <Navigate to={MARKET_OPEN_PATH} replace />
   const demo = isDemoMode()
   const page = demo ? demoMarketPage(id, snapshot) : null
   const back = (

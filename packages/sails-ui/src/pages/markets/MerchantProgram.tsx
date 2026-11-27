@@ -112,7 +112,7 @@ function PerksMatrix() {
 
 /** "Seu caminho": the criteria under study, real values only, "Meta: a homologar" on every row. */
 function YourPath({ user, demo }: { user: User | null; demo: boolean }) {
-  const [load] = useOwnTrades(!!user)
+  const [load] = useOwnTrades(user?.publicKey)
   const heading = (
     <div className="flex flex-wrap items-center gap-2">
       <h3 className="text-sm font-semibold text-brand-text">{m('path.title')}</h3>

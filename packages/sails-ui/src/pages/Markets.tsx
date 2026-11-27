@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { ArrowLeft, CheckCircle2, UsersRound } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { MARKETS_ROUTES, marketPath } from '../components/layout/navMatch'
+import { MARKETS_ROUTES, MARKET_OPEN_PATH, marketPath } from '../components/layout/navMatch'
 import { TabLinks } from '../components/ui/tabs'
 import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
@@ -233,7 +233,7 @@ function ExploreView() {
             <h2 className="text-sm font-medium text-brand-text">{open.name}</h2>
             <p className="mt-0.5 text-caption text-brand-text-secondary">{open.description}</p>
           </div>
-          <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
+          <Link to={MARKET_OPEN_PATH} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
         </div>
       )}
       <section aria-labelledby="explore-public" className="space-y-3">

@@ -107,7 +107,9 @@ const demoListeners = new Set<() => void>()
 const joined = new Set<string>(saved.joined)
 const pending = new Set<string>(saved.pending)
 const left = new Set<string>(saved.left)
-const withJoins = (m: MarketView): MarketView => (left.has(m.id) ? { ...m, relation: 'none' } : joined.has(m.id) ? { ...m, relation: 'member' } : pending.has(m.id) ? { ...m, joinPending: true } : m)
+// The fixture's count includes the demo user only where the fixture already makes them a member: joining adds one, leaving removes one.
+const countPlus = (m: MarketView, d: number): Partial<MarketView> => (m.participants === undefined ? {} : { participants: Math.max(0, m.participants + d) })
+const withJoins = (m: MarketView): MarketView => (left.has(m.id) ? { ...m, relation: 'none', ...(m.relation !== 'none' ? countPlus(m, -1) : {}) } : joined.has(m.id) ? { ...m, relation: 'member', ...(m.relation === 'none' ? countPlus(m, 1) : {}) } : pending.has(m.id) ? { ...m, joinPending: true } : m)
 const NO_KEYS: readonly string[] = []
 // Admin side (markets the demo user administers): fictional requests, members (public keys) and invites per market.
 let requests: readonly string[] = saved.requests ?? DEMO_JOIN_REQUEST_KEYS
