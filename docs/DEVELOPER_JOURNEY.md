@@ -91,9 +91,7 @@ chat.send({ content: 'Sending payment now', msgType: 'TEXT' })
 
 ### Step 4 - Enable Settlement (escrow)
 
-**Status: ✅ Real** (`sails.settlement.create` / `lock` / `release` are
-real implementations of MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM,
-WDK_USDT_EVM, and MOCK providers, all covered by integration tests).
+**Status: ✅ Implemented interfaces and tested paths** (`sails.settlement.create` / `lock` / `release` cover MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM, WDK_USDT_EVM, and MOCK). Implementation and test coverage do not establish equivalent custody guarantees or production eligibility across providers (see RFC-019/RFC-020 and `GETTING_STARTED.md`'s provider matrix).
 
 ```typescript
 // create() takes an object body (EscrowType, lockedAmount, asset,
@@ -109,8 +107,7 @@ await sails.settlement.lock(escrow.id)
 await sails.settlement.release(escrow.id, buyerPayoutAddress)
 ```
 
-This is the step that turns a negotiation into money actually moving -
-non-custodially: Sails Protocol never holds the funds itself.
+This step coordinates settlement through the selected provider. Non-custody is the protocol's normative design goal, not a guarantee of every reference path: Bitcoin MULTISIG uses participant-held signing keys; `WDK_USDT_EVM` instead uses a server-held escrow signing seed and is production-ineligible (RFC-019). `SAFE_GUARD_EVM` is a non-custodial architecture candidate, not production-activated (RFC-019/RFC-020).
 
 ### Step 5 — Enable Reputation
 
@@ -129,7 +126,7 @@ your app (`ARCHITECTURE.md` section 3).
 ### Step 6 — Working Marketplace
 
 Five steps, one SDK, one keypair. What you have at this point is a wallet
-that can discover a counterparty, negotiate, settle non-custodially, and
+that can discover a counterparty, negotiate, coordinate settlement with the selected provider, and
 build portable reputation — the definition of a P2P Financial Marketplace
 used throughout this project (`PROJECT_CONTEXT.md` section 1). Everything
 past this — OpenAgents fraud detection, OpenFinance's future modules — is
