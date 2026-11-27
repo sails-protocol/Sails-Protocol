@@ -115,7 +115,7 @@ interface EventStore {
 
 `SailsEventBus` (`event-bus.ts`) no longer extends `EventEmitter`
 directly — it wraps an injected `EventStore` (`InMemoryEventStore` by
-default) and delegates `emit()`/`on()` to it. `emit()` now requires a
+default when written; **Corrected/Implemented 2026-11-27:** `PostgresEventStore` is the default now, `src/common/events/event-bus.ts`) and delegates `emit()`/`on()` to it. `emit()` now requires a
 third `correlationId: string` argument; `on()`'s handler signature is
 **unchanged** — still receives the bare payload, per the alternative
 above.
@@ -136,6 +136,8 @@ above.
   when there is no trade to correlate to.
 
 ### `InMemoryEventStore` — the default, explicitly non-durable
+
+> **Corrected/Implemented 2026-11-27:** this describes the state when the RFC was written. `PostgresEventStore` (`durable: true`, `src/common/events/event-store.ts`) is the default `EventStore` of `SailsEventBus`; `InMemoryEventStore` is kept for tests. Durable storage is not exactly-once delivery: handlers are at-least-once and idempotent by claim (`src/common/events/handlers.ts`).
 
 Implemented and verified in this pass (`common/events/event-store.ts`):
 wraps a private `EventEmitter`, generates `eventId`/`publishedAt`,
@@ -216,7 +218,7 @@ without promoting it to anything more than it already was.
 
 `protocolVersion` bump recommended. Zero live-data migration — this is a
 code-shape/interface change, not a schema change; no new database columns.
-Runtime behavior with the default `InMemoryEventStore` is unchanged from
+Runtime behavior with the default `InMemoryEventStore` (the default when this RFC was written) is unchanged from
 before this RFC (still non-durable) — the only externally-visible change
 is that `eventBus.emit()` now requires a third argument, a compile-time
 break for any code calling it without one. Verified via `npm run build`

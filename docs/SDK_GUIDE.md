@@ -255,7 +255,7 @@ interface SailsClient {
     submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }, idempotencyKey?: string): Promise<Dispute>   // requires an active session + trade party; optional idempotencyKey makes retries safe
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
-    // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; when the node enables REQUIRE_DUAL_APPROVAL_RELEASE (off by default), release and initiateRelease are refused until both counterparties have approved.
+    // RFC-021 — two-person control for escrow release. approveRelease() records the caller's approval; when the node enables REQUIRE_DUAL_APPROVAL_RELEASE (off by default), release and initiateRelease are refused until both counterparties have approved.
     approveRelease(escrowId: string): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }>   // requires an active session
     getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // requires an active session + trade party/assigned arbiter
     // Arbiter registration/profile are exposed by client.arbitration, not by client.settlement.

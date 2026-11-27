@@ -906,6 +906,8 @@ on every `IntentEvent` row, `sha256(fromStatus|toStatus|triggeredBy|prevHash)`,
 `'genesis'` for an Intent's first event. `payload` is intentionally opaque
 `Json` — a new `IntentType` (e.g. `LoanIntent`) needs zero migration here,
 only application-level TypeScript/Zod validation for its shape.
+**Corrected/Implemented 2026-11-27 (four distinct records, not one):** `IntentEvent` (this section) is the hash-chained lifecycle of one Intent; `EscrowEvent` is the fund-movement history of one escrow; `ReputationEvent` is the per-trade rating record between a rater and a rated participant; `DurableEventRecord` (below) is the shared chained store behind `EventStore`, and the Timeline projection reads `DurableEvent`s by `tradeId` correlation (`src/core/timeline.ts`), not these tables. They are separate records and none replaces another. The "first implementation" wording of this heading is historical: `Intent` and `IntentEvent` are real, durable PostgreSQL models today. Durable storage is not exactly-once delivery, and neither store makes an external rail result known: the recovery limits are per rail.
+
 Deliberately 2 tables, not the 3 `PROTOCOL_SPECIFICATION.md` §2.6
 originally sketched — see that section for why the `intent_payloads` split
 turned out to add a join without adding any real flexibility once this
