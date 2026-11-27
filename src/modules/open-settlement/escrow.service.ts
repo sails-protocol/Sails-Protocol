@@ -5,6 +5,7 @@ import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
 import { config } from '../../config'
+import { childLogger } from '../../common/logger'
 import { eventBus } from '../../common/events/event-bus'
 import { translateLegacyAssetType } from '../../common/settlement-scope-legacy'
 import { resolveSingleStructurallyCompatibleImplementation } from '../../common/execution-candidates'
@@ -420,7 +421,7 @@ export class EscrowService {
   // required now — same "buyer or seller of the trade" bar every other
   // trade-mutating method in this file already enforces (see e.g.
   // submitParticipantKey()'s identical check a few lines below).
-  async createEscrow(input: CreateEscrowInput, participantId: string) {
+  async createEscrow(input: CreateEscrowInput, participantId: string, opts: { onBuyerDeprecated?: () => void } = {}) {
     // Reads Trade only to validate existence — this is a read, not a write,
     // so it does not violate the module boundary (OpenSettlement may read
     // cross-module state; it must never WRITE to another module's tables).
@@ -428,6 +429,13 @@ export class EscrowService {
     if (!trade) throw new NotFoundError('Trade', input.tradeId)
     if (participantId !== trade.buyerId && participantId !== trade.sellerId) {
       throw new ForbiddenError(`${participantId} is not a counterparty (buyer or seller) of trade ${trade.id}`)
+    }
+    // D7: only the seller creates the escrow. Checked before any lock, write or event, so a refusal changes nothing.
+    if (participantId === trade.buyerId && participantId !== trade.sellerId) {
+      // The real config always resolves a mode (enforce in production); a test double without it keeps today's behaviour.
+      if ((config.features.escrowCreateSellerOnly ?? 'warn') === 'enforce') throw escrowCreateSellerOnly(trade.id)
+      escrowLog.warn({ msg: 'escrow.create.buyer_deprecated', event: 'escrow.create.buyer_deprecated', tradeId: trade.id })
+      opts.onBuyerDeprecated?.()
     }
     if (trade.escrowId) throw new EscrowError('Trade already has an escrow')
 
@@ -1288,6 +1296,13 @@ export class EscrowService {
 }
 
 export const escrowService = new EscrowService()
+
+const escrowLog = childLogger('escrow')
+
+/** D7: the stable refusal a buyer gets in `enforce` mode (a third party still gets the generic FORBIDDEN). */
+function escrowCreateSellerOnly(tradeId: string) {
+  return new AppError(`Only the seller of trade ${tradeId} can create its escrow; the buyer waits for the seller.`, 403, 'ESCROW_CREATE_SELLER_ONLY')
+}
 
 // The escrow's economic terms are the trade's and its committed pair's, never the caller's own.
 function escrowTermsMismatch(detail: string) {

@@ -1440,6 +1440,38 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
       expect(res.statusCode).toBe(201)
       expect(JSON.parse(res.body).data.id).toBe('escrow-1')
+      // D7 warn mode (the test default): the buyer still creates, but is told it is deprecated.
+      expect(res.headers['deprecation']).toBe('true')
+      expect(String(res.headers['link'])).toContain('rel="deprecation"')
+    })
+
+    it("D7 enforce: the buyer gets 403 with the stable code ESCROW_CREATE_SELLER_ONLY, the seller still creates", async () => {
+      const previous = config.features.escrowCreateSellerOnly
+      config.features.escrowCreateSellerOnly = 'enforce'
+      try {
+        const trade = { id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1', asset: 'BTC', amount: '0.01' }
+        mockTradeFindUnique.mockResolvedValueOnce(trade)
+        const buyer = await app.inject({
+          method: 'POST', url: '/v1/settlement/escrow',
+          headers: { authorization: `Bearer ${await authedSession('buyer-1')}` },
+          payload: { tradeId: 'trade-1', lockedAmount: '0.01', asset: 'BTC' },
+        })
+        expect(buyer.statusCode).toBe(403)
+        expect(JSON.parse(buyer.body).error).toBe('ESCROW_CREATE_SELLER_ONLY')
+
+        mockTradeFindUnique.mockResolvedValueOnce(trade)
+        mockLockPair.mockResolvedValueOnce({ row: { id: 'pair-1', rail: 'MOCK', trade: { asset: 'BTC', amount: '0.01' } }, readiness: { ok: true }, t: new Date() })
+        mockEscrowCreate.mockResolvedValueOnce({ id: 'escrow-2', tradeId: 'trade-1', status: 'CREATED', type: 'MOCK', lockedAmount: '0.01', asset: 'BTC' })
+        const seller = await app.inject({
+          method: 'POST', url: '/v1/settlement/escrow',
+          headers: { authorization: `Bearer ${await authedSession('seller-1')}` },
+          payload: { tradeId: 'trade-1', lockedAmount: '0.01', asset: 'BTC' },
+        })
+        expect(seller.statusCode).toBe(201)
+        expect(seller.headers['deprecation']).toBeUndefined()
+      } finally {
+        config.features.escrowCreateSellerOnly = previous
+      }
     })
 
     // Security review, 2026-08-15 — same Bisq-incident bug class as the

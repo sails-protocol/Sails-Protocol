@@ -9,6 +9,8 @@ export interface UseSailsEscrowResult {
   release: UseMutationResult<Escrow, Error, string>
   refund: UseMutationResult<Escrow, Error, void>
   dispute: UseMutationResult<Dispute, Error, { reason: string; evidence?: unknown[] }>
+  /** Only the seller creates a trade's escrow; false for the buyer (and when the role is unknown). */
+  canCreate: boolean
 }
 
 /**
@@ -21,7 +23,7 @@ export interface UseSailsEscrowResult {
  * mutations simply aren't called yet) the same way useSailsTrade()
  * handles an unresolved id.
  */
-export function useSailsEscrow(escrowId: string | undefined): UseSailsEscrowResult {
+export function useSailsEscrow(escrowId: string | undefined, opts: { role?: 'buyer' | 'seller' } = {}): UseSailsEscrowResult {
   const client = useSailsClient()
   const queryClient = useQueryClient()
   const queryKey = ['sails', 'escrow', escrowId] as const
@@ -62,5 +64,5 @@ export function useSailsEscrow(escrowId: string | undefined): UseSailsEscrowResu
     onSuccess: invalidate,
   })
 
-  return { query, lock, markPaymentSent, release, refund, dispute }
+  return { query, lock, markPaymentSent, release, refund, dispute, canCreate: opts.role === 'seller' }
 }

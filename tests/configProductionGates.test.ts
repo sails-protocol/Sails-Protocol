@@ -652,3 +652,30 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     })
   })
 })
+
+describe("D7: ESCROW_CREATE_SELLER_ONLY at boot (matrix {production, dev} x {warn, enforce, unset})", () => {
+  const ORIGINAL_ENV = process.env
+  beforeEach(() => { jest.resetModules(); process.env = {} })
+  afterAll(() => { process.env = ORIGINAL_ENV })
+  const modeWith = (env: Record<string, string>) => {
+    Object.assign(process.env, env)
+    return require('../src/config').config.features.escrowCreateSellerOnly
+  }
+
+  it.each([
+    ['production', 'warn', 'enforce'],
+    ['production', 'enforce', 'enforce'],
+    ['production', undefined, 'enforce'],
+    ['development', 'warn', 'warn'],
+    ['development', 'enforce', 'enforce'],
+    ['development', undefined, 'warn'],
+  ])("NODE_ENV=%s with %s resolves to %s (production never reopens the buyer path)", (nodeEnv, value, expected) => {
+    const base = nodeEnv === 'production' ? REQUIRED_PROD_ENV : { NODE_ENV: 'development' }
+    expect(modeWith({ ...base, ...(value === undefined ? {} : { ESCROW_CREATE_SELLER_ONLY: value }) })).toBe(expected)
+  })
+
+  it.each([['production'], ['development']])("an unknown value fails the boot (%s)", (nodeEnv) => {
+    const base = nodeEnv === 'production' ? REQUIRED_PROD_ENV : { NODE_ENV: 'development' }
+    expect(() => modeWith({ ...base, ESCROW_CREATE_SELLER_ONLY: 'ENFORCE' })).toThrow(/ESCROW_CREATE_SELLER_ONLY must be "warn" or "enforce"/)
+  })
+})

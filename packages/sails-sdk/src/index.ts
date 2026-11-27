@@ -25,6 +25,8 @@ export {
   SailsTransportError,
   SailsConfigError,
   SailsNotImplementedError,
+  ESCROW_CREATE_SELLER_ONLY,
+  isEscrowCreateSellerOnly,
 } from './errors'
 
 export {

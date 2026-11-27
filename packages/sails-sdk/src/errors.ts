@@ -39,6 +39,12 @@ export class SailsError extends Error {
   }
 }
 
+/** The stable code a buyer receives when it tries to create a trade's escrow; only the seller creates it. */
+export const ESCROW_CREATE_SELLER_ONLY = 'ESCROW_CREATE_SELLER_ONLY' as const
+
+export const isEscrowCreateSellerOnly = (err: unknown): boolean =>
+  err instanceof SailsError && err.code === ESCROW_CREATE_SELLER_ONLY
+
 export class SailsValidationError extends SailsError {
   constructor(message: string, details: unknown[] = []) {
     super(message, 'VALIDATION_ERROR', 400, details)

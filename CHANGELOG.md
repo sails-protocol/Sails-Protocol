@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 > **Current-truth note (2026-09-19):** This changelog is a historical change record, not an architecture or production-readiness authority. For current system truth, start with `README.md`, `docs/PROJECT_CONTEXT.md`, `docs/SYSTEM_DESIGN.md`, governing ADR/RFC/specification documents, and live GitHub Issues/Project state. Older entries below may describe implementation states that were true when recorded but have since evolved.
 
+### Behavior change: only the seller creates a trade's escrow
+
+- `POST /v1/settlement/escrow` (`settlement.create()` in the SDK) is now for the trade's **seller** only.
+- **Migration:** the buyer no longer calls it; it waits for the `settlement.escrow.created` event, or reads the trade's `escrowId`.
+- `ESCROW_CREATE_SELLER_ONLY` selects the mode:
+  - `enforce`: a buyer gets `403` with the stable code `ESCROW_CREATE_SELLER_ONLY`.
+  - `warn`: a buyer still creates the escrow, and the response carries `Deprecation: true` and a `Link` to this entry.
+  - Unset means `enforce` in production and `warn` elsewhere.
+- In production the buyer is refused whatever the value. An unknown value stops the node from starting.
+- A third party still gets `403 FORBIDDEN`, as before.
+- SDK additions:
+  - `ESCROW_CREATE_SELLER_ONLY` and `isEscrowCreateSellerOnly()`;
+  - `useSailsEscrow(id, { role })` returns `canCreate`, which is true only for the seller.
+
 ### September 2026 — current development highlights
 
 - Current pre-v1 SDK source/package line is **0.2.0** for `@satsails/p2p-schemas`, `@satsails/p2p-trading-sdk`, and `@satsails/sdk-react`; publication/release claims remain governed by release evidence rather than this changelog alone.

@@ -283,7 +283,13 @@ export async function settlementRoutes(app: FastifyInstance): Promise<void> {
     // fix exists for, not a new mechanism.
     const body = createEscrowSchema.parse(request.body)
     const participantId = (request as AuthenticatedRequest).participantId
-    const escrow = await escrowService.createEscrow(body, participantId)
+    // D7 warn mode: the buyer still creates the escrow, but is told it is deprecated (RFC 9745 Deprecation + a Link).
+    const escrow = await escrowService.createEscrow(body, participantId, {
+      onBuyerDeprecated: () => {
+        reply.header('Deprecation', 'true')
+        reply.header('Link', '<https://github.com/sails-protocol/Sails-Protocol/blob/main/CHANGELOG.md>; rel="deprecation"')
+      },
+    })
     return reply.code(201).send(success(escrow))
   })
 
