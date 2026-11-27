@@ -5,6 +5,8 @@
 > anything here appears to conflict with `docs/CORE_IMPLEMENTATION_ARCHITECTURE.md`,
 > that document governs and this one is wrong.
 
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** statements here that the transition record has no production caller and that only the shadow observer runs in production describe the state at Bridge Phase M3.5. Since then, `dispute.service.ts` commits a durable Core-authoritative Outcome for MULTISIG disputes (`applyRulingCoreAuthoritative()`, see `docs/RECOVERY_RECONCILIATION_CONFORMANCE_EVIDENCE.md` section 4); the current wiring is not restated here.
+
 ## 1. Why this mission exists
 
 `docs/CORE_IMPLEMENTATION_ARCHITECTURE.md` §12 states, without

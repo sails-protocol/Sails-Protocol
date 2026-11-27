@@ -109,3 +109,5 @@ claim) preserved as a validated, optional extension — reusing M5's
 Core primitive. **Not yet implemented** — see that document's §16 for
 the concrete remaining work and the one open product decision (legacy
 in-flight disputes) before Mission M8-R may retry.
+
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** "Not yet implemented" describes the state when this note was written. Since then, the escrow release path resolves the beneficiary's registered payout address and no longer honors a caller-supplied destination (`escrow.service.ts`, `resolvePayoutAddress()`; the SDK's `release()` ignores its address argument). Whether every item of the remaining-work list in `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` section 16 is closed, in particular the dispute-resolution parameters and the legacy in-flight disputes, is not re-established by this note.

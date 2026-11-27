@@ -400,6 +400,8 @@ concurrency test calls `publish()` twice with no intervening `await` and
 shows the resulting fork, same precedent `tests/escrowEventHashChain.test.ts`
 already set for `EscrowEvent`.
 
+> **Corrected/Implemented 2026-11-27 (protection added later; historical text preserved):** the concurrent-fork exposure described above is protected today: `PostgresEventStore.publish()` runs inside a transaction serialized per `correlationId` by `pg_advisory_xact_lock` (`common/events/event-store.ts`), so two concurrent writers for the same `correlationId` no longer fork the chain. The paragraph above describes the state at the time of this amendment.
+
 **Verification — the restart proof.** Beyond the same tamper-detection
 matrix `tests/escrowEventHashChain.test.ts` established (mutated
 payload, tampered `entryHash`/`prevHash`, deleted entry, reordered
