@@ -464,6 +464,12 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
   - nenhuma âncora em Bitcoin aparece na interface;
   - a recuperação dos contatos continua condicionada ao suporte do app de identidade.
 
+## Demonstração sem becos sem saída (PO, 2026-11-27)
+
+- A demonstração percorre toda jornada até a tela final: compra, venda repetida, disputa e contestação, devolução, cancelamento, mercados (criar, convidar, entrar, chats, publicar, sair, transferir), ativação, recuperação e sessão mantida ao recarregar. Todo passo simulado leva o selo "Simulado"; no modo real nada muda e o que falta continua "Em breve".
+- A página de um mercado recomeça do zero quando o mercado muda: aba, filtros, passos de KYC/login social e conversa privada nunca passam de um mercado para outro.
+- A rodada de devolução do MULTISIG ("Cancelar e devolver") é só simulada: no modo real a interface não assina nenhuma rodada MULTISIG (Despacho 033 em HOLD).
+
 ## Pendente de decisão (não tratar como fechado)
 
 - Itens do `DESIGN_SYSTEM.md` ainda marcados como provisórios e que não entraram no pacote de 21/11 seguem provisórios.
