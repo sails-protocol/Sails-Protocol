@@ -87,7 +87,9 @@ key also permits authentication. Challenge consumption does not establish
 per-operation replay resistance, transaction authorization or economic
 idempotency. Those require separate controls. Registration proof uses a
 separate challenge domain (Issue #302), not the bare authentication
-challenge construction.
+challenge construction. Authentication, Capability Authority and Economic
+Disposition Authority are three separate controls: a valid session proves
+only who is calling.
 
 ---
 

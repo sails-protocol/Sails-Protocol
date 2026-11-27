@@ -264,7 +264,7 @@ and Structural Invariant 5 (an implementation that lets an Agent act
 without a delegating Participant's authority is not a partial
 implementation of Sails Protocol). Derived Operational Invariants:
 `INV-OP-1` (no escrow mutation without a verified party), `INV-OP-6`
-(every authenticated write requires a verified signature).
+(every authenticated write is attributed to a participant proven by a challenge-response login; see the clarification under INV-OP-6).
 
 **EVIDENCE.** `common/middleware/auth.ts`'s `requireAuth()`;
 `tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
@@ -850,6 +850,8 @@ challenge-response verification (`CRYPTOGRAPHIC_MODEL.md` §2) — never
 from a bare claimed id. Originally the RT-002 fix for one route family;
 generalized and re-verified across the codebase in the same gap audit
 as INV-OP-1 (`TODO.md` §14). Enforced by `common/middleware/auth.ts`.
+
+> **Corrected/Implemented 2026-11-27 (clarification).** "Verified signature" in the title refers to the participant's initial proof of possession: an Ed25519 challenge-response at login (and a separate registration proof), after which the server issues an opaque bearer session token. Later calls carry that token and are not individually signed, so the one-time challenge provides no per-operation replay protection and no operation-level authorization; whoever holds a bearer token is treated as that participant until it expires. This invariant concerns attribution of the caller only. It is not Capability Authority (`INV-08`), it is not Economic Disposition Authority (`INV-12`: signed arbiter decisions and participant signatures on escrow rounds), and it does not make any economic effect idempotent.
 
 **Derives from:** `INV-01` (Participant-Bound Authority).
 
