@@ -480,6 +480,8 @@ actual conditionality attached.
 
 ## 28. First Migration Slice
 
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** this section records the slice recommended at freeze time. As later noted in `escrow.service.ts`, the shadow observer built for it was removed from the target slice once Core became the authority for that transition and was retained only on the still-unmigrated refund branch as diagnostic evidence. The statements below about the expiry sweeper describe the pre-migration state.
+
 Recommended: **`FUNDS_LOCKED → EXPIRED`** (the existing escrow-timelock
 expiry transition). Directly verified against the current implementation
 (`src/modules/open-settlement/escrow.service.ts`): deterministic,

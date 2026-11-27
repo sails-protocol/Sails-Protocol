@@ -756,6 +756,8 @@ its actual precondition (e.g. "if the practice in §16 is followed").
 
 ## 43. Current Implementation Conformance Mapping
 
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** sections 43 and 44 are freeze-time records, dated by the correction in section 2, and predate the current package layout (`packages/sails-core` and the other workspace packages). Rows that read "missing", "absent" or "not yet applicable" describe that moment; several have since changed (for example the transition record, `docs/CORE_TRANSITION_RECORD.md`, and the Condition Algebra vector set, `docs/CONDITION_ALGEBRA_CONFORMANCE_EVIDENCE.md`, where vectors are evidence and not certification and not a second independent implementation). They are not re-evaluated here, and the newer evidence records govern.
+
 Evidence-based, not aspirational. This does not restructure or fix
 anything — it records where the current repository already stands
 relative to this frozen architecture, for the next implementation
@@ -776,6 +778,8 @@ program to use as a starting point.
 | Current persistence layer (Prisma/Postgres schema) | MISSING | No commitment, ruleset-version, or semantic-history-position fields exist anywhere in the current schema |
 
 ## 44. Implementation Gap Register
+
+> **Corrected/Implemented 2026-11-27:** G1-G15 are the gaps identified at freeze time. Their "Current state" column is historical and some entries have since been addressed or partly addressed; this register is not a current backlog and is not re-evaluated here.
 
 Bounded evidence for the next program, not a backlog to solve here.
 
