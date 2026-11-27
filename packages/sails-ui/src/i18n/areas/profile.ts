@@ -4,9 +4,9 @@ import { defineArea } from '../define'
 export default defineArea(
   {
     'profile.title': 'Perfil',
-    'profile.keyExplainer': 'É a chave pública da sua conta: identifica você na rede P2P e confirma as ações que você assina. Pode ser compartilhada. A chave privada fica com você e não aparece aqui.',
+    'profile.keyExplainer': 'É a chave pública que identifica você como participante no Sails e confirma as ações que você assina, como ofertas e negociações. Pode ser compartilhada. Não é a chave de conexão da rede, que é outra e fica em cada aparelho. A chave privada fica com você e não aparece aqui.',
     'profile.verified': 'Verificado',
-    'profile.publicKey': 'Sua chave pública',
+    'profile.publicKey': 'Sua chave de identidade Sails',
     'profile.key.showFull': 'Ver chave completa',
     'profile.key.collapse': 'Recolher chave',
     'profile.memberSince': 'Membro desde {date}',
@@ -78,9 +78,9 @@ export default defineArea(
   {
     en: {
       'profile.title': 'Profile',
-      'profile.keyExplainer': 'This is your account’s public key: it identifies you on the P2P network and confirms the actions you sign. It can be shared. The private key stays with you and is not shown here.',
+      'profile.keyExplainer': 'This is the public key that identifies you as a participant in Sails and confirms the actions you sign, such as offers and trades. It can be shared. It is not the network connection key, which is a separate key kept on each device. The private key stays with you and is not shown here.',
       'profile.verified': 'Verified',
-      'profile.publicKey': 'Your public key',
+      'profile.publicKey': 'Your Sails identity key',
       'profile.key.showFull': 'Show full key',
       'profile.key.collapse': 'Collapse key',
       'profile.memberSince': 'Member since {date}',
@@ -151,9 +151,9 @@ export default defineArea(
     },
     es: {
       'profile.title': 'Perfil',
-      'profile.keyExplainer': 'Es la clave pública de tu cuenta: te identifica en la red P2P y confirma las acciones que firmas. Se puede compartir. La clave privada se queda contigo y no aparece aquí.',
+      'profile.keyExplainer': 'Es la clave pública que te identifica como participante en Sails y confirma las acciones que firmas, como ofertas y negociaciones. Se puede compartir. No es la clave de conexión de la red, que es otra y queda en cada dispositivo. La clave privada se queda contigo y no aparece aquí.',
       'profile.verified': 'Verificado',
-      'profile.publicKey': 'Tu clave pública',
+      'profile.publicKey': 'Tu clave de identidad Sails',
       'profile.key.showFull': 'Ver clave completa',
       'profile.key.collapse': 'Contraer clave',
       'profile.memberSince': 'Miembro desde {date}',
@@ -224,9 +224,9 @@ export default defineArea(
     },
     fr: {
       'profile.title': 'Profil',
-      'profile.keyExplainer': 'C’est la clé publique de votre compte : elle vous identifie sur le réseau P2P et confirme les actions que vous signez. Elle peut être partagée. La clé privée reste avec vous et n’apparaît pas ici.',
+      'profile.keyExplainer': 'C’est la clé publique qui vous identifie comme participant dans Sails et confirme les actions que vous signez, comme les offres et les négociations. Elle peut être partagée. Ce n’est pas la clé de connexion au réseau, qui est une autre clé conservée sur chaque appareil. La clé privée reste avec vous et n’apparaît pas ici.',
       'profile.verified': 'Vérifié',
-      'profile.publicKey': 'Votre clé publique',
+      'profile.publicKey': 'Votre clé d’identité Sails',
       'profile.key.showFull': 'Voir la clé complète',
       'profile.key.collapse': 'Réduire la clé',
       'profile.memberSince': 'Membre depuis {date}',
@@ -297,9 +297,9 @@ export default defineArea(
     },
     de: {
       'profile.title': 'Profil',
-      'profile.keyExplainer': 'Das ist der öffentliche Schlüssel deines Kontos: Er identifiziert dich im P2P-Netz und bestätigt die Aktionen, die du signierst. Er darf geteilt werden. Der private Schlüssel bleibt bei dir und wird hier nicht angezeigt.',
+      'profile.keyExplainer': 'Das ist der öffentliche Schlüssel, der dich als Teilnehmer in Sails identifiziert und die Aktionen bestätigt, die du signierst, etwa Angebote und Trades. Er darf geteilt werden. Er ist nicht der Schlüssel für die Netzwerkverbindung, der ein eigener Schlüssel auf jedem Gerät ist. Der private Schlüssel bleibt bei dir und wird hier nicht angezeigt.',
       'profile.verified': 'Verifiziert',
-      'profile.publicKey': 'Dein öffentlicher Schlüssel',
+      'profile.publicKey': 'Dein Sails-Identitätsschlüssel',
       'profile.key.showFull': 'Ganzen Schlüssel anzeigen',
       'profile.key.collapse': 'Schlüssel einklappen',
       'profile.memberSince': 'Mitglied seit {date}',
