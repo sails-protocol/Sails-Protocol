@@ -59,6 +59,10 @@ export default defineArea(
     'trade.action.cancelTrade': 'Cancelar negociação',
     'trade.confirm.cancelTrade.title': 'Cancelar esta negociação?',
     'trade.confirm.cancelTrade.consequence': 'A negociação é encerrada para as duas partes. Nenhum escrow foi criado, então não há fundos envolvidos.',
+    'trade.action.cancelAndRefund': 'Cancelar e devolver',
+    'trade.confirm.refund.title': 'Cancelar e devolver os fundos?',
+    'trade.confirm.refund.consequence': 'Isto só inicia a rodada de assinaturas da devolução. Os fundos voltam a você quando o comprador assinar; até lá, continuam no escrow. Se o comprador já pagou, não cancele: fale com ele no chat ou abra uma disputa.',
+    'trade.toast.refundStarted': 'Devolução iniciada, aguardando a assinatura do comprador.',
     'trade.card.release': 'Liberar fundos',
 
     // Escrow deadline
@@ -361,6 +365,10 @@ export default defineArea(
       'trade.action.cancelTrade': 'Cancel trade',
       'trade.confirm.cancelTrade.title': 'Cancel this trade?',
       'trade.confirm.cancelTrade.consequence': 'The trade closes for both parties. No escrow was created, so no funds are involved.',
+      'trade.action.cancelAndRefund': 'Cancel and refund',
+      'trade.confirm.refund.title': 'Cancel and return the funds?',
+      'trade.confirm.refund.consequence': 'This only starts the refund signing round. The funds come back to you when the buyer signs; until then, they stay in escrow. If the buyer has already paid, do not cancel: talk to them in the trade chat or open a dispute.',
+      'trade.toast.refundStarted': 'Refund started, waiting for the buyer\'s signature.',
       'trade.card.release': 'Release funds',
 
       'trade.countdown.title': 'Escrow deadline',
@@ -651,6 +659,10 @@ export default defineArea(
       'trade.action.cancelTrade': 'Cancelar negociación',
       'trade.confirm.cancelTrade.title': '¿Cancelar esta negociación?',
       'trade.confirm.cancelTrade.consequence': 'La negociación se cierra para las dos partes. No se creó ningún escrow, así que no hay fondos involucrados.',
+      'trade.action.cancelAndRefund': 'Cancelar y devolver',
+      'trade.confirm.refund.title': '¿Cancelar y devolver los fondos?',
+      'trade.confirm.refund.consequence': 'Esto solo inicia la ronda de firmas de la devolución. Los fondos vuelven a ti cuando el comprador firme; hasta entonces, siguen en el escrow. Si el comprador ya pagó, no canceles: habla con él en el chat o abre una disputa.',
+      'trade.toast.refundStarted': 'Devolución iniciada, esperando la firma del comprador.',
       'trade.card.release': 'Liberar fondos',
 
       'trade.countdown.title': 'Plazo del escrow',
@@ -941,6 +953,10 @@ export default defineArea(
       'trade.action.cancelTrade': 'Annuler la négociation',
       'trade.confirm.cancelTrade.title': 'Annuler cette négociation ?',
       'trade.confirm.cancelTrade.consequence': 'La négociation est clôturée pour les deux parties. Aucun escrow n’a été créé, donc aucun fonds n’est en jeu.',
+      'trade.action.cancelAndRefund': 'Annuler et restituer',
+      'trade.confirm.refund.title': 'Annuler et restituer les fonds ?',
+      'trade.confirm.refund.consequence': 'Cela lance seulement le tour de signatures de la restitution. Les fonds vous reviennent quand l’acheteur signe ; d’ici là, ils restent dans l’escrow. Si l’acheteur a déjà payé, n’annulez pas : parlez-lui dans le chat ou ouvrez un litige.',
+      'trade.toast.refundStarted': 'Restitution lancée, en attente de la signature de l’acheteur.',
       'trade.card.release': 'Libérer les fonds',
 
       'trade.countdown.title': 'Délai de l’escrow',
@@ -1231,6 +1247,10 @@ export default defineArea(
       'trade.action.cancelTrade': 'Trade abbrechen',
       'trade.confirm.cancelTrade.title': 'Diesen Trade abbrechen?',
       'trade.confirm.cancelTrade.consequence': 'Der Trade wird für beide Parteien beendet. Es wurde kein Escrow erstellt, daher sind keine Mittel betroffen.',
+      'trade.action.cancelAndRefund': 'Abbrechen und zurückgeben',
+      'trade.confirm.refund.title': 'Abbrechen und die Mittel zurückgeben?',
+      'trade.confirm.refund.consequence': 'Damit startet nur die Signaturrunde der Rückgabe. Die Mittel kommen zu dir zurück, wenn der Käufer signiert; bis dahin bleiben sie im Escrow. Hat der Käufer schon bezahlt, brich nicht ab: schreib ihm im Chat oder eröffne einen Streitfall.',
+      'trade.toast.refundStarted': 'Rückgabe gestartet, wartet auf die Signatur des Käufers.',
       'trade.card.release': 'Mittel freigeben',
 
       'trade.countdown.title': 'Escrow-Frist',
@@ -1525,6 +1545,10 @@ export default defineArea(
       'trade.confirm.cancelRound.title', 'trade.confirm.cancelRound.consequence', 'trade.confirm.cancelRound.confirm',
     ],
     confirmation: [
+      'trade.action.cancelAndRefund',
+      'trade.confirm.refund.title',
+      'trade.confirm.refund.consequence',
+      'trade.toast.refundStarted',
       'trade.confirm.currentState', 'trade.confirm.signatures', 'trade.confirm.action', 'trade.confirm.check',
       'trade.confirm.round', 'trade.confirm.nameMissing',
       'trade.confirm.release.title', 'trade.confirm.release.amount', 'trade.confirm.release.warnBank',

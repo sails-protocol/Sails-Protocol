@@ -21,11 +21,13 @@ interface Props {
   disputeTriggerRef?: Ref<HTMLButtonElement>
   /** Shown only when given: the host decides whether the trade itself may be cancelled (canCancelTrade). */
   onCancelTrade?: () => void
+  /** Shown only when given: the seller's way out with funds locked (MULTISIG refund round, "Cancelar e devolver"). */
+  onRefund?: () => void
 }
 
 const ICONS = { createEscrow: Unlock, lock: Lock, markPaymentSent: Banknote, release: CheckCircle2 }
 
-export function CurrentActionCard({ view, acting, onAction, onOpenDispute, children, disputeTriggerRef, onCancelTrade }: Props) {
+export function CurrentActionCard({ view, acting, onAction, onOpenDispute, children, disputeTriggerRef, onCancelTrade, onRefund }: Props) {
   const ActorIcon = view.tone === 'waiting' ? Hourglass : view.tone === 'action' ? AlertTriangle : Info
   const titleId = useId()
   const PrimaryIcon = view.primary ? ICONS[view.primary.action] : null
@@ -53,7 +55,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
 
       {children}
 
-      {(view.primary || view.canDispute || onCancelTrade) && (
+      {(view.primary || view.canDispute || onCancelTrade || onRefund) && (
         <div className="mt-4 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
           {view.primary && PrimaryIcon && (
             <Button onClick={() => onAction(view.primary!.action)} loading={acting} className="w-full sm:w-auto h-auto min-h-11 whitespace-normal px-5 py-2.5 text-center text-sm">
@@ -82,6 +84,16 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
               className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:text-brand-disabled-content disabled:no-underline rounded-sm sm:ml-auto"
             >
               {t('trade.action.cancelTrade')}
+            </button>
+          )}
+          {onRefund && (
+            <button
+              type="button"
+              onClick={onRefund}
+              disabled={acting}
+              className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:text-brand-disabled-content disabled:no-underline rounded-sm sm:ml-auto"
+            >
+              {t('trade.action.cancelAndRefund')}
             </button>
           )}
         </div>

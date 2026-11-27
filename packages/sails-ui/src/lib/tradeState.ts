@@ -261,6 +261,16 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
     return withActors([...proven, ...(s === 'REFUNDED' || s === 'SPLIT' ? transaction : [])])
   }
 
+  // The seller's refund round with funds locked ("Cancelar e devolver", MULTISIG): signatures, then "Devolvido".
+  // "Devolvido" stays upcoming until the escrow records REFUNDED.
+  if (refunding(i)) {
+    return withActors([
+      opened, escrow, ...deposit, lockedStep,
+      { id: 'signatures', label: t(ROUND_EVIDENCE.refund), state: 'current', evidence: [{ label: t('escrow.rail.signatures'), value: roundProgress(i.round!) }] },
+      { id: 'outcome', label: L.REFUNDED, state: 'upcoming' },
+    ])
+  }
+
   const paid = s === 'PAYMENT_PENDING' || s === 'COMPLETED'
   const done = s === 'COMPLETED'
   // Only a round the server returned for this escrow; never assumed from the escrow type.
@@ -278,6 +288,9 @@ function steps(i: TradeStateInput, cancelled: boolean, locked: boolean): TradeSt
   if (next) next.state = 'current'
   return withActors(list)
 }
+
+/** A refund round on a funded, undisputed escrow: the seller chose to give the funds back. */
+const refunding = (i: TradeStateInput) => i.signingRoundKind === 'refund' && !!i.round && (i.escrowStatus === 'FUNDS_LOCKED' || i.escrowStatus === 'PAYMENT_PENDING')
 
 export interface Baton {
   text: string
@@ -342,10 +355,23 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
       ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.createEscrow.title'), description: t('escrow.action.createEscrow.description'), primary: { action: 'createEscrow', label: t('escrow.action.createEscrow.label') }, canDispute: false }
       : { tone: 'waiting', actorLabel: t(i.isBuyer ? 'escrow.actor.waiting' : 'escrow.actor.following'), title: t('escrow.action.waitCreate.title'), description: `${t('escrow.action.waitCreate.why')} ${t('escrow.action.noPaymentBeforeLock')}`, canDispute: false }
   }
-  const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable, deadlinePassed: escrowDeadlinePassed(i) })
+  const derived = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable, deadlinePassed: escrowDeadlinePassed(i) })
+  // One dispute per trade (Dispute.@@unique([tradeId])): once there is one, ruled or not, "Abrir disputa" is gone.
+  const view = i.dispute ? { ...derived, canDispute: false } : derived
   // A resolved dispute can still be appealed (TradeDisputePanel): never say nothing is left to do next to that button.
   if (view.tone === 'terminal' && i.appealAvailable) {
     return { ...view, actorLabel: t('escrow.actor.disputeResolved'), description: t('escrow.action.appealOnly') }
+  }
+  // "Devolução iniciada, aguardando a assinatura do comprador": only the round started; "Devolvido" needs REFUNDED.
+  if (refunding(i)) {
+    const buyerMissing = !!i.buyerId && i.round!.requiredSigners.includes(i.buyerId) && !(i.round!.signedBy ?? []).some((x) => x.participantId === i.buyerId)
+    return {
+      tone: i.isBuyer && buyerMissing ? 'attention' : 'waiting',
+      actorLabel: t(i.isBuyer || i.isSeller ? 'escrow.actor.waiting' : 'escrow.actor.following'),
+      title: t('escrow.action.refundStarted.title'),
+      description: t(i.isBuyer ? 'escrow.action.refundStarted.buyer' : buyerMissing ? 'escrow.action.refundStarted.waitBuyer' : 'escrow.action.refundStarted.waitSignatures'),
+      canDispute: view.canDispute,
+    }
   }
   // While a signing round exists, its card is the next step; never offer a second release.
   return i.signingRoundKind ? { ...view, primary: undefined } : view

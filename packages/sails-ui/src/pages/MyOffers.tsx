@@ -1,4 +1,4 @@
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, ChevronRight, MoreHorizontal } from 'lucide-react'
 import { toast } from '../components/ui/toast'
@@ -22,6 +22,7 @@ import { ASSET_LABELS, ASSET_SHORT_LABELS } from '../lib/labels'
 import { errorMessage } from '../lib/errors'
 import { formatPrice } from '../lib/currency'
 import type { Offer, OfferStatus, User } from '../types'
+import { demoHooks } from '../lib/demoHooks'
 import { t } from '../i18n'
 
 // Moved here from Profile.tsx unchanged (2026-11-20, DECISIONS.md "Reorganização pela visão do usuário"):
@@ -135,6 +136,15 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
       })
   }
 
+  // Demo only: a fictional counterparty opens a trade on this offer, so the seller (or buyer) journey can be repeated.
+  const simulateTrade = demoHooks().simulateIncomingTrade
+  const navigate = useNavigate()
+  const startSimulatedTrade = (offerId: string) => {
+    simulateTrade?.(offerId)
+      .then((tradeId) => { toast.success(t('trades.offers.simulatedTrade')); navigate(`/trade/${tradeId}`) })
+      .catch((err) => toast.error(errorMessage(err, t('trades.offers.updateFailed'))))
+  }
+
   return (
     <section aria-labelledby="my-offers-title" className={className}>
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -212,7 +222,16 @@ export function MyOffersSection({ user, className }: { user: User; className?: s
                               >
                                 <MoreHorizontal className="h-4 w-4" />
                               </PopoverTrigger>
-                              <PopoverContent align="end" className="w-48 p-1.5">
+                              <PopoverContent align="end" className="w-56 p-1.5">
+                                {simulateTrade && o.status === 'ACTIVE' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => startSimulatedTrade(o.id)}
+                                    className="w-full min-h-9 touch:min-h-11 rounded-md px-2.5 py-2 text-left text-sm text-brand-text state-layer"
+                                  >
+                                    {t('trades.offers.simulateTrade')}
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   onClick={() => setConfirmingCancelId(o.id)}

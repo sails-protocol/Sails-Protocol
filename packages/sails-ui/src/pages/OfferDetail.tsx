@@ -4,8 +4,11 @@ import { toast } from '../components/ui/toast'
 import { PaymentMethods } from '../components/ui/PaymentMethods'
 import { PlannedItem } from '../components/ui/PlannedItem'
 import { LOOSE_WIRES } from '../lib/looseWires'
-import { hasAvailablePaymentMethod, offerPaymentMethods } from '../lib/paymentMethods'
-import { demoMemberSinceOf, demoPaymentMethodsOf, demoRatingsOf } from '../lib/demoMarkers'
+import { hasAvailablePaymentMethod, isFuturePaymentMethod, offerPaymentMethods } from '../lib/paymentMethods'
+import { demoMemberSinceOf, demoPaymentMethodsOf, demoRatingsOf, isDemoMode } from '../lib/demoMarkers'
+import { demoHooks } from '../lib/demoHooks'
+import { RadioCard, RadioGroup } from '../components/ui/radio-group'
+import { SimulatedBadge } from '../components/ui/SimulatedBadge'
 import { ratingFullText, ratingSrText, sellerMemberSince, sellerRatings, type DemoRatingFields } from '../lib/ratings'
 import { UserAvatar } from '../components/ui/UserAvatar'
 import { FavoriteButton } from '../components/ui/FavoriteButton'
@@ -91,6 +94,7 @@ export function OfferDetail() {
   const [offer, setOffer] = useState<OfferDetailView | null>(null)
   const [loading, setLoading] = useState(true)
   const [startingTrade, setStartingTrade] = useState(false)
+  const [method, setMethod] = useState<ReturnType<typeof offerPaymentMethods>[number] | null>(null)
   // fetchError (2026-08-02) — a genuine 404 (offer really doesn't exist/
   // was cancelled) and a network/backend outage both used to render as
   // the same "Oferta não encontrada." (SLC audit's 🟡 finding: these
@@ -177,6 +181,11 @@ export function OfferDetail() {
   // (offer.seller.id) now that the raw offer.userId field is gone from
   // the public response; same value, same check.
   const isOwnOffer = user?.id === offer.seller.id
+  // Demo only: with several methods, the buyer picks the one for this trade (the real trade-create has no such
+  // field yet: LOOSE_WIRES.tradePaymentMethodChoice). Real offers carry one method, so no picker.
+  const tradeMethods = offerPaymentMethods(offer).filter((m) => !isFuturePaymentMethod(m))
+  const pickMethod = isDemoMode() && tradeMethods.length > 1
+  const chosenMethod = pickMethod && method && tradeMethods.includes(method) ? method : tradeMethods[0]
 
   const handleStartTrade = async () => {
     if (!user) {
@@ -204,6 +213,7 @@ export function OfferDetail() {
       // createTrade(), which also walks the offer's real Intent through
       // DISCOVERING -> MATCHED -> NEGOTIATING (RFC-018) — not a client-
       // side mock Trade built from whatever was picked here.
+      if (pickMethod) demoHooks().stageTradePaymentMethod?.(chosenMethod)
       const trade = await sailsClient.openp2p.trade(offer.id, String(amountNum), tradeIdempotencyKeyRef.current)
       // A NEW key for whatever this user does next — this one is now
       // either COMPLETED or (if the whole request somehow still fails
@@ -308,6 +318,21 @@ export function OfferDetail() {
                 <Alert tone="warning" size="sm" className="mt-3">
                   {t('offer.ticket.newSeller')}
                 </Alert>
+              )}
+
+              {pickMethod && (
+                <RadioGroup
+                  className="mt-4"
+                  legend={<span className="inline-flex flex-wrap items-center gap-2">{t('offer.ticket.pickMethod')}<SimulatedBadge label={t('spaces.simulated')} /></span>}
+                  description={t('offer.ticket.pickMethodHelp')}
+                  listClassName="grid gap-2"
+                >
+                  {tradeMethods.map((m) => (
+                    <RadioCard key={m} name="trade-method" value={m} checked={chosenMethod === m} onChange={() => setMethod(m)}>
+                      {PAYMENT_METHOD_LABELS[m]}
+                    </RadioCard>
+                  ))}
+                </RadioGroup>
               )}
 
               {/* The ticket's one primary is the viewer's side (solid green buy / solid red sell), replacing orange here. */}
