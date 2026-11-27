@@ -264,7 +264,7 @@ non-MOCK type is production-ready — check this table.
 Only these five appear in this backend — if you see something else, it's
 worth reporting as a real gap, not assuming it's documented elsewhere.
 
-**Note:** `MULTISIG`/`LIGHTNING_HODL`/`SAFE_GUARD_EVM` escrow types don't
+**Note:** `MULTISIG`/`SAFE_GUARD_EVM` escrow types (and existing `LIGHTNING_HODL` escrows; that type is closed to new admissions) don't
 use `release` directly — client-held keys mean `initiate-release` +
 `submit-transaction-signature` instead. `API_REFERENCE.md`'s Settlement
 section covers the full per-type distinction.

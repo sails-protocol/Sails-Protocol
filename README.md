@@ -183,7 +183,7 @@ A few examples of that claim discipline:
 
 - the Bitcoin `MULTISIG` settlement path has a disclosed small-value mainnet rehearsal; see [MAINNET_MULTISIG_PROOF.md](docs/MAINNET_MULTISIG_PROOF.md);
 - `WDK_USDT_EVM` has real-path testnet evidence but its reference custody model is not the normative custody model for every Sails integration;
-- Arkade/VTXO settlement has testnet evidence;
+- Arkade/VTXO settlement has testnet evidence and is closed to new offers, intents, trades and escrows for Day 0 (decision recorded in #147);
 - plain Lightning, as its own distinct settlement capability, must not be inferred from Arkade interoperability or naming;
 - Liquid settlement remains designed rather than implemented where the provider explicitly says so.
 

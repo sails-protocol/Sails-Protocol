@@ -115,7 +115,7 @@ integrations below exist in code" refers specifically to the
 proposes for each network — it is not a claim that no Bitcoin-L2-adjacent
 settlement code exists anywhere in this repository. `LIGHTNING_HODL`
 (`src/modules/open-settlement/lightning-hodl.provider.ts`) is a real,
-testnet-evidenced escrow provider settling via the Ark/Arkade protocol —
+testnet-evidenced escrow provider settling via the Ark/Arkade protocol (closed to new admissions for Day 0) —
 a materially different design (VTXO-based multi-party escrow) from the
 Hold-Invoice/submarine-swap coordination pattern the Lightning row below
 describes. Spark's row is not merely "conditional" scope — Spark is

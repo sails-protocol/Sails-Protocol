@@ -120,7 +120,7 @@ a Module.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/v1/intents` | `{ type: 'TradeIntent', payload, agentId? }`. Requires auth — `participantId` is derived from the session (`requireAuth`), never accepted from the body. Runs the full `CREATED → VALIDATED → COORDINATED` lifecycle (RFC-012) before returning. |
+| POST | `/v1/intents` | `{ type: 'TradeIntent', payload, agentId? }`. A `TradeIntent` for asset `LN_BTC` is refused with `409` and `code: 'RAIL_CLOSED'`. Requires auth — `participantId` is derived from the session (`requireAuth`), never accepted from the body. Runs the full `CREATED → VALIDATED → COORDINATED` lifecycle (RFC-012) before returning. |
 | DELETE | `/v1/intents/:id` | Requires auth. Unknown Intent `404 NOT_FOUND`. Only the Intent's own `participantId` may cancel it — `403 FORBIDDEN` otherwise, checked before anything else. **Additive, 2026-11-15 (E21 slice 1, PR #651):** an Intent that an Offer or a Trade references (an Offer's Intent, or a trade's own `tradeIntentId`) answers `409 INTENT_BOUND` and is not changed; it moves only with its Offer (`PATCH /v1/liquidity/offers/:id/status`) or its trade (`PATCH /v1/openp2p/trades/:id/status`). |
 
 Not documented here until a gap audit found `POST`/`DELETE` had no auth
@@ -152,7 +152,7 @@ Legacy equivalents (pre-namespacing): `POST /identity/create`, `GET
 | Method | Path | Description |
 |---|---|---|
 | GET | `/v1/liquidity/offers` | List offers, filterable by asset/side/paymentMethod/price range |
-| POST | `/v1/liquidity/offers` | Publish a new offer |
+| POST | `/v1/liquidity/offers` | Publish a new offer. Refused with `409` and `code: 'RAIL_CLOSED'` for asset `LN_BTC` (closed for Day 0 in every environment); nothing is created. |
 | GET | `/v1/liquidity/offers/id/:id` | Single offer, including the seller's public profile fields |
 | GET | `/v1/liquidity/offers/:asset/book` | Order book: bids + asks + spread for one asset |
 | GET | `/v1/liquidity/offers/mine` | *(new 2026-08-01)* The authenticated caller's own offers, including non-ACTIVE ones — never a query param, always derived from the session |
@@ -192,7 +192,7 @@ environment. See `rfcs/RFC-020-non-custodial-evm-settlement.md` and
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/v1/settlement/escrow` | Create an escrow for a trade |
+| POST | `/v1/settlement/escrow` | Create an escrow for a trade. Refused with `409` and `code: 'RAIL_CLOSED'` for asset `LN_BTC` or `type: 'LIGHTNING_HODL'` (closed for Day 0 in every environment); nothing is created, and existing `LIGHTNING_HODL` escrows keep their dispatch, refund and recovery paths. |
 | GET | `/v1/settlement/escrow/:id` | Escrow detail + event history. `data.disputes` (added 2026-08-03) — at most one entry in practice (`Dispute.@@unique([tradeId])`), the only way for a trade party who didn't open a dispute to ever learn its `disputeId` (previously only the opener's own `POST .../dispute` response carried it). `data.distributionPolicyFreezes[]` (added 2026-08-23, Missão 11 Fase 7.2) — one entry per confirmed fee-collection generation this escrow's `FeeObligation` has ever had (normally one; more than one only after a reorg + reconfirmation), each carrying the `DistributionPolicyVersion` (`id`, `label`, `publishedAt`, `recipients[]`: `recipientId`/`class`/`label`/`weightPct`) that was independently frozen for THAT generation at the moment it was confirmed — `null` `distributionPolicy` is a real, permanent outcome when zero policy was published at confirmation time, never backfilled. This is the historical-verification surface: it proves what governed a *specific past* generation, immune to a later policy rotation, unlike a "current live policy" lookup. No internal accounting data (`EntitlementLedgerEntry`) or `createdBy`/internal metadata is exposed. `data.custodyModel` (added 2026-08-24, Missão 11 Fase 9.1 §10) — this escrow type's own disclosed custody model, a real, distinctly-worded string per `SettlementProvider` implementation (e.g. `client-held-buyer-seller-keys-server-held-arbiter` for MULTISIG/LIGHTNING_HODL, `client-held-buyer-seller-keys-server-held-kms-arbiter` for SAFE_GUARD_EVM, `server-custodial-reference-implementation` for WDK_USDT_EVM) — `null` for MOCK and any provider that hasn't stated one; never a fabricated or marketing-only label. **Scope, not a completeness claim (2026-09-06):** `custodyModel` discloses key-custody topology only — MULTISIG and LIGHTNING_HODL sharing this exact string does not mean they share equivalent guard maturity. MULTISIG additionally has fail-closed capability-profile enforcement (`capability-profile.ts`) that LIGHTNING_HODL does not; see `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` for the current per-rail guard disclosure. |
 | POST | `/v1/settlement/escrow/:id/submit-key` | `MULTISIG`/`LIGHTNING_HODL` only (2026-07-27 client-held-keys pass). Buyer or seller submits only their own public key (generated client-side, `@satsails/p2p-trading-sdk`'s `generateEscrowKeypair()`) — `403` if the caller isn't a counterparty. Once both have submitted, the real deposit address is derived and persisted onto `Escrow.multisigAddr` (null until then). Idempotent per role. `SAFE_GUARD_EVM` reuses this same route/mechanism for its own buyer/seller keys (the compressed secp256k1 pubkey is decompressed and turned into a real Ethereum address, see `safe-guard-evm.provider.ts`'s `ethereumAddressFromCompressedHex()`) — but `Escrow.multisigAddr` is never actually populated for it, since deploying the real Safe needs live EVM RPC infrastructure this environment doesn't have. |
 | POST | `/v1/settlement/escrow/:id/lock` | `CREATED → FUNDS_LOCKED` |
@@ -241,7 +241,7 @@ tracked; see that file's "Resolved Items" section.
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/v1/openp2p/trades` | Start a trade from an offer |
+| POST | `/v1/openp2p/trades` | Start a trade from an offer. Refused with `409` and `code: 'RAIL_CLOSED'` when the offer's asset is `LN_BTC`; nothing is created. |
 | GET | `/v1/openp2p/trades/:id` | Trade detail with escrow + messages + originating offer |
 | GET | `/v1/openp2p/trades/by-intent/:intentId` | Resolve an `intentId` to the Trade it produced (RFC-018) — new, backs `@satsails/p2p-trading-sdk`'s `dispute()`, `releaseAsset()` and `openp2p.getTradeByIntent()`. Requires auth. **Caller-scoped, 2026-11-15 (E21 slice 1, PR #651):** a trade's own Intent (`tradeIntentId`) resolves to that trade for its buyer and seller; an Offer's Intent resolves to the caller's only trade on that Offer. Several of the caller's trades on it: `409 AMBIGUOUS_INTENT`, `details: { tradeIds }` (the caller's own trades only; before, one was picked arbitrarily). A non-party and an unknown Intent both get the same `404 NOT_FOUND` (a non-party got `403` before). |
 | PATCH | `/v1/openp2p/trades/:id/status` | Update trade status (ACTIVE/DISPUTED/CANCELLED) |

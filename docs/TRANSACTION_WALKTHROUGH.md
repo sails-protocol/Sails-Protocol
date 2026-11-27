@@ -34,7 +34,7 @@ custody defensibility — RFC-014's capability check and RFC-015's
 two-person control — are **off by default** and so do not appear in the
 demo script's own run. Section 3 below walks through the trade again
 with both turned on, concretely, since that combination is what a
-production deployment handling real value should actually run.
+production deployment handling real value should actually run on an eligible rail (the WDK rail used in this walkthrough is production-ineligible, RFC-019, and these controls do not change that).
 
 ## Cast
 
@@ -198,7 +198,7 @@ the real `Dispute` row rather than assumed from the fund movement alone.
 `ENFORCE_CAPABILITIES=true` and `REQUIRE_DUAL_APPROVAL_RELEASE=true`
 are both off by default (Sections above) precisely so the happy-path demo
 above keeps working unmodified. A production deployment handling real
-value should turn both on — here is exactly what changes, concretely,
+value should turn both on, on an eligible rail (the WDK rail used here stays production-ineligible) — here is exactly what changes, concretely,
 for the trade above.
 
 **Before the buyer's Intent is even accepted:** `intentEngine.create()`

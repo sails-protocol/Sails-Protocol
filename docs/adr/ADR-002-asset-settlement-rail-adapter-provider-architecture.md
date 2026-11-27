@@ -205,7 +205,7 @@ facts are unchanged:
 `MULTISIG` → `{BTC, BITCOIN_L1}` and `WDK_USDT_EVM` → `{USDT, ETHEREUM}`
 (testnet, server-custodial) are inside the commitment; `{USDT, TRON}`
 stays schema-only and inside it; `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps
-its testnet evidence but its scope is outside the commitment. Mentions of
+its testnet evidence but its scope is outside the commitment; it is also closed to new admissions for Day 0 (`RAIL_CLOSED`). Mentions of
 "the 25 rows" in §§7 and 12 below read historically.
 
 **Decisions on the divergences found while reconciling (CTO, 2026-11-01,
@@ -220,7 +220,7 @@ Issue #105 issuecomment-6561714306):**
   kept separate: the architectural catalog (25 rows), the Day-0
   commitment (14), the registered provider, and beta/production
   eligibility. `LIGHTNING_HODL` → `{BTC, ARKADE}` keeps its registration
-  and existing proofs without being mandatory for Day 0. An explicit
+  and existing proofs without being mandatory for Day 0. Since the Day-0 rail closure it accepts no new admissions (`RAIL_CLOSED`). An explicit
   validation of the Day-0 commitment matrix will be created in a
   separately authorized implementation mission; this section changes no
   code or test.

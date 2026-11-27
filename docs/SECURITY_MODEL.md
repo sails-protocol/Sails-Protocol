@@ -110,7 +110,11 @@ See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERAT
   server never inspects the signed-payload format, so both providers
   share one generic orchestration layer (`TODO.md` §4 has the full
   disclosure, including what's still unverified: a live run against a
-  real funded mutinynet VTXO, which this environment cannot originate)
+  real funded mutinynet VTXO, which this environment cannot originate).
+  **Corrected/Implemented 2026-11-27:** the production use mentioned above
+  describes the Arkade protocol, not this provider: `LIGHTNING_HODL` is
+  testnet only and not production-eligible, and it is closed to new
+  admissions for Day 0 (`RAIL_CLOSED`)
 - **Liquid Covenant:** script-enforced — not implemented at all yet, same
   live-infrastructure blocker as Lightning above
 

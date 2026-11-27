@@ -1928,7 +1928,7 @@ or hidden operational conventions.
       Lightning specifically: an architecture/provider path for real
       Lightning-native settlement, not yet designed.
 
-      **Corrected/Implemented 2026-11-27 (supersedes "Lightning's Day-0 requirement is unchanged" above).** A CTO decision of 2026-11-21 puts native Lightning, Spark/Lightning and Arkade on the roadmap without a date and outside Day 0, with no Lightning implementation work planned for Day 0. `LN_BTC` and `LIGHTNING_HODL` are closed to new offers, intents, trades and escrows (`RAIL_CLOSED`); existing escrows keep their dispatch, refund and recovery paths. The historical text above is kept unchanged.
+      **Corrected/Implemented 2026-11-27 (supersedes "Lightning's Day-0 requirement is unchanged" above).** A CTO decision of 2026-11-21 (recorded in #147) puts native Lightning, Spark/Lightning and Arkade on the roadmap without a date and outside Day 0, with no Lightning implementation work planned for Day 0. `LN_BTC` and `LIGHTNING_HODL` are closed to new offers, intents, trades and escrows (`RAIL_CLOSED`); existing escrows keep their dispatch, refund and recovery paths. The historical text above is kept unchanged.
 
       **Institutional blind-spot rule, recorded 2026-09-10 (governance/
       architecture guidance, not wire semantics):** "Do not confuse
