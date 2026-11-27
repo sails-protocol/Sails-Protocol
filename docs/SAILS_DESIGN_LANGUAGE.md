@@ -1,5 +1,7 @@
 # Sails Design Language — Foundation (2026-09-12)
 
+> **Corrected/Implemented 2026-11-27 (delimitation):** this is a dated foundation record. A design system being used in code does not mean its visual direction or its token set has been approved or homologated: the companion `SAILS_MARKET_DESIGN_DIRECTION.md` records the visual direction as open pending a decision, and no later approval is recorded in this document.
+
 `DESIGN-LANGUAGE-1`. Institutionalizes the first version of a **reusable
 visual/interaction language** shared across every first-party and
 opted-in third-party Sails surface. Complementary to, not a replacement

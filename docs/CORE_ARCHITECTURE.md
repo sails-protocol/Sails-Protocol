@@ -756,7 +756,7 @@ its actual precondition (e.g. "if the practice in §16 is followed").
 
 ## 43. Current Implementation Conformance Mapping
 
-> **Corrected/Implemented 2026-11-27 (historical delimitation):** sections 43 and 44 are freeze-time records, dated by the correction in section 2, and predate the current package layout (`packages/sails-core` and the other workspace packages). Rows that read "missing", "absent" or "not yet applicable" describe that moment; several have since changed (for example the transition record, `docs/CORE_TRANSITION_RECORD.md`, and the Condition Algebra vector set, `docs/CONDITION_ALGEBRA_CONFORMANCE_EVIDENCE.md`, where vectors are evidence and not certification and not a second independent implementation). They are not re-evaluated here, and the newer evidence records govern.
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** sections 43 and 44 are freeze-time records, dated by the correction in section 2, and predate the current package layout (`packages/sails-core` and the other workspace packages). Rows that read "missing", "absent" or "not yet applicable" describe that moment; several have since changed (for example the transition record, `docs/CORE_TRANSITION_RECORD.md`, the Condition Algebra vector set, `docs/CONDITION_ALGEBRA_CONFORMANCE_EVIDENCE.md`, and the Canonical Semantic Profile, published as `conformance/profiles/sails-semantic-profile-1.0.json`; vectors and a published profile are evidence and not certification and not a second independent implementation). They are not re-evaluated here, and the newer evidence records govern.
 
 Evidence-based, not aspirational. This does not restructure or fix
 anything — it records where the current repository already stands
