@@ -1,5 +1,5 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError, AppError } from '../../common/errors'
 import { assertRailOpen } from '../../common/day0-closed-rails'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
@@ -38,7 +38,8 @@ import {
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
-import type { Prisma, WdkTransferOperationType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { WdkTransferOperationType } from '@prisma/client'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -458,10 +459,13 @@ export class EscrowService {
     // (trades.tradeIntentId is the anchor), created in the same transaction that takes the pair lock FIRST (lock order: pair before
     // anything else, F4_AUDITORIA_ORDEM_DE_LOCKS). Every type but MOCK refuses without a ready pair; MOCK (exempt only where the database
     // has its deployment_mode row) takes the pair when there is one and otherwise leaves the decision to the database trigger.
+    assertEscrowMatchesTrade(input, trade)
+
     const escrow = await prisma.$transaction(async (tx) => {
       let commitmentPairId: string | undefined
       if (trade.tradeIntentId) {
         const { row, readiness } = await lockPairForEffect(tx, { anchorRef: trade.tradeIntentId })
+        if (row) assertEscrowMatchesCommitment(input, type, row) // under the pair's FOR UPDATE lock
         if (readiness.ok && row) commitmentPairId = row.id
         else if (type !== 'MOCK') throw new EscrowError(`escrow refused: the trade has no executable commitment pair (${readiness.ok ? 'E25_COMMITMENT_MISSING' : readiness.code})`)
       } else if (type !== 'MOCK') {
@@ -1284,3 +1288,18 @@ export class EscrowService {
 }
 
 export const escrowService = new EscrowService()
+
+// The escrow's economic terms are the trade's and its committed pair's, never the caller's own.
+function escrowTermsMismatch(detail: string) {
+  return new AppError('escrow refused: its terms do not match the trade (' + detail + ')', 409, 'ESCROW_TERMS_MISMATCH')
+}
+function assertEscrowMatchesTrade(input: { asset: string; lockedAmount: string }, trade: { asset: string; amount: Prisma.Decimal | string }) {
+  if (input.asset !== trade.asset) throw escrowTermsMismatch('asset')
+  if (!new Prisma.Decimal(input.lockedAmount).equals(new Prisma.Decimal(trade.amount.toString()))) throw escrowTermsMismatch('amount')
+}
+function assertEscrowMatchesCommitment(input: { asset: string; lockedAmount: string }, type: string, pair: { trade: unknown; rail: string }) {
+  const terms = (pair.trade ?? {}) as { asset?: unknown; amount?: unknown }
+  if (terms.asset !== input.asset) throw escrowTermsMismatch('committed asset')
+  if (typeof terms.amount !== 'string' || !new Prisma.Decimal(terms.amount).equals(new Prisma.Decimal(input.lockedAmount))) throw escrowTermsMismatch('committed amount')
+  if (pair.rail !== type) throw escrowTermsMismatch('committed rail')
+}
