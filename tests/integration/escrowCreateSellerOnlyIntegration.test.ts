@@ -33,16 +33,30 @@ describe("D7: only the seller creates the escrow (real Postgres)", () => {
     const bound = await createBoundTrade(prisma)
     await bound.commit()
     const input = { tradeId: bound.trade.id, type: 'MULTISIG', lockedAmount: bound.trade.amount.toString(), asset: 'BTC' } as any
-    const before = { escrows: await prisma.escrow.count(), events: await prisma.escrowEvent.count(), trade: await prisma.trade.findUniqueOrThrow({ where: { id: bound.trade.id } }) }
+    const pairs = () => prisma.commitmentPair.findMany({ orderBy: { id: 'asc' } })
+    const before = { escrows: await prisma.escrow.count(), events: await prisma.escrowEvent.count(), trade: await prisma.trade.findUniqueOrThrow({ where: { id: bound.trade.id } }), pairs: await pairs() }
+    // Pass-through spies: the real snapshot and the real pair lock still run; only the calls are counted.
+    const snapshot = jest.spyOn(require('../../src/modules/open-settlement/escrow-fee-snapshot.service').escrowFeeSnapshotService, 'computeSnapshotFields')
+    const pairLock = jest.spyOn(require('../../src/modules/open-p2p/commitment-pair.service'), 'lockPairForEffect')
+    try {
+      await expect(escrowService.createEscrow(input, bound.buyer.id)).rejects.toMatchObject({ statusCode: 403, code: 'ESCROW_CREATE_SELLER_ONLY' })
+      expect(snapshot).not.toHaveBeenCalled()
+      expect(pairLock).not.toHaveBeenCalled()
+      expect(await prisma.escrow.count()).toBe(before.escrows)
+      expect(await prisma.escrowEvent.count()).toBe(before.events)
+      expect(await prisma.trade.findUniqueOrThrow({ where: { id: bound.trade.id } })).toEqual(before.trade)
+      expect(await pairs()).toEqual(before.pairs)
 
-    await expect(escrowService.createEscrow(input, bound.buyer.id)).rejects.toMatchObject({ statusCode: 403, code: 'ESCROW_CREATE_SELLER_ONLY' })
-    expect(await prisma.escrow.count()).toBe(before.escrows)
-    expect(await prisma.escrowEvent.count()).toBe(before.events)
-    expect(await prisma.trade.findUniqueOrThrow({ where: { id: bound.trade.id } })).toEqual(before.trade)
-
-    const created = await escrowService.createEscrow(input, bound.seller.id)
-    expect(created.tradeId).toBe(bound.trade.id)
-    expect(await prisma.escrow.count({ where: { tradeId: bound.trade.id } })).toBe(1)
+      const created = await escrowService.createEscrow(input, bound.seller.id)
+      expect(created.tradeId).toBe(bound.trade.id)
+      expect(await prisma.escrow.count({ where: { tradeId: bound.trade.id } })).toBe(1)
+      // The seller's path does take the snapshot and the pair lock, so the zero counts above are not vacuous.
+      expect(snapshot).toHaveBeenCalledTimes(1)
+      expect(pairLock).toHaveBeenCalledTimes(1)
+    } finally {
+      snapshot.mockRestore()
+      pairLock.mockRestore()
+    }
   })
 
   it("warn: the buyer still creates the escrow (integrators migrating outside production)", async () => {

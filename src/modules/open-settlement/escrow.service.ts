@@ -432,8 +432,8 @@ export class EscrowService {
     }
     // D7: only the seller creates the escrow. Checked before any lock, write or event, so a refusal changes nothing.
     if (participantId === trade.buyerId && participantId !== trade.sellerId) {
-      // The real config always resolves a mode (enforce in production); a test double without it keeps today's behaviour.
-      if ((config.features.escrowCreateSellerOnly ?? 'warn') === 'enforce') throw escrowCreateSellerOnly(trade.id)
+      // Fail closed: a config without the mode (only a test double; the real config always resolves one) refuses the buyer.
+      if ((config.features.escrowCreateSellerOnly ?? 'enforce') === 'enforce') throw escrowCreateSellerOnly(trade.id)
       escrowLog.warn({ msg: 'escrow.create.buyer_deprecated', event: 'escrow.create.buyer_deprecated', tradeId: trade.id })
       opts.onBuyerDeprecated?.()
     }

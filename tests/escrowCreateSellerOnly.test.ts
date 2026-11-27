@@ -55,6 +55,17 @@ describe("createEscrow(): only the seller creates the escrow (D7)", () => {
     expect(onBuyerDeprecated).toHaveBeenCalledTimes(1)
   })
 
+  it("a config without the mode fails closed: the buyer is refused", async () => {
+    const saved = mockConfig.features.escrowCreateSellerOnly
+    delete (mockConfig.features as { escrowCreateSellerOnly?: string }).escrowCreateSellerOnly
+    try {
+      await expect(service.createEscrow(input, 'buyer-1')).rejects.toMatchObject({ statusCode: 403, code: 'ESCROW_CREATE_SELLER_ONLY' })
+      expect(repoCreate).not.toHaveBeenCalled()
+    } finally {
+      mockConfig.features.escrowCreateSellerOnly = saved
+    }
+  })
+
   it.each([['warn'], ['enforce']])("%s: the seller creates as before, with no deprecation", async (mode) => {
     mockConfig.features.escrowCreateSellerOnly = mode as 'warn' | 'enforce'
     const onBuyerDeprecated = jest.fn()
