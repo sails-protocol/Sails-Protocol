@@ -27,6 +27,10 @@ import { LOOSE_WIRES } from '../../lib/looseWires'
 import { faqPath } from '../../lib/faq'
 import type { User } from '../../types'
 import { RoleLinks } from './shared'
+import { useOwnTrades } from '../stats/MyStats'
+import { formatUnitAmount } from '../stats/DashboardParts'
+import { orderUnits, periodFigures } from '../../lib/tradeStats'
+import { getLocale } from '../../lib/locale'
 import { t, type MessageKey } from '../../i18n'
 
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
@@ -108,6 +112,7 @@ function PerksMatrix() {
 
 /** "Seu caminho": the criteria under study, real values only, "Meta: a homologar" on every row. */
 function YourPath({ user, demo }: { user: User | null; demo: boolean }) {
+  const [load] = useOwnTrades(!!user)
   const heading = (
     <div className="flex flex-wrap items-center gap-2">
       <h3 className="text-sm font-semibold text-brand-text">{m('path.title')}</h3>
@@ -128,10 +133,14 @@ function YourPath({ user, demo }: { user: User | null; demo: boolean }) {
   }
   const ratings = sellerRatings({ demoRatings: demoRatingsOf(user) }) // dev demo only; null for real data
   const since = formatMonthYear(user.createdAt)
+  // Same figures as "Minhas estatísticas" (all time, from the person's own trades); until they load, "Ainda não medido".
+  const fig = load.state === 'ready' ? periodFigures(load.trades, { from: new Date(0), to: new Date() }) : null
+  const volume = fig && fig.amountByUnit.size ? orderUnits(fig.amountByUnit.keys()).map((u) => formatUnitAmount(u, fig.amountByUnit.get(u) ?? 0)).join(' · ') : null
+  const completion = fig?.completionRate != null ? new Intl.NumberFormat(getLocale(), { style: 'percent', maximumFractionDigits: 0 }).format(fig.completionRate) : null
   const rows: [label: string, value: string | null, hint?: string][] = [
     [m('path.trades'), String(user.totalTrades)],
-    [m('path.volume'), null],
-    [m('path.completion'), null],
+    [m('path.volume'), volume],
+    [m('path.completion'), completion],
     // Ratings cannot be read back yet (LOOSE_WIRES.readRatings): the real value is the reputation score.
     [m('path.quality'), ratings ? ratingFullText(ratings) : formatReputation(user.reputationScore)],
     [m('path.tenure'), since ? m('path.tenureSince', { date: since }) : null],

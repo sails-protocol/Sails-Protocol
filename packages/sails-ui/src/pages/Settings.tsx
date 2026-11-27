@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { toast } from '../components/ui/toast'
+import { SimulatedBadge } from '../components/ui/SimulatedBadge'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Activity, Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Link2, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
@@ -6,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { shortKey, useDisconnect } from '../components/layout/AccountMenu'
+import { DisconnectDialog, shortKey } from '../components/layout/AccountMenu'
 import type { LayoutOutletContext } from '../components/layout/Layout'
 import { SettingsGroup, SettingsRow } from '../components/settings/SettingsRow'
 import { CopyButton } from '../components/ui/CopyButton'
@@ -116,20 +118,31 @@ function PreferenceItem({ icon: Icon, children }: { icon: LucideIcon; children: 
  * "Mercado que abre por padrão" (DECISIONS.md "Configurações → Mercados"). Only Mercado aberto can open today: market
  * offers do not exist in the protocol (LOOSE_WIRES.marketMembership), so every other market is listed but disabled.
  */
+const DEFAULT_MARKET_KEY = 'sails_ui_default_market'
 function DefaultMarketChoice() {
   const markets = ownMarkets(useVisibleMarkets())
   const soon = t('common.soon')
+  // Demo: every market of yours can be picked and the pick is saved in this browser (simulated: the Market still
+  // opens on Mercado aberto). Real mode: only Mercado aberto, the rest "Em breve".
+  const demo = isDemoMode()
+  const [picked, setPicked] = useState<string | null>(() => { try { return localStorage.getItem(DEFAULT_MARKET_KEY) } catch { return null } })
+  const current = demo && markets.some((m) => m.id === picked) ? picked : markets.find((m) => m.relation === 'default')?.id
+  const pick = (id: string) => {
+    setPicked(id)
+    try { localStorage.setItem(DEFAULT_MARKET_KEY, id) } catch { /* kept for this view */ }
+    toast.info(t('settings.markets.defaultSaved'))
+  }
   return (
-    <RadioGroup legend={t('settings.markets.defaultLegend')} description={t('settings.markets.defaultHelp')} listClassName="grid gap-2">
+    <RadioGroup legend={demo ? <span className="inline-flex flex-wrap items-center gap-2">{t('settings.markets.defaultLegend')}<SimulatedBadge label={t('spaces.simulated')} /></span> : t('settings.markets.defaultLegend')} description={t('settings.markets.defaultHelp')} listClassName="grid gap-2">
       {markets.map((m) => {
-        const selectable = m.relation === 'default'
+        const selectable = demo || m.relation === 'default'
         return (
-          <RadioCard key={m.id} name="default-market" value={m.id} checked={selectable} disabled={!selectable} onChange={() => undefined} className="items-start">
+          <RadioCard key={m.id} name="default-market" value={m.id} checked={m.id === current} disabled={!selectable} onChange={() => pick(m.id)} className="items-start">
             <MarketIcon market={m} size="sm" />
             <span className="min-w-0">
               <span className="block break-words">{m.name}</span>
               <span className="flex flex-wrap items-center gap-1.5 text-caption font-normal text-brand-text-secondary">
-                {selectable ? t('markets.default.description') : <>{m.illustrative && <span>{t('markets.fictionalExample')}</span>}<Badge variant="outline" className={SOON_TAG}>{soon}</Badge></>}
+                {m.relation === 'default' ? t('markets.default.description') : selectable ? <span>{t('markets.fictionalExample')}</span> : <>{m.illustrative && <span>{t('markets.fictionalExample')}</span>}<Badge variant="outline" className={SOON_TAG}>{soon}</Badge></>}
               </span>
             </span>
           </RadioCard>
@@ -206,7 +219,7 @@ export function Settings() {
   const { preference, setPreference } = useTheme()
   const [locale, setLocale] = useLocalePreference()
   const { user, loading: authLoading } = useAuth()
-  const disconnect = useDisconnect()
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const nodeStatus = useNodeConnection()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
   const [navPosition, setNavPosition] = useNavPosition()
@@ -282,7 +295,8 @@ export function Settings() {
                   value={<span className="font-mono text-xs">{shortKey(user.publicKey)}</span>}
                   control={<CopyButton value={user.publicKey} ariaLabel={t('settings.wallet.copyKey')} className="min-h-9 touch:min-h-11 px-3" />}
                 />
-                <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={disconnect} />
+                <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={() => setConfirmDisconnect(true)} />
+                <DisconnectDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect} />
               </>
             ) : (
               <SettingsRow

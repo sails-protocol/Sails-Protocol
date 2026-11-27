@@ -13,6 +13,7 @@ import { Input } from '../ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { LOOSE_WIRES } from '../../lib/looseWires'
 import { t } from '../../i18n'
+import { useCloseOnRouteChange } from './useCloseOnRouteChange'
 
 // shortcut: a demo-only floor so the form has a real validation state; R0 sets the actual passphrase rule.
 const MIN_PASSPHRASE = 8
@@ -37,6 +38,7 @@ function BackupDialog({ kind, open, onOpenChange }: { kind: 'export' | 'import';
     if (!next) { setPass(''); setConfirm(''); setFileName(null); setError(null); setDone(false) }
     onOpenChange(next)
   }
+  useCloseOnRouteChange(open, () => close(false))
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const err = kind === 'import' && !fileName ? t('settings.backup.errorFile')

@@ -182,21 +182,36 @@ export function ActivationFlow({ onDone }: { onDone: () => void }) {
       <Fact icon={Radio} tone="text-brand-success-fg">{t('identity.activate.comms')}</Fact>
       <Limits onLeave={onDone} />
       <Note />
-      <Button variant="secondary" onClick={onDone} className="w-full touch:min-h-11">{t('identity.close')}</Button>
+      {/* One primary way out of the last screen (the dialog's own close stays the only "Fechar"). */}
+      <Button onClick={onDone} className="w-full touch:min-h-11">{t('identity.finish')}</Button>
     </>
   )
 }
 
 /** Saved contacts (demo): nickname + abbreviated public key. */
-export function ContactsList() {
+export function ContactsList({ removable = false }: { removable?: boolean }) {
+  // Demo: "Remover" takes a contact off this list only (nothing is stored or sent).
+  const [contacts, setContacts] = useState<readonly (typeof DEMO_CONTACTS)[number][]>(DEMO_CONTACTS)
+  if (contacts.length === 0) return <p className="rounded-lg bg-brand-elevated px-3 py-2 text-body-sm text-brand-text-secondary">{t('settings.contacts.empty')}</p>
   return (
     <ul className="divide-y divide-brand-border-subtle rounded-lg bg-brand-elevated">
-      {DEMO_CONTACTS.map((c) => (
-        <li key={c.key} className="flex flex-wrap items-baseline justify-between gap-x-3 px-3 py-2">
+      {contacts.map((c) => (
+        <li key={c.key} className="flex flex-wrap items-center justify-between gap-x-3 px-3 py-2">
           <span className="text-body-sm text-brand-text">{c.name}</span>
-          <span className="text-caption text-brand-text-secondary">
+          <span className="flex items-center gap-2 text-caption text-brand-text-secondary">
             <span className="sr-only">{t('identity.contacts.key')}: </span>
             <span translate="no" className="font-mono">{c.key}</span>
+            {removable && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => { setContacts((list) => list.filter((x) => x.key !== c.key)); simulatedToast(t('settings.contacts.removed', { name: c.name })) }}
+                className="touch:min-h-11"
+              >
+                {t('settings.contacts.remove')}<span className="sr-only">: {c.name}</span>
+              </Button>
+            )}
           </span>
         </li>
       ))}
@@ -475,7 +490,7 @@ export function PortableIdentityRows() {
               <h3 className="flex flex-wrap items-center gap-2 text-sm font-medium text-brand-text">{t('identity.contacts.title')}{simulated()}</h3>
               <p className="text-caption text-brand-text-secondary">{t('identity.contacts.description')} {t('identity.contacts.local')}</p>
             </div>
-            <ContactsList />
+            <ContactsList removable />
           </div>
         </li>
       ) : (
