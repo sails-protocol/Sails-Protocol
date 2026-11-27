@@ -350,6 +350,7 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
   }
   if (!i.escrowStatus) {
     // D7 (CTO 2026-11-23, backend flag ESCROW_CREATE_SELLER_ONLY): only the seller creates the escrow.
+    // TODO(D7): use useSailsEscrow().canCreate once feat/escrow-create-seller-only (Principal, Tier 3) is on main; local role until then (EPM 2026-11-27).
     const canCreateEscrow = i.isSeller
     return canCreateEscrow
       ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.createEscrow.title'), description: t('escrow.action.createEscrow.description'), primary: { action: 'createEscrow', label: t('escrow.action.createEscrow.label') }, canDispute: false }
