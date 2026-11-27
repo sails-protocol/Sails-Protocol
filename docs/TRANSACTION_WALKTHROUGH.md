@@ -139,6 +139,8 @@ halting here would be the demo script deciding, not the Policy Engine.
 `settlement-orchestrator.ts`'s `executeSettlement()` is the single real
 entrypoint for everything from here on, in order:
 
+> **Status of the rail used in this walkthrough.** `WDK_USDT_EVM` is a server-custodial reference implementation (one server-held seed), testnet only and production-ineligible (RFC-019). Setting `MOCK_ESCROW=false` and funding the seed does not make it eligible for production. The status of every settlement provider is in `GETTING_STARTED.md` ("Settlement providers").
+
 1. `escrowService.createEscrow()` + `lockFunds()` — a real, signed WDK
    transfer (`@tetherto/wdk-wallet-evm`) moving the seller's collateral
    from the treasury account to a per-trade escrow sub-account, when

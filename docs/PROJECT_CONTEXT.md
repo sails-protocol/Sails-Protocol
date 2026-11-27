@@ -1890,11 +1890,11 @@ Sails Core requirement merely because Satsails is the first integrator.
 Satsails is the environment where Sails Protocol proves integration with,
 as each rail's own real status allows (see "Rail readiness," `README.md`):
 
-- Bitcoin on-chain (✅ Proven, `MULTISIG`)
+- Bitcoin on-chain (✅ Proven by one historical micro-value mainnet rehearsal, `MULTISIG`; not a production authorization)
 - Spark (📋 Future — not yet implemented; distinct BTC product capability, not the same as Lightning/Arkade — see 2026-09-10 note below)
 - Liquid (📋 Designed — zero implementation)
-- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below)
-- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL` — see 2026-09-10 note below)
+- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below) Corrected/Implemented 2026-11-27: roadmap without a date and outside Day 0 by decision; see the rail-closure note below.
+- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL`; closed to new admissions for Day 0 with `RAIL_CLOSED` in every environment — see 2026-09-10 note below)
 - WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
 - Tether Gold / XAUT (📋 Future — not yet implemented; network is Ethereum, per 2026-09-10 Product Direction)
 - DePix (📋 Future — not yet implemented; targets both Liquid and Spark, per 2026-09-10 Product Direction — added to this list, was previously absent)
@@ -1935,6 +1935,8 @@ into each other — interoperating with Lightning would not make Ark,
 Spark, or RGB "a Lightning implementation." Full canonical matrix and
 worked examples:
 `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
+
+**Corrected/Implemented 2026-11-27 (supersedes the "Day-0 requirement is unchanged" sentence above).** A CTO decision of 2026-11-21 closed the Lightning question for Day 0: native Lightning, Spark/Lightning and Arkade are roadmap without a date and outside Day 0. None is enabled for economic negotiation on Day 0, the UI does not create or execute on those rails or present a Lightning escrow as available, and no Lightning implementation work is planned for Day 0; future investigation of Spark and Arkade escrow is tracked in #588 and #147. In line with that decision, `LN_BTC` and `LIGHTNING_HODL` (Arkade) are closed to new offers, intents, trades and escrows in every environment, with no flag to reopen (`src/common/day0-closed-rails.ts`, error `RAIL_CLOSED`). Existing escrows keep their dispatch, refund and recovery paths. Reopening is a code change that needs its own decision. The historical text above is kept unchanged.
 
 **A successful Satsails production integration proves the reference
 implementation and real integration viability. It does not by itself
@@ -2010,7 +2012,7 @@ Use this status legend everywhere — it is mandatory, not optional:
 | Sails OpenP2P | ✅ Proven (Satsails Wallet) |
 | Sails OpenIdentity | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenReputation | 🏗️ Specified — embedded inside OpenP2P today |
-| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody — see that file's own caveat) implemented |
+| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody, production-ineligible — see that file's own caveat) implemented |
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
 | Sails OpenAgents | 🏗️ Specified — real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). **Corrected 2026-08-09** — RFC-007 D7's Social Engineering Agent is real as of RFC-017 (`social-engineering-agent.ts`, 2 of 3 patterns detected, off by default); this row was stale. `POST /v1/agents/*` (2026-08-09) exposes `generateTradeIntent`/`generateOfferIntent`/`assessIntentRisk` over HTTP for the first time. Genuinely remaining: the `unexpected_flow_deviation` social-engineering pattern (needs real trade-state-machine awareness) and the `learn()` step |
 | Sails OpenFinance | 📋 Aspirational |

@@ -265,7 +265,7 @@ interface SailsClient {
   // signing helpers, one per escrow type's wire format:
   generateEscrowKeypair(): EscrowKeypair   // raw secp256k1 keypair — MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM all use this same key format
   signEscrowPsbt(psbtBase64: string, privateKey: Uint8Array): string   // MULTISIG
-  signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL
+  signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL (closed to new admissions for Day 0; see RAIL_CLOSED below)
   signEscrowSafeUserOp(unsignedPsbtBase64: string, privateKey: Uint8Array): string   // SAFE_GUARD_EVM — added 2026-08-03 (UI-audit gap: parseSafeGuardBundle() could read a bundle's userOpHash but nothing could sign it, so a disputed SAFE_GUARD_EVM trade was stuck forever)
 
   // Sails OpenP2P (alias: trades) — advanced/direct use. The facade's

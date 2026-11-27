@@ -235,11 +235,11 @@ claims. `MOCK` is the only one meant for everyday development.
 
 | Provider | Real | Infra needed | Direct `release()`? | Client-held keys? | Status |
 |---|---|---|---|---|---|
-| `MOCK` | ✅ | none | ✅ | no | **Development/test only — not real money, ever.** |
-| `WDK_USDT_EVM` | ✅ | `WDK_SEED_PHRASE` + Sepolia RPC | ✅ | no — single seed, operator-custodial | Testnet only. One seed controls the treasury *and* every escrow sub-account — not a production custody model as-is. |
-| `MULTISIG` | ✅ | real testnet BTC, sent manually by the trade parties | ❌ — use `initiateRelease()` + `submitTransactionSignature()` | ✅ (2-of-3 Bitcoin PSBT) | Testnet only. |
-| `LIGHTNING_HODL` | ✅ | pinned to Ark Labs' public `mutinynet.arkade.sh`, real testnet funding | ❌ — same signature-collection flow as MULTISIG | ✅ | Testnet/mutinynet only, single-arbiter limitation. |
-| `SAFE_GUARD_EVM` | ✅ (client-side signing) / ❌ (server side) | a live EVM RPC + ERC-4337 bundler — **not available in this environment** | ❌ — same signature-collection flow | ✅ (KMS-backed arbiter co-signer) | **Not deployable today** — the one provider that's real code but genuinely can't run end-to-end here. |
+| `MOCK` | ✅ | none | ✅ | no | **Development/test only — not real money, ever.** It is refused in production. |
+| `WDK_USDT_EVM` | ✅ | `WDK_SEED_PHRASE` + Sepolia RPC | ✅ | no — single seed, operator-custodial | Testnet only. One seed controls the treasury *and* every escrow sub-account — not a production custody model as-is. Production-ineligible: enabling controls does not make it eligible (the node also refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false` and `WDK_SEED_PHRASE` is non-empty, and deployment eligibility is enforced separately). |
+| `MULTISIG` | ✅ | real testnet BTC, sent manually by the trade parties | ❌ — use `initiateRelease()` + `submitTransactionSignature()` | ✅ (2-of-3 Bitcoin PSBT) | Testnet in routine use. One micro-value Bitcoin mainnet rehearsal is recorded in `MAINNET_MULTISIG_PROOF.md`; it is a historical record, not an authorization for production use, and the arbiter key is still derived on the node. |
+| `LIGHTNING_HODL` | ✅ | pinned to Ark Labs' public `mutinynet.arkade.sh`, real testnet funding | ❌ — same signature-collection flow as MULTISIG | ✅ | **Closed to new admissions for Day 0** (`src/common/day0-closed-rails.ts`): new offers, intents, trades and escrows for `LN_BTC`, or with `type: 'LIGHTNING_HODL'`, are refused with `RAIL_CLOSED` (409) in every environment, and there is no flag to reopen it; escrows already persisted keep their existing dispatch, refund and recovery paths. Testnet/mutinynet only, single-arbiter limitation. |
+| `SAFE_GUARD_EVM` | ✅ (client-side signing) / ❌ (server side) | a live EVM RPC + ERC-4337 bundler — **not available in this environment** | ❌ — same signature-collection flow | ✅ (KMS-backed arbiter co-signer) | **Not deployable today** — the one provider that's real code but genuinely can't run end-to-end here. It is not homologated infrastructure: it has not been exercised against a live bundler, key service or funded account. |
 | `LIQUID_COVENANT` | ❌ | — | — | — | Never built. `type: 'LIQUID_COVENANT'` is rejected at escrow-creation time, not silently accepted. |
 
 **Local dev note:** `docker-compose.yml`'s default (`MOCK_ESCROW=true`,
@@ -257,7 +257,7 @@ non-MOCK type is production-ready — check this table.
 |---|---|---|
 | `401` | No session, or an invalid/expired one | Call `identity.authenticate()` first (or `client.setSessionToken()` if restoring a saved session) |
 | `403` | Authenticated, but not authorized for this specific resource | You're not a party to this trade/escrow, or (rarely, only if the server has `ENFORCE_CAPABILITIES=true`) you're missing a capability grant — see the Capability section above |
-| `409` | The action conflicts with current state | Common causes: calling an escrow action from the wrong lifecycle status (e.g. `release()` before `markPaymentSent()`), or calling a `peers` route with no active node (`peers.start()` first) |
+| `409` | The action conflicts with current state | Common causes: calling an escrow action from the wrong lifecycle status (e.g. `release()` before `markPaymentSent()`), calling a `peers` route with no active node (`peers.start()` first), or creating an offer, intent, trade or escrow on a closed rail (`code: 'RAIL_CLOSED'`, see `SDK_GUIDE.md`) |
 | `400` | Malformed input | Check the field the error message names — every route validates with zod; the message says which field and why |
 | `5xx` | Server/infrastructure problem, not your request | Retry with backoff (the SDK already does this for GET); if persistent, the node itself likely has a real problem (DB/Redis down, etc) — not something a client-side fix resolves |
 

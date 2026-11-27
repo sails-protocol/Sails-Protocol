@@ -86,7 +86,7 @@ document.
   cell originally implied), `WDK_USDT_EVM`, and `SAFE_GUARD_EVM` are all
   real providers today; none is production-authorized (each is
   testnet-only or explicitly production-ineligible, per
-  `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7).
+  `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7). Update (2026-11-27): new offers, intents, trades and escrows for `LN_BTC` or `LIGHTNING_HODL` are refused with `RAIL_CLOSED` in every environment (`src/common/day0-closed-rails.ts`); existing escrows keep their dispatch, refund and recovery paths. A single micro-value Bitcoin mainnet rehearsal of `MULTISIG` is recorded in `docs/MAINNET_MULTISIG_PROOF.md`; it is a historical record, not a production authorization.
   `LiquidCovenantProvider` remains genuinely unimplemented — reserved,
   deliberately not built (2026-08-01 decision) — the one part of the
   original claim still accurate. The "abstract multiple rails behind one
@@ -170,7 +170,7 @@ document.
 | Use case | Market equivalent | Similarity | Differentiator | Status |
 |---|---|---|---|---|
 | Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; portable reputation via `peerId` | ✅ Proven — shipping today as the Sails P2P Trading SDK |
-| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
+| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (closed to new admissions for Day 0, `RAIL_CLOSED`; see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
 | Liquidity | 1inch, CowSwap, OTC books | Liquidity discovery, order matching | Fiat rails (PIX/BRL) first-class, not EVM-only | 🏗️ Specified — real order book, cross-rail *routing* not yet proven live |
 | Reputation | Binance P2P ratings, Bisq | Trade-history-based score | Portable across wallets via `peerId`, not platform-locked | ✅ Proven as a module / 📋 Aspirational as a standalone SDK |
 | Policy | Internal permission/rule engines | Capability/rule validation | Not KYC/AML — a reusable authorization primitive | Capability Registry ✅ Proven+enforced / Policy Engine 📋 Aspirational |

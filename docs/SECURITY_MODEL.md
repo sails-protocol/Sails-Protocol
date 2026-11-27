@@ -73,9 +73,9 @@ Funds are locked in a smart contract or multisig *before* fiat is sent.
 
 | Rail | Demonstrated property | Limits |
 | --- | --- | --- |
-| Bitcoin Gen-1 (`MULTISIG`, P2WSH 2-of-3) | Any spend needs 2 of 3 signatures; buyer and seller keys are client-held. | The arbiter key is derived on the node (`MULTISIG_SEED`), so it is under the node operator's control: the operator-held arbiter key plus either participant's key satisfies the script. The independent Signing Federation is not implemented (proposal only). |
+| Bitcoin Gen-1 (`MULTISIG`, P2WSH 2-of-3) | Any spend needs 2 of 3 signatures; buyer and seller keys are client-held. | The arbiter key is derived on the node (`MULTISIG_SEED`), so it is under the node operator's control: the operator-held arbiter key plus either participant's key satisfies the script. A single micro-value Bitcoin mainnet rehearsal is recorded in `docs/MAINNET_MULTISIG_PROOF.md`; it is a historical record, not a production authorization. The independent Signing Federation is not implemented (proposal only). |
 | `WDK_USDT_EVM` (server-seed reference) | None: a single server-held seed can unilaterally move escrowed funds. | Production-ineligible (RFC-019). The node refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false`, and `WDK_SEED_PHRASE` is non-empty. Production deployment eligibility is enforced separately. |
-| `LIGHTNING_HODL`, `SAFE_GUARD_EVM` | Testnet implementations of the 2-of-3 model. | Not production-eligible. `LIGHTNING_HODL` derives its arbiter key on the node; `SAFE_GUARD_EVM` is a candidate that is not production-activated (RFC-020). |
+| `LIGHTNING_HODL`, `SAFE_GUARD_EVM` | Testnet implementations of the 2-of-3 model. | Not production-eligible. `LIGHTNING_HODL` is also closed to new admissions for Day 0 (`RAIL_CLOSED`) and derives its arbiter key on the node; `SAFE_GUARD_EVM` is a candidate that is not production-activated and is not homologated infrastructure (RFC-020). |
 | Bitcoin Gen-2 (Taproot / MuSig2) | None yet. | Candidate only: no settlement rail implements it and it is not homologated; only a MuSig2 primitive exists in the SDK custody module. |
 
 See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`. (Corrected/Implemented 2026-11-27: this subsection previously stated the requirement without the per-rail status.)
