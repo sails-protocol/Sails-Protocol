@@ -14,20 +14,26 @@ discover it, open a trade, chat, lock funds in escrow, mark payment
 sent, release. Every step is a real, tested route in this repo
 (`src/modules/open-liquidity`, `open-p2p`, `open-settlement`).
 
-Real asset support today (`AssetType`, `packages/sails-sdk/src/types.ts`):
+Representable assets (`AssetType`, `packages/sails-sdk/src/types.ts`):
 `BTC`, `USDT_ERC20`, `USDT_TRC20`, `USDT_LIQUID`, `USDT_LIGHTNING`,
-`LN_BTC`, `LIQUID_BTC`, `SPARK`, `STACKS`, `RSK_BTC`.
+`LN_BTC`, `LIQUID_BTC`, `SPARK`, `STACKS`, `RSK_BTC`. This list is what the
+protocol can represent, not what a node can operate: only `BTC` and
+`USDT_ERC20` have a registered settlement provider today (testnet, not
+production-authorized), `LN_BTC` is closed for Day 0 (`RAIL_CLOSED`), and the
+rest have none (see `GETTING_STARTED.md`, "Settlement providers").
 
 ## ✅ Freelancer / milestone escrow
 
 A client and a freelancer use a Trade + Settlement escrow exactly like
 the P2P swap above, but the "asset" side is the freelancer's fiat
-payout and the "payment" side is the deliverable. No protocol change is
-needed for this — `openp2p.chat()` carries milestone updates and
+payout and the "payment" side is the deliverable. No protocol change would
+be needed for this — `openp2p.chat()` carries milestone updates and
 deliverable links off-protocol, and the client releases the escrow
 (`settlement.release()`) once satisfied, or raises a dispute
-(`settlement.dispute()`) if not. This is a real, working pattern today,
-not a planned feature — it's the same code path as
+(`settlement.dispute()`) if not. This reuses the escrow code path that
+is real today, on the rails that have a provider; it has not been verified
+as a freelancer journey end to end, and any fiat payout is settled outside
+the protocol. It is the same code path as
 `examples/escrow-with-arbitration.ts`, just narrated differently:
 
 - Client creates/locks the escrow after milestone 1 is agreed.
