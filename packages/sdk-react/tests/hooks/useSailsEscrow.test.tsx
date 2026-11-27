@@ -34,6 +34,13 @@ describe('useSailsEscrow', () => {
     expect(result.current.query.fetchStatus).toBe('idle')
   })
 
+  it("canCreate is true only for the seller (D7: the buyer never creates the escrow)", () => {
+    const wrapper = makeWrapper(createMockSailsClient())
+    expect(renderHook(() => useSailsEscrow(undefined, { role: 'seller' }), { wrapper }).result.current.canCreate).toBe(true)
+    expect(renderHook(() => useSailsEscrow(undefined, { role: 'buyer' }), { wrapper }).result.current.canCreate).toBe(false)
+    expect(renderHook(() => useSailsEscrow(undefined), { wrapper }).result.current.canCreate).toBe(false)
+  })
+
   it('lock() calls settlement.lock and invalidates the escrow query on success', async () => {
     let requestCount = 0
     const requestedUrls: string[] = []
