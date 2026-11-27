@@ -199,7 +199,7 @@ converse with a counterparty, or hold state across calls.
 - `vouchFor(voucheeId)` → `Vouch` *(requires session; RFC-021 D7 peer vouching — caller must have real trade history, own reputation is slashed if the vouchee's first payment account is later abused)*
 
 ### `peers`
-- `start(secretKeyBase64)` → `{ peerId }`
+- `start()` → `{ peerId }` *(no argument: the server generates its own ephemeral per-session transport identity, which is not the participant's signing key. Corrected/Implemented 2026-11-27: an earlier version of this line listed `secretKeyBase64`.)*
 - `stop()` → `void`
 - `status()` → `PeerStatus`
 - `joinTopic(topic)` → `void`
@@ -307,6 +307,8 @@ closed for Day 0 in every environment. The calls behind `POST /v1/liquidity/offe
 refuse with a `SailsError` whose
 `code` is `RAIL_CLOSED`; nothing is written. No SDK type changes: `AssetType` and `EscrowType` keep both values, and
 existing escrows keep their current dispatch, refund and recovery rules.
+
+**Types versus operational support (Corrected/Implemented 2026-11-27).** `AssetType` and `EscrowType` list what the protocol can represent, not what a node can operate. A value being present does not mean that a provider is registered, enabled for economic use or eligible for production. Operational status is per provider and per asset (`GETTING_STARTED.md`, "Settlement providers"): for example `LIQUID_BTC`, `USDT_LIQUID` and `USDT_TRC20` map to rails with no registered provider, `LIQUID_COVENANT` has no implementation and is rejected at escrow creation, and `LN_BTC` and `LIGHTNING_HODL` are closed for Day 0 (`RAIL_CLOSED`).
 
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,

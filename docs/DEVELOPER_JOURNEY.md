@@ -91,26 +91,31 @@ chat.send({ content: 'Sending payment now', msgType: 'TEXT' })
 
 ### Step 4 - Enable Settlement (escrow)
 
-**Status: ✅ Real** (`sails.settlement.create` / `lock` / `release` are
-real implementations of MULTISIG, LIGHTNING_HODL, SAFE_GUARD_EVM,
-WDK_USDT_EVM, and MOCK providers, all covered by integration tests).
+**Status: ✅ Real code; maturity depends on the rail.** `sails.settlement.create` / `lock` / `release` are implemented for the `MOCK` provider (development only) and for `WDK_USDT_EVM` (server-custodial reference, testnet). The client-held-key providers (`MULTISIG`, `SAFE_GUARD_EVM`) use a signature-collection flow instead of a direct `release()`, and `LIGHTNING_HODL` is closed to new admissions. No provider here is a production authorization; see `GETTING_STARTED.md` ("Settlement providers").
 
 ```typescript
 // create() takes an object body (EscrowType, lockedAmount, asset,
 // network?, timelockHours?) - not positional args.
+// This example uses the MOCK provider (local development, no real money).
+// Each call runs under the session of the party named in its comment.
 const escrow = await sails.settlement.create({
   tradeId: trade.id,
-  type: 'MULTISIG',
+  type: 'MOCK',
   lockedAmount: '0.001',
   asset: 'BTC',
 })
-await sails.settlement.lock(escrow.id)
+await sails.settlement.lock(escrow.id) // seller
 // buyer sends fiat directly to seller, shares proof via chat
-await sails.settlement.release(escrow.id, buyerPayoutAddress)
+await sails.settlement.markPaymentSent(escrow.id) // buyer
+// The destination is the buyer's registered payout address
+// (setPayoutAddress); release() ignores any address passed to it.
+await sails.settlement.release(escrow.id) // seller
 ```
 
 This is the step that turns a negotiation into money actually moving -
 under the normative non-custodial model: Sails Protocol does not hold the funds itself. What each rail demonstrates differs (on the Bitcoin Gen-1 MULTISIG rail the node operator holds the arbiter key of a 2-of-3 script; the server-seed EVM reference is not non-custodial); see `SECURITY_MODEL.md` section 1.1.
+
+**Providers with client-held keys (`MULTISIG`, `SAFE_GUARD_EVM`) do not use the direct `release()` call above**: the `MULTISIG` provider rejects it, and settlement goes through `submitKey()`, external funding, `initiateRelease()` and `submitTransactionSignature()` (signature collection). `examples/demo/multisig-testnet-flow.ts` runs that flow end to end on testnet, and `GETTING_STARTED.md` ("Settlement providers") lists what each provider needs and its limits. `LIGHTNING_HODL` is closed to new admissions.
 
 ### Step 5 — Enable Reputation
 

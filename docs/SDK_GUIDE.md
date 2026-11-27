@@ -356,7 +356,7 @@ interface TradeIntent {
   minReputationRating?: number
 }
 
-// All six SettlementProvider types registered in src/modules/open-settlement/escrow.service.ts's PROVIDERS map.
+// The six EscrowType values the SDK can represent. Five have a provider in the PROVIDERS map (escrow-providers.ts); LIQUID_COVENANT has none and is rejected at escrow creation. Representable does not mean operational: see GETTING_STARTED.md ("Settlement providers").
 // SAFE_GUARD_EVM (RFC-020) added 2026-07-28; previously absent here even though
 // the EscrowType enum already had it — corrected by the same 2026-07-19
 // consolidation audit that caught the WDK_USDT_EVM omission above.
