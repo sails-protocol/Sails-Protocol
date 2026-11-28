@@ -100,8 +100,8 @@ describe('EscrowFeeSnapshotService.computeSnapshotFields() — Fase 4.1 pre-fund
 
   it('nonzero rate, MULTISIG, address configured but candidate Fmax is sub-dust: pre-funding waived', async () => {
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
-    // T=1000 sats (0.00001 BTC), rate=0.01 -> Fmax=10 sats, below any real dust threshold.
-    const policy = fixturePolicy({ protocolFeeRate: '0.01' })
+    // T=1000 sats (0.00001 BTC), rate=0.005 (the protocol ceiling) -> Fmax=5 sats, below any real dust threshold.
+    const policy = fixturePolicy({ protocolFeeRate: '0.005' })
     const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(policy)))
 
     const result = await service.computeSnapshotFields('MULTISIG', '0.00001')
