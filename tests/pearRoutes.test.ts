@@ -84,6 +84,8 @@ jest.mock('../src/infrastructure/p2p/transport-provider', () => ({
   fallbackTransportProvider: {
     start: jest.fn().mockResolvedValue({ peerId: 'fake-peer-id' }),
     activeTransportName: jest.fn().mockReturnValue('pears'),
+    isConnected: jest.fn().mockReturnValue(false),
+    stop: jest.fn().mockResolvedValue(undefined),
   },
   pearsTransportProvider: {},
 }))
@@ -153,6 +155,9 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
     jest.clearAllMocks()
     authedParticipantId = null
     mockPearNodeGet.mockReset()
+    const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+    fallbackTransportProvider.activeTransportName.mockReturnValue('pears')
+    fallbackTransportProvider.isConnected.mockReturnValue(false)
   })
 
   // ── Auth ────────────────────────────────────────────────────────────────────
@@ -172,6 +177,24 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
     })
   })
 
+  describe('POST /v1/peers/start capabilities', () => {
+    it.each([
+      ['pears', { directRelay: false, topicDiscovery: true, topicBroadcast: true }],
+      ['websocket-relay', { directRelay: true, topicDiscovery: false, topicBroadcast: false }],
+    ])('reports supported capabilities for %s', async (transport, capabilities) => {
+      authedParticipantId = 'user-1'
+      const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+      fallbackTransportProvider.activeTransportName.mockReturnValue(transport)
+      const res = await app.inject({ method: 'POST', url: '/v1/peers/start' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toEqual({
+        success: true,
+        data: { peerId: 'fake-peer-id', transport, capabilities },
+      })
+      expect(fallbackTransportProvider.start).toHaveBeenCalledWith('user-1')
+    })
+  })
+
   // ── /v1/peers/stop ──────────────────────────────────────────────────────────
 
   describe('POST /v1/peers/stop', () => {
@@ -180,7 +203,9 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
       const res = await app.inject({ method: 'POST', url: '/v1/peers/stop' })
       expect(res.statusCode).toBe(200)
       expect(JSON.parse(res.body)).toEqual({ success: true })
-      expect(mockPearNodeStop).toHaveBeenCalledWith('user-1')
+      const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+      expect(fallbackTransportProvider.stop).toHaveBeenCalledWith('user-1')
+      expect(mockPearNodeStop).not.toHaveBeenCalled()
     })
   })
 
@@ -194,6 +219,24 @@ describe('P2P Transport — /v1/peers/* routes (pear.routes.ts)', () => {
       const data = JSON.parse(res.body).data
       expect(data.peerId).toBe('fake-peer-id')
       expect(mockPearNodeGetStatus).toHaveBeenCalledWith('user-1')
+    })
+  })
+
+  describe('GET /v1/peers/status in relay mode', () => {
+    it.each([false, true])('reports actual relay connection state %s without querying Pears', async connected => {
+      authedParticipantId = 'user-relay'
+      const { fallbackTransportProvider } = require('../src/infrastructure/p2p/transport-provider')
+      fallbackTransportProvider.activeTransportName.mockReturnValue('websocket-relay')
+      fallbackTransportProvider.isConnected.mockReturnValue(connected)
+      const res = await app.inject({ method: 'GET', url: '/v1/peers/status' })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).data).toMatchObject({
+        userId: 'user-relay', peerId: 'user-relay', transport: 'websocket-relay',
+        started: connected, connected,
+        connectedPeers: 0, activeTopics: [],
+        capabilities: { directRelay: true, topicDiscovery: false, topicBroadcast: false },
+      })
+      expect(mockPearNodeGetStatus).not.toHaveBeenCalled()
     })
   })
 

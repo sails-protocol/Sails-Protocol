@@ -1,0 +1,117 @@
+import { RelayDeliveryPendingRegistry, RELAY_MAX_PENDING_DELIVERIES } from '../src/infrastructure/p2p/relay-delivery-pending'
+
+describe('bounded cross-instance delivery pending registry', () => {
+  it('correlates ACK and rejects replay or mismatched ACK', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    expect(registry.acknowledge({ requestId: 'unrelated', accepted: true })).toBe(false)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: 'true' })).toBe(false)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(true)
+    expect(await pending.result).toBe(true)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(false)
+    expect(registry.size).toBe(0)
+    registry.close()
+  })
+
+  it('documents that a syntactically valid forged ACK is currently accepted without provenance', async () => {
+    // Security characterization only: this is an intentionally failing
+    // production-security property, not an authenticated-ACK acceptance test.
+    // A caller able to inject an ACK with the outstanding request ID can
+    // settle it; the pending registry has no identity or signature context.
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(true)
+    expect(await pending.result).toBe(true)
+    expect(registry.size).toBe(0)
+    registry.close()
+  })
+
+  it('rejects malformed or ambiguous ACK envelopes without settling a pending request', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    const invalid: unknown[] = [
+      null, [], 'ack', 1,
+      { requestId: pending.requestId, accepted: 'true' },
+      { requestId: pending.requestId, accepted: 1 },
+      { requestId: pending.requestId, accepted: true, unexpected: 'field' },
+      { requestId: pending.requestId.toUpperCase() + 'x', accepted: true },
+      { requestId: '00000000-0000-0000-0000-000000000000', accepted: true },
+      { requestId: pending.requestId },
+    ]
+    for (const raw of invalid) {
+      expect(registry.acknowledge(raw)).toBe(false)
+      expect(registry.size).toBe(1)
+    }
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: false })).toBe(true)
+    expect(await pending.result).toBe(false)
+    registry.close()
+  })
+
+  it('settles a valid negative ACK immediately and rejects its replay', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const pending = registry.register()!
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: false })).toBe(true)
+    expect(await pending.result).toBe(false)
+    expect(registry.size).toBe(0)
+    expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(false)
+    registry.close()
+  })
+
+  it('caps outstanding requests and releases capacity after rejection', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const entries = Array.from({ length: RELAY_MAX_PENDING_DELIVERIES }, () => registry.register()!)
+    expect(registry.size).toBe(RELAY_MAX_PENDING_DELIVERIES)
+    expect(registry.register()).toBeNull()
+    expect(registry.reject(entries[0].requestId)).toBe(true)
+    expect(await entries[0].result).toBe(false)
+    expect(registry.register()).not.toBeNull()
+    registry.close()
+    expect(await Promise.all(entries.slice(1).map(x => x.result))).toEqual(
+      Array(RELAY_MAX_PENDING_DELIVERIES - 1).fill(false),
+    )
+    expect(registry.size).toBe(0)
+    expect(registry.register()).toBeNull()
+  })
+
+  it('rejects duplicate positive ACK while a second request remains pending', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const first = registry.register()!
+    const second = registry.register()!
+    expect(first.requestId).not.toBe(second.requestId)
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(true)
+    expect(await first.result).toBe(true)
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(false)
+    expect(registry.size).toBe(1)
+    expect(registry.acknowledge({ requestId: second.requestId, accepted: false })).toBe(true)
+    expect(await second.result).toBe(false)
+    expect(registry.size).toBe(0)
+    registry.close()
+  })
+
+  it('fails closed on close with outstanding requests and ignores subsequent ACKs', async () => {
+    const registry = new RelayDeliveryPendingRegistry()
+    const first = registry.register()!
+    const second = registry.register()!
+    registry.close()
+    expect(await Promise.all([first.result, second.result])).toEqual([false, false])
+    expect(registry.acknowledge({ requestId: first.requestId, accepted: true })).toBe(false)
+    expect(registry.acknowledge({ requestId: second.requestId, accepted: true })).toBe(false)
+    expect(registry.size).toBe(0)
+    expect(registry.register()).toBeNull()
+    registry.close()
+  })
+
+  it('expires unanswered requests and rejects late ACKs', async () => {
+    jest.useFakeTimers()
+    try {
+      const registry = new RelayDeliveryPendingRegistry()
+      const pending = registry.register()!
+      jest.advanceTimersByTime(3001)
+      expect(await pending.result).toBe(false)
+      expect(registry.acknowledge({ requestId: pending.requestId, accepted: true })).toBe(false)
+      registry.close()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})

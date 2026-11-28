@@ -46,17 +46,44 @@ const OPEN = 1 // WebSocket.OPEN — avoids importing the `ws` package just for 
 
 export class WebSocketRelayTransportProvider implements TransportProvider {
   name = 'websocket-relay'
+  // Process-local only: Redis-backed auth/budgets do not provide cross-instance routing.
+  // Multi-instance deployments require a tested routing backplane or explicit affinity.
   private sockets = new Map<string, RelaySocket>()
+  private socketTokens = new Map<string, string>()
   private messageHandlers = new Map<string, (peerId: string, payload: unknown) => void>()
 
   // Called by app.ts's `/ws/relay` route once the client's WebSocket
   // upgrade completes — this is the real "connection", not start() below.
-  registerSocket(participantId: string, socket: RelaySocket): void {
+  registerSocket(participantId: string, socket: RelaySocket, ownerToken?: string): void {
+    const previous = this.sockets.get(participantId)
+    // A duplicate registration of the same socket must not silently replace
+    // its fencing token. Only a new authenticated socket can take ownership.
+    if (previous === socket) return
+    // Transfer ownership before closing: a stale close callback must not
+    // unregister the replacement socket.
     this.sockets.set(participantId, socket)
+    if (ownerToken) this.socketTokens.set(participantId, ownerToken)
+    else this.socketTokens.delete(participantId)
+    if (previous && previous.readyState === OPEN) {
+      try {
+        previous.close()
+      } catch {
+        // A broken old transport must not abort registration of the new
+        // authenticated socket. Ownership has already been transferred.
+      }
+    }
   }
 
-  unregisterSocket(participantId: string): void {
+  ownsSocket(participantId: string, socket: RelaySocket): boolean {
+    return this.sockets.get(participantId) === socket
+  }
+
+  unregisterSocket(participantId: string, socket?: RelaySocket): void {
+    // A stale close event must not remove a newer socket registered for
+    // the same participant (reconnect/overlapping connections).
+    if (socket && this.sockets.get(participantId) !== socket) return
     this.sockets.delete(participantId)
+    this.socketTokens.delete(participantId)
   }
 
   // Registers intent to use this provider; does not itself open a
@@ -68,17 +95,24 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
 
   async stop(participantId: string): Promise<void> {
     const socket = this.sockets.get(participantId)
-    if (socket && socket.readyState === OPEN) socket.close()
+    // Revoke ownership before invoking close(): a synchronous close callback
+    // must not remove a replacement registered during shutdown.
     this.sockets.delete(participantId)
+    this.socketTokens.delete(participantId)
     this.messageHandlers.delete(participantId)
+    if (socket && socket.readyState === OPEN) {
+      try {
+        socket.close()
+      } catch {
+        // A broken socket is already unregistered; shutdown remains idempotent.
+      }
+    }
   }
 
-  // No topic concept over a point-to-point relay — a no-op, not an error,
-  // consistent with RFC-002's "never assumes continuous connectivity /
-  // never assumes symmetric capability across TransportProvider
-  // implementations" reasoning.
+  // Do not silently report success: this relay has no DHT/topic discovery.
+  // Callers must explicitly handle degraded capabilities instead.
   async joinTopic(_participantId: string, _topic: string): Promise<void> {
-    return
+    throw new Error('WebSocket relay does not support topic discovery')
   }
 
   async broadcast(participantId: string, payload: unknown): Promise<number> {
@@ -92,12 +126,42 @@ export class WebSocketRelayTransportProvider implements TransportProvider {
   }
 
   async sendToPeer(_participantId: string, targetParticipantId: string, payload: unknown): Promise<boolean> {
+    // A missing local socket must fail closed. Never claim remote delivery:
+    // the provider has no cross-instance participant directory/backplane.
     const socket = this.sockets.get(targetParticipantId)
     if (!socket || socket.readyState !== OPEN) return false
-    // Blind forward — payload is whatever the caller already encrypted
-    // above this layer. Never parsed, never logged.
-    socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
-    return true
+    // This provider only knows sockets on the current process. A remote
+    // participant must fail closed until a distributed routing backplane is
+    // implemented and verified; Redis ingress budgets are not routing.
+    // Blind forward: payload confidentiality depends on the caller. Intent
+    // payloads have application-layer encryption, but chat/negotiation may
+    // still be plaintext (see module security note). Never parse or log.
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      // A socket can fail after readyState was checked; report failed delivery.
+      // Do not evict here: a concurrent reconnect may already own the slot.
+      return false
+    }
+  }
+
+  /** Future backplane destination primitive: reject stale ownership before local send.
+   * A successful return means only that socket.send() accepted the bytes locally.
+   * Never interpret it as remote client receipt or application acknowledgment.
+   */
+  async sendToPeerIfOwner(targetParticipantId: string, ownerToken: string, payload: unknown): Promise<boolean> {
+    if (!ownerToken || this.socketTokens.get(targetParticipantId) !== ownerToken) return false
+    const socket = this.sockets.get(targetParticipantId)
+    if (!socket || socket.readyState !== OPEN) return false
+    // Check ownership and send in the same synchronous turn: do not await
+    // between fencing validation and the socket write.
+    try {
+      socket.send(typeof payload === 'string' ? payload : JSON.stringify(payload))
+      return true
+    } catch {
+      return false
+    }
   }
 
   onMessage(participantId: string, handler: (peerId: string, payload: unknown) => void): void {

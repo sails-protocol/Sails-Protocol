@@ -117,53 +117,106 @@ export class PearNode extends EventEmitter {
   // separate future work — see this same TODO.md item's own note on
   // that larger design.
   async start(): Promise<string> {
-    if (this.isStarted) return this.keyPair!.publicKey.toString('hex')
+    if (this.isStarted) {
+      if (this.swarm && this.dht) return this.keyPair!.publicKey.toString('hex')
+      throw new Error('Pears node is partially initialized; stop must succeed before restart')
+    }
+    // Failed teardown retains the resource handle for retry. Never replace
+    // such a node with a fresh DHT while the old one may still be live.
+    if (this.swarm || this.dht) {
+      throw new Error('Pears node has residual resources; stop must succeed before restart')
+    }
 
     const keyPair = HyperDHT.keyPair()
     this.keyPair = keyPair
+    try {
+      this.dht = new HyperDHT({
+        keyPair,
+        bootstrap:
+          config.pear.bootstrapNodes.length > 0
+            ? config.pear.bootstrapNodes.map((addr) => {
+                const [host, port] = addr.split(':')
+                return { host, port: parseInt(port || '49737') }
+              })
+            : undefined,
+      })
 
-    this.dht = new HyperDHT({
-      keyPair,
-      bootstrap:
-        config.pear.bootstrapNodes.length > 0
-          ? config.pear.bootstrapNodes.map((addr) => {
-              const [host, port] = addr.split(':')
-              return { host, port: parseInt(port || '49737') }
-            })
-          : undefined,
-    })
+      this.swarm = new Hyperswarm({ dht: this.dht, keyPair })
+      this.swarm.on('connection', (conn: unknown, info: unknown) => {
+        this.handleNewConnection(conn, info)
+      })
 
-    this.swarm = new Hyperswarm({ dht: this.dht, keyPair })
-    this.swarm.on('connection', (conn: unknown, info: unknown) => {
-      this.handleNewConnection(conn, info)
-    })
+      this.isStarted = true
+      const peerId = keyPair.publicKey.toString('hex')
 
-    this.isStarted = true
-    const peerId = keyPair.publicKey.toString('hex')
+      await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
+      await this.joinTopic('marketplace')
 
-    await prisma.user.update({ where: { id: this.ownerUserId }, data: { peerId } })
-    await this.joinTopic('marketplace')
-
-    // correlationId = userId (RFC-010) — no trade to correlate a connectivity
-    // event to; userId is the most specific trace identifier available.
-    await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
-    log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
-    return peerId
+      // correlationId = userId (RFC-010) — no trade to correlate a connectivity
+      // event to; userId is the most specific trace identifier available.
+      await eventBus.emit('peer.connected', { userId: this.ownerUserId, peerId, publicKey: peerId }, this.ownerUserId)
+      log.info({ msg: 'Node started', ownerUserId: this.ownerUserId, peerId })
+      return peerId
+    } catch (err) {
+      // A failed constructor, DB write, discovery flush or event publication
+      // must not leave an apparently running node in the registry. Preserve
+      // the original startup error even if teardown itself fails.
+      try {
+        // A constructor may fail before isStarted becomes true; the
+        // resources that did initialize still need explicit destruction.
+        if (this.swarm || this.dht) {
+          this.isStarted = true
+          await this.stop()
+        }
+        // If construction failed before either resource existed, there is
+        // nothing to tear down; do not retain a phantom node identity.
+        if (!this.swarm && !this.dht) {
+          this.isStarted = false
+          this.keyPair = null
+        }
+      } catch (cleanupErr) {
+        log.error({ ownerUserId: this.ownerUserId, cleanupErr },
+          'Failed to clean up partially started Pears node')
+      }
+      throw err
+    }
   }
 
   async stop(): Promise<void> {
     if (!this.isStarted) return
 
-    await this.swarm?.destroy()
-    await this.dht?.destroy()
+    // Destroy both resources even if the first teardown fails. Retain
+    // failed resources for a subsequent stop() retry rather than claiming
+    // shutdown succeeded and discarding the only handles to them.
+    let failure: unknown
+    if (this.swarm) {
+      try {
+        await this.swarm.destroy()
+        this.swarm = null
+      } catch (err) {
+        failure = err
+      }
+    }
+    if (this.dht) {
+      try {
+        await this.dht.destroy()
+        this.dht = null
+      } catch (err) {
+        failure ??= err
+      }
+    }
+    if (failure) throw failure
 
     this.isStarted = false
     this.peers.clear()
+    this.userPeerMap.clear()
     this.topicAnnouncements.clear()
 
+    const peerId = this.keyPair?.publicKey.toString('hex') ?? ''
+    this.keyPair = null
     await eventBus.emit('peer.disconnected', {
       userId: this.ownerUserId,
-      peerId: this.keyPair?.publicKey.toString('hex') ?? '',
+      peerId,
     }, this.ownerUserId)   // correlationId = userId (RFC-010)
     log.info({ msg: 'Node stopped', ownerUserId: this.ownerUserId })
   }
@@ -361,28 +414,46 @@ export class PearNode extends EventEmitter {
 // Owns exactly one PearNode per active userId. This is what makes "many
 // users, one server process" correct: two users calling start() concurrently
 // get two independent DHT nodes instead of clobbering a shared one.
-class PearNodeRegistry {
+export class PearNodeRegistry {
   private nodes = new Map<string, PearNode>()
+  private operations = new Map<string, Promise<void>>()
+
+  // Serialize lifecycle changes for each user without blocking other users.
+  // Keep a rejected operation from poisoning subsequent cleanup/retries.
+  private enqueue<T>(userId: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.operations.get(userId) ?? Promise.resolve()
+    const result = previous.catch(() => undefined).then(action)
+    const settled = result.then(() => undefined, () => undefined)
+    this.operations.set(userId, settled)
+    void settled.then(() => {
+      if (this.operations.get(userId) === settled) this.operations.delete(userId)
+    })
+    return result
+  }
 
   async start(userId: string): Promise<string> {
-    let node = this.nodes.get(userId)
-    if (!node) {
-      node = new PearNode(userId)
-      this.nodes.set(userId, node)
-    }
-    return node.start()
+    return this.enqueue(userId, async () => {
+      let node = this.nodes.get(userId)
+      if (!node) {
+        node = new PearNode(userId)
+        this.nodes.set(userId, node)
+      }
+      return node.start()
+    })
   }
 
   async stop(userId: string): Promise<void> {
-    const node = this.nodes.get(userId)
-    if (!node) return
-    await node.stop()
-    this.nodes.delete(userId)
+    return this.enqueue(userId, async () => {
+      const node = this.nodes.get(userId)
+      if (!node) return
+      await node.stop()
+      if (this.nodes.get(userId) === node) this.nodes.delete(userId)
+    })
   }
 
   async stopAll(): Promise<void> {
-    await Promise.all(Array.from(this.nodes.values()).map((n) => n.stop()))
-    this.nodes.clear()
+    const users = new Set([...this.nodes.keys(), ...this.operations.keys()])
+    await Promise.all(Array.from(users, userId => this.stop(userId)))
   }
 
   get(userId: string): PearNode | undefined {

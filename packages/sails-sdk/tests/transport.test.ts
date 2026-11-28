@@ -311,3 +311,34 @@ describe('SailsTransport — network reliability (timeout + retry, RFC PRODUCTIO
     await expect(transport.get('/health')).rejects.toThrow(/timed out after 20ms/)
   })
 })
+
+describe('SDK relay ticket wiring', () => {
+  it('requires a session and obtains a new ticket for every relay connection', async () => {
+    const { SailsPeersModule } = await import('../src/modules/peers')
+    const fetchImpl = jest.fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'one', expiresIn: 30 } }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ success: true, data: { ticket: 'two', expiresIn: 30 } }) })
+    const socketCtor = jest.fn()
+    const transport = new SailsTransport({
+      baseUrl: 'https://relay.example',
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      webSocketImpl: socketCtor as unknown as typeof WebSocket,
+    })
+    const peers = new SailsPeersModule(transport)
+    await expect(peers.connectRelay()).rejects.toBeInstanceOf(SailsTransportError)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    transport.setSessionToken('session')
+    await peers.connectRelay()
+    await peers.connectRelay()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(fetchImpl.mock.calls.map(call => call[0])).toEqual([
+      'https://relay.example/v1/identity/ws-ticket',
+      'https://relay.example/v1/identity/ws-ticket',
+    ])
+    expect(fetchImpl.mock.calls.every(call => call[1].headers.authorization === 'Bearer session')).toBe(true)
+    expect(socketCtor.mock.calls.map(call => call[0])).toEqual([
+      'wss://relay.example/ws/relay?ticket=one',
+      'wss://relay.example/ws/relay?ticket=two',
+    ])
+  })
+})
