@@ -910,6 +910,9 @@ model FeePolicyVersion {
   // schema-approved.
   smallTradeRule        Json             @default("{}")
   triggerSemantics      Json             @default("{}")
+  // G3 (Despacho 069): the document signed by the economic authority, frozen with the row once it leaves DRAFT
+  // (migration 20261128160000). NULL only for a DRAFT or a legacy row, which is unusable for any new use.
+  signedDocument        Json?
 
   createdBy   String // caller-supplied identifier; no real admin/operator role model exists in this codebase yet (Fase 2 §15, open question)
   createdAt   DateTime  @default(now())
