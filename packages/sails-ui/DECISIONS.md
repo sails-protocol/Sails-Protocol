@@ -177,7 +177,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Dentro de um diálogo modal, a ação de confirmar é o laranja sólido daquela camada ("Usar este avatar"); a regra de um laranja por tela vale por camada visível.
 - Em toda a interface, a palavra é **"Nó Sails"** / "nó Sails", nunca "servidor". Exemplo: "Depósito registrado pelo nó Sails" (2026-11-20).
 - Nomes fictícios na demonstração: Alice e Bob, com as empresas Boreal OTC e Kestrel Câmbio, Frank como árbitro, Mediare Arbitragem como painel de apelação e Erin como observadora (2026-11-20).
-- **P1-B** (Product Owner, 2026-11-27, #780 (P1-B)): a chave do Perfil se chama "Sua chave de identidade Sails". A dica e o onboarding dizem que ela identifica o participante e assina ofertas e trades, e que a chave de conexão com a rede é outra, guardada em cada aparelho. Só texto: a geração, a guarda, o login e a custódia das chaves não mudam.
+- **P1-B** (Product Owner, 2026-11-27, #780 (P1-B)): a chave do Perfil se chama "Sua chave de identidade Sails". A dica e o onboarding dizem que ela identifica o participante e assina ofertas e trades, e que a chave de conexão com a rede é outra, temporária, criada pelo nó Sails a cada sessão (como a #780 descreve o `peerId` de transporte; corrigido em 2026-11-28, antes dizia "guardada em cada aparelho"). Só texto: a geração, a guarda, o login e a custódia das chaves não mudam.
 
 ## Visual
 - Nada de bordas genéricas: **um único limite visível por elemento**, sem caixa dentro de caixa e sem anel deslocado em volta do foco (2026-11-20).
