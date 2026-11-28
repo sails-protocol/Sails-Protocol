@@ -459,3 +459,50 @@ Sempre que uma métrica ou gate ganhar importância operacional, devemos pergunt
 5. Em que momento devemos abandonar ou revisar a métrica?
 
 Isso vale também para a própria metodologia. Se começarmos a otimizar quantidade de gates, findings, documentos, issues ou auditorias em vez de reduzir risco real e aumentar propriedades demonstradas, a metodologia estará produzindo o comportamento que foi criada para evitar.
+
+
+# **17. Bastiat — o que se vê e o que não se vê**
+
+Inspirados em Frédéric Bastiat, avaliamos uma decisão pelo benefício visível e também pelas consequências indiretas e alternativas que deixamos de realizar.
+
+Em engenharia, isso inclui manutenção, dependências, superfície de ataque, infraestrutura, auditoria, recuperação, privacidade, experiência do usuário e custo de implementação independente.
+
+Uma melhoria local não é necessariamente uma melhoria do sistema. Devemos comparar o custo total da proposta com o de preservar, completar ou simplificar o que já existe.
+
+> **Evaluate the whole cost, not only the visible benefit.**
+
+# **18. Trilemas arquiteturais — escolhas conscientes**
+
+Nem todas as propriedades desejáveis podem ser maximizadas simultaneamente sob as mesmas condições. O Bitcoin é uma referência de escolhas entre segurança, descentralização e escalabilidade na camada base, mas o Sails não é uma blockchain.
+
+Não presumimos que todo conjunto de três objetivos constitui um trilema, nem que seja sempre necessário abandonar um deles. Devemos explicitar as premissas, identificar tensões reais, preservar garantias essenciais e escolher quais limitações são aceitáveis em cada camada.
+
+### **Sails Trilemma Challenge — investigação aberta**
+
+Uma hipótese inicial a investigar é:
+
+**Segurança econômica × descentralização × disponibilidade econômica.**
+
+Ainda não é uma decisão arquitetural congelada nem uma impossibilidade matemática demonstrada. A hipótese deve ser confrontada com casos concretos do protocolo, inclusive descoberta, compromisso, liquidação e recuperação. As escolhas do Bitcoin não são automaticamente as escolhas do Sails.
+
+# **19. CAP — consistência e disponibilidade sob partições**
+
+Em um sistema distribuído sujeito a partições de comunicação, não é possível garantir simultaneamente consistência linearizável e disponibilidade de todas as operações, nos termos do teorema CAP.
+
+Devemos distinguir descoberta informativa de compromisso econômico. Informações de descoberta podem admitir atraso explícito de propagação; operações que comprometem capacidade ou fundos exigem autorização e consistência suficientes para suas consequências.
+
+Uma assinatura válida prova integridade e autorização do conteúdo assinado, mas não prova, isoladamente, que todos os nodes conhecem o mesmo estado ou que uma capacidade não foi comprometida em outro lugar.
+
+A disponibilidade não deve ser obtida ocultando incerteza econômica. Essa orientação não seleciona um mecanismo de consenso, lock global ou modelo de autoridade novo.
+
+# **20. Parcimônia, reutilização e benchmark por propriedades**
+
+Como aplicação da seção 7, investigamos primeiro a propriedade necessária, depois o que já existe no código, na documentação e no pipeline. Estudamos referências externas pelos problemas que resolvem, pelas evidências e pelas limitações, não para copiar suas arquiteturas.
+
+Preservamos o que funciona, completamos lacunas demonstradas e reutilizamos trabalho existente. Uma pesquisa pode concluir legitimamente que nenhuma implementação adicional é necessária.
+
+Simplicidade não significa sacrificar segurança. Segurança, descentralização e simplicidade podem reforçar-se mutuamente quando reduzimos dependências e pressupostos de confiança sem enfraquecer as garantias necessárias.
+
+> **Do not add complexity without demonstrable benefit. Do not sacrifice essential guarantees for simplicity. Do not freeze hypotheses as facts.**
+
+Esses princípios complementam o ciclo de engenharia existente; não criam novos gates, autoridade de merge, módulos ou autorização de execução.
