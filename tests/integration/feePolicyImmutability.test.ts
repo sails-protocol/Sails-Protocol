@@ -172,8 +172,9 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
   it("G3: the signed document of a PUBLISHED policy cannot be swapped", async () => {
     requirePostgres('G3 document frozen')
     const p = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC, status: 'PUBLISHED', publishedAt: new Date() }) })
+    // Refused by the write-once rule first; the column guard would refuse it too.
     await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"other":true}'::jsonb WHERE id = $1`, p.id))
-      .rejects.toThrow(/economic\/identity fields are immutable/)
+      .rejects.toThrow(/the signed document is write-once|economic\/identity fields are immutable/)
     expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: p.id } })).signedDocument).toEqual(DOC)
   })
 
