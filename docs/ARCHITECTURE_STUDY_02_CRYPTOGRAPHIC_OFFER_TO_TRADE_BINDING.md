@@ -57,6 +57,8 @@ The external projects below are distinct implementations. Their properties are u
 
 The source links are pinned to the repository snapshots recorded here for reproducible navigation.
 
+**Pinning note:** the source commit pins below are the exact snapshots used for these permalinks on 2026-11-28. The supplied audit summary stated that three external SHAs had been confirmed but did not enumerate their values; these pins are therefore not asserted to be identical to the original audit pins unless matched against the original source worksheet.
+
 ### 4.1 OpenBazaar
 
 Repository: [OpenBazaar/openbazaar-go](https://github.com/OpenBazaar/openbazaar-go)  
