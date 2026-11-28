@@ -641,7 +641,7 @@ delegated authorization was revoked is an upstream dependency (pubky-homeserver 
 
 ```mermaid
 flowchart LR
-  WDK["Wallet seed and financial keys, held by the host wallet outside this repository, moves the funds<br/>Implemented"]
+  W["User wallet seed and financial keys, held by the host wallet outside this repository, moves the funds<br/>Implemented"]
   P["Sails participant key P, economic identity<br/>Implemented"]
   ES["Optional client escrow seed<br/>Implemented"]
   EK["Buyer and seller escrow keys, random or derived from the escrow seed<br/>Implemented"]
@@ -745,7 +745,7 @@ No edge copies chat or economic data into the homeserver. The homeserver never d
 
 - *Implemented* here means the key or store exists today; the arrows that depend on Pubky or the escrow backup are intent.
 - The recovery path never promises that funds return with the identity: it depends on the rail and on the counterpart or arbiter.
-- The wallet seed lives in the host wallet, not in this repository; it is shown only to make the key separation explicit.
+- The wallet seed lives in the host wallet, not in this repository; it is shown only to make the key separation explicit. It is not the node-held `WDK_SEED_PHRASE` of the `WDK_USDT_EVM` reference rail: that seed is read from the node environment, is server-custodial, and in production the node refuses to boot when it is set while `MOCK_ESCROW=false` (`src/config/index.ts`; RFC-019).
 - Contacts, groups and favorites are convenience data kept on the device in the first release. They are not a source of economic truth and carry no chat history.
 
 ---
