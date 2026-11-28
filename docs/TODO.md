@@ -415,7 +415,7 @@ makes the same point in more detail.
 
 ## 5. Liquidity Providers Beyond Internal
 
-- [ ] External liquidity aggregation remains roadmap work. The historical HodlHodl stub was removed on 2026-08-09 (see `BACKLOG.md`, OpenLiquidity row); the current router registers only `InternalOrderBook`. No external provider is integrated.
+- [ ] External liquidity aggregation remains roadmap work. The historical HodlHodl stub was removed on 2026-08-09 (see `BACKLOG.md`, OpenLiquidity row); the current router registers only `InternalOrderBook`. No external provider is integrated. **Corrected 2026-11-28:** the historical item stated that `HodlHodlProvider.isAvailable()` always returns `false` and the integration is a stub; it described code that no longer exists.
 
 ## 5B. OpenAgents — QvacAgentProvider + BuyerAgent/SellerAgent *(section added QVAC/WDK MVP pass 2026-07-17, consolidated same day)*
 
