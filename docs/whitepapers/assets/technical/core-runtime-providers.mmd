@@ -5,4 +5,4 @@ flowchart TD
   T --> R["Runtime\nCommit · ordering · dispatch · recovery"]
   R --> P["Providers\nExecute and report"]
   P --> X["External World"]
-  X -. "execution-report Assertion" .-> C
+  P -. "execution-report Assertion (admission)" .-> C
