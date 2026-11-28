@@ -77,6 +77,8 @@ export const SORT_OPTIONS: { value: MarketplaceFilters['sortBy']; label: string 
 // once, from `applyAndClose`. No other path calls `onChange`.
 export function FilterPanel({ open, onClose, filters, onChange, currency }: Props) {
   const [draft, setDraft] = React.useState<MarketplaceFilters>(filters)
+  // Opening focuses the title, not the first icon button: its focus tooltip took the first Esc.
+  const titleRef = React.useRef<HTMLHeadingElement>(null)
 
   React.useEffect(() => {
     if (open) setDraft(filters)
@@ -121,7 +123,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
     // aria-modal="true"`: no real focus trap, no Escape-to-close. Same fix
     // as Disputes.tsx's own drawer — see feedback_slc_ui_philosophy memory.
     <Sheet open={open} onOpenChange={(o) => !o && cancelAndClose()}>
-      <SheetContent side="right" hideDefaultClose className="w-full max-w-sm p-0 flex flex-col gap-0">
+      <SheetContent side="right" hideDefaultClose onOpenAutoFocus={(e) => { e.preventDefault(); titleRef.current?.focus() }} className="w-full max-w-sm p-0 flex flex-col gap-0">
         {/* UI-POLISH-2 §2.1 — full-width on mobile, this Sheet reads as a
             full-screen secondary surface, not a dismissive overlay: Back
             semantics (an arrow, same row as the title) fit that better
@@ -137,7 +139,7 @@ export function FilterPanel({ open, onClose, filters, onChange, currency }: Prop
           <IconButton label={t('market.filters.back')} onClick={cancelAndClose} className="sm:hidden -ml-2.5">
             <ArrowLeft aria-hidden="true" />
           </IconButton>
-          <SheetTitle className="flex-1">{t('market.filters.advanced')}</SheetTitle>
+          <SheetTitle ref={titleRef} tabIndex={-1} className="flex-1 outline-none">{t('market.filters.advanced')}</SheetTitle>
           <IconButton label={t('common.close')} size="sm" onClick={cancelAndClose} className="hidden sm:inline-flex">
             <X aria-hidden="true" />
           </IconButton>

@@ -25,6 +25,8 @@ import { DEMO_QUOTE_USD } from '../../demo/spaceShop'
 import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
 
+// Only pairs the enum can carry (available, or with a reference rail): never a pair that is only "Em breve".
+const PAYABLE_PAIRS = ASSET_CATALOG.filter((p) => p.assetType !== null)
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 export const spaceName = (id: SpaceProductId) => t(`shop.product.${id}`)
 
@@ -84,7 +86,7 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
   onPaid: () => void
 }) {
   const [asset, setAsset] = useState<PayAsset>('BTC')
-  const networks = checkoutNetworks(asset, ASSET_CATALOG)
+  const networks = checkoutNetworks(asset, PAYABLE_PAIRS)
   const [pairId, setPairId] = useState(networks[0]?.id ?? '')
   const [step, dispatch] = useReducer(nextCheckoutStep, 'payment' as CheckoutStep)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -102,7 +104,7 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
   const pair = networks.find((p) => p.id === pairId) ?? networks[0]
   const amount = demoEquivalent(product.demoPriceUsd, asset, DEMO_QUOTE_USD[asset])
   const amountText = amount === null ? t('common.soon') : `${formatAmount(amount, asset === 'BTC' ? 8 : 2)} ${asset}`
-  const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, ASSET_CATALOG)[0]?.id ?? '') }
+  const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, PAYABLE_PAIRS)[0]?.id ?? '') }
   const title = t(step === 'payment' ? 'spaces.create.reviewAndPay' : step === 'confirmed' ? 'shop.status.confirmedShort' : 'shop.step.awaiting')
   const back = (label = t('markets.create.back')) => (
     <Button type="button" variant="ghost" onClick={() => dispatch({ type: 'back' })} className="touch:min-h-11"><ArrowLeft aria-hidden="true" />{label}</Button>
@@ -125,11 +127,16 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
           )}
           <Facts rows={[...rows, [t('shop.receiptProduct'), spaceName(product.id)], [t('shop.priceLabel'), formatUsd(product.demoPriceUsd)]]} />
           <RadioGroup legend={t('shop.pay.assetLegend')} listClassName="grid gap-2 sm:grid-cols-3">
-            {FUTURE_PAYMENT_ASSETS.map((a) => (
-              <RadioCard key={a} name="pay-asset" value={a} checked={asset === a} onChange={() => pickAsset(a)}>
-                <AssetLogo assetSrc={ASSET_LOGO[a]} size="md" />{a}
-              </RadioCard>
-            ))}
+            {FUTURE_PAYMENT_ASSETS.map((a) => {
+              // An asset with no pair the enum can carry yet (USDC) is listed as "Em breve", as in the asset catalog.
+              const soon = checkoutNetworks(a, PAYABLE_PAIRS).length === 0
+              return (
+                <RadioCard key={a} name="pay-asset" value={a} checked={asset === a} disabled={soon} onChange={() => pickAsset(a)}>
+                  <AssetLogo assetSrc={ASSET_LOGO[a]} size="md" />{a}
+                  {soon && <span className="ml-auto text-caption font-normal text-brand-text-secondary">{t('common.soon')}</span>}
+                </RadioCard>
+              )
+            })}
           </RadioGroup>
           <RadioGroup legend={t('shop.pay.networkLegend')} listClassName="grid gap-2 sm:grid-cols-2">
             {networks.map((p) => (

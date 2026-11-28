@@ -1,4 +1,4 @@
-import { composeMyMarkets, ownMarkets, type MarketView } from '../src/lib/myMarkets'
+import { composeMyMarkets, defaultMarketTarget, ownMarkets, type MarketView } from '../src/lib/myMarkets'
 
 const DEFAULT: MarketView = { id: 'public', name: 'Mercado público', visibility: 'public', relation: 'default', infrastructure: 'network' }
 const LOJA: MarketView = { id: 'loja', name: 'Loja Exemplo', visibility: 'public', relation: 'follows', infrastructure: 'network' }
@@ -37,5 +37,19 @@ describe('own markets', () => {
   it('leaves out markets the person only could discover', () => {
     const clube: MarketView = { id: 'clube', name: 'Clube', visibility: 'public', relation: 'none', infrastructure: 'network' }
     expect(ownMarkets([DEFAULT, clube, LOJA]).map((m) => m.id)).toEqual(['public', 'loja'])
+  })
+})
+
+describe('default market on open', () => {
+  const all = [DEFAULT, LOJA, ABC]
+  it('opens the saved market while the person still belongs to it', () => {
+    expect(defaultMarketTarget('abc', all)).toBe('abc')
+    expect(defaultMarketTarget('loja', all)).toBe('loja')
+  })
+  it('falls back to Mercado aberto when nothing is saved, the default is saved, the market is gone or was left', () => {
+    expect(defaultMarketTarget(null, all)).toBeNull()
+    expect(defaultMarketTarget('public', all)).toBeNull()
+    expect(defaultMarketTarget('gone', all)).toBeNull()
+    expect(defaultMarketTarget('abc', [DEFAULT, { ...ABC, relation: 'none' }])).toBeNull()
   })
 })

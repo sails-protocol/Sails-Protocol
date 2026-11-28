@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
-import { Link } from 'react-router'
+import { Link, Navigate, useSearchParams } from 'react-router'
 import { FaqTextLink } from '../components/faq/FaqLink'
 import { PAYMENT_METHODS_FILTERABLE } from '../data/mock'
 import { fetchOffers } from '../lib/realOffers'
+import { demoOfferMarket } from '../lib/demoMarkers'
 import { countActiveFilters } from '../lib/filters'
 import { OfferCard } from '../components/marketplace/OfferCard'
 import { OfferTable } from '../components/marketplace/OfferTable'
@@ -18,7 +19,7 @@ import { ListSkeleton } from '../components/ui/skeleton'
 import { cn } from '../lib/utils'
 import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { TRADES_ROUTES } from '../components/layout/navMatch'
+import { TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { StateBlock } from '../components/ui/StateBlock'
 import { Alert } from '../components/ui/alert'
 import { Input } from '../components/ui/input'
@@ -33,6 +34,8 @@ import { REPUTATION_EXPLANATION } from '../lib/reputation'
 import { ExplanationPopover } from '../components/ui/ExplanationPopover'
 import { acceptsAnyMethod, offerPaymentMethods } from '../lib/paymentMethods'
 import { MarketPortalButton, MarketsCallToAction, MarketsDiscoveryCard } from './markets/MarketsEntry'
+import { readDefaultMarketChoice, useVisibleMarkets } from './markets/shared'
+import { defaultMarketTarget } from '../lib/myMarkets'
 import { t } from '../i18n'
 
 const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: () => string }[] = [
@@ -42,6 +45,17 @@ const SIDE_FILTERS: { value: TradeSide | 'Todos'; label: () => string }[] = [
 ]
 
 const FILTERS_STORAGE_KEY = 'sails_ui_marketplace_filters'
+
+/**
+ * "/": opens the market saved in Configurações → Mercados while the person still belongs to it, otherwise Mercado
+ * aberto. A market named in the URL wins (`?market=public` is Mercado aberto itself, MARKET_OPEN_PATH).
+ */
+export function MarketHome() {
+  const [params] = useSearchParams()
+  const markets = useVisibleMarkets()
+  const target = params.has('market') ? null : defaultMarketTarget(readDefaultMarketChoice(), markets)
+  return target ? <Navigate to={marketPath(target)} replace /> : <Marketplace />
+}
 
 export function Marketplace() {
   const [asset, setAsset] = useState<AssetType | 'Todos'>('Todos')
@@ -119,7 +133,8 @@ export function Marketplace() {
     fetchOffers(asset, side)
       .then(({ offers, hadError }) => {
         if (cancelled) return
-        setAllOffers(offers)
+        // Demo: offers published inside a market are listed only in that market.
+        setAllOffers(offers.filter((o) => !demoOfferMarket(o.id)))
         setOffersError(hadError)
       })
       .finally(() => {
@@ -270,8 +285,8 @@ export function Marketplace() {
           border), separating "controls" from "content" instead of every
           control floating loose at equal weight against the page bg. */}
       {/* Mobile: one side segment + one Filtros button; everything else lives in the bottom sheet. */}
-      <div className="md:hidden mt-4 flex gap-2">
-        {sideSegment('flex-1 min-w-0', 'flex-1 h-8 touch:h-11 px-2')}
+      <div className="md:hidden mt-4 flex flex-wrap gap-2">
+        {sideSegment('flex-auto min-w-0 flex-wrap', 'flex-1 h-8 touch:h-11 px-2')}
         <Button
           variant="outline"
           onClick={openMobileFilters}

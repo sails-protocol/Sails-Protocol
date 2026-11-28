@@ -5,7 +5,7 @@
  * import reads only the picked file's name. Real mode never renders this file (the rows show "Em breve").
  */
 import { useId, useRef, useState, type FormEvent } from 'react'
-import { CheckCircle2, FileUp } from 'lucide-react'
+import { CheckCircle2, FileUp, KeyRound } from 'lucide-react'
 import { SettingsRow } from './SettingsRow'
 import { SimulatedBadge } from '../ui/SimulatedBadge'
 import { Button } from '../ui/button'
@@ -13,6 +13,7 @@ import { Input } from '../ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { LOOSE_WIRES } from '../../lib/looseWires'
 import { t } from '../../i18n'
+import { useCloseOnRouteChange } from './useCloseOnRouteChange'
 
 // shortcut: a demo-only floor so the form has a real validation state; R0 sets the actual passphrase rule.
 const MIN_PASSPHRASE = 8
@@ -37,6 +38,7 @@ function BackupDialog({ kind, open, onOpenChange }: { kind: 'export' | 'import';
     if (!next) { setPass(''); setConfirm(''); setFileName(null); setError(null); setDone(false) }
     onOpenChange(next)
   }
+  useCloseOnRouteChange(open, () => close(false))
   const submit = (e: FormEvent) => {
     e.preventDefault()
     const err = kind === 'import' && !fileName ? t('settings.backup.errorFile')
@@ -124,6 +126,37 @@ export function BackupDemoRow({ kind }: { kind: 'export' | 'import' }) {
     <>
       <SettingsRow icon={wire.icon} label={wire.label} description={<SimulatedBadge label={t('spaces.simulated')} />} onClick={() => setOpen(true)} />
       <BackupDialog kind={kind} open={open} onOpenChange={setOpen} />
+    </>
+  )
+}
+
+// Demo: the first-escrow prompt is offered once per page load (nothing is stored).
+let escrowPromptDone = false
+
+/**
+ * "Crie o backup das chaves deste escrow" (CTO 29): R0 is asked only when an escrow is open, once, and opens the same
+ * demo export dialog. Separate from the portable identity and the social record.
+ */
+export function EscrowBackupPrompt() {
+  const [hidden, setHidden] = useState(escrowPromptDone)
+  const [open, setOpen] = useState(false)
+  const dismiss = () => { escrowPromptDone = true; setHidden(true) }
+  if (hidden && !open) return null
+  return (
+    <>
+      {!hidden && (
+        <section aria-labelledby="escrow-backup-prompt" className="space-y-2 rounded-lg bg-brand-elevated p-4">
+          <h2 id="escrow-backup-prompt" className="flex flex-wrap items-center gap-2 text-sm font-medium text-brand-text">
+            <KeyRound aria-hidden="true" className="size-icon-sm shrink-0 text-brand-text-secondary" />{t('identity.escrowBackup.title')}<SimulatedBadge label={t('spaces.simulated')} />
+          </h2>
+          <p className="text-body-sm text-brand-text-secondary">{t('identity.escrowBackup.text')}</p>
+          <div className="flex flex-wrap gap-2">
+            <Button type="button" size="sm" variant="secondary" onClick={() => { dismiss(); setOpen(true) }} className="touch:min-h-11">{t('identity.escrowBackup.action')}</Button>
+            <Button type="button" size="sm" variant="ghost" onClick={dismiss} className="touch:min-h-11">{t('identity.escrowBackup.later')}</Button>
+          </div>
+        </section>
+      )}
+      <BackupDialog kind="export" open={open} onOpenChange={setOpen} />
     </>
   )
 }

@@ -9,11 +9,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { ArrowLeft, CheckCircle2, UsersRound } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { MARKETS_ROUTES, marketPath } from '../components/layout/navMatch'
+import { MARKETS_ROUTES, MARKET_OPEN_PATH, marketPath } from '../components/layout/navMatch'
 import { TabLinks } from '../components/ui/tabs'
 import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { Input } from '../components/ui/input'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -41,6 +43,7 @@ import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
 import { t } from '../i18n'
+import { MarketRoleLine, RecoveryAuthorityChoice, RecoveryObjectionBanner } from '../components/settings/PortableIdentityDemo'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
 const tabs = () => [
@@ -230,7 +233,7 @@ function ExploreView() {
             <h2 className="text-sm font-medium text-brand-text">{open.name}</h2>
             <p className="mt-0.5 text-caption text-brand-text-secondary">{open.description}</p>
           </div>
-          <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
+          <Link to={MARKET_OPEN_PATH} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
         </div>
       )}
       <section aria-labelledby="explore-public" className="space-y-3">
@@ -276,7 +279,11 @@ function MineView() {
   const cardCopy = marketCardCopy()
   // "Seu espaço": markets the person administers or created. Transferir is simulated in the demo (no transfer exists).
   const [transferring, setTransferring] = useState<MarketView | null>(null)
+  const [transferTo, setTransferTo] = useState('')
   const yours = (m: MarketView) => m.relation === 'admin' || !!m.ownedByYou
+  // CTO 29 (marketOwnershipRecovery wire), demo only: role and hosting in plain words.
+  // shortcut: the contract has adminIdentity but no owner/delegate role, so every demo space of yours reads "Proprietário"; use the role field when the Principal adds it.
+  const roleLine = (m: MarketView, className?: string) => (demo && yours(m) ? <MarketRoleLine role="owner" infrastructure={m.infrastructure} className={className} /> : null)
   const transferButton = (m: MarketView) => (
     <Button type="button" size="sm" variant="ghost" onClick={() => setTransferring(m)} className="relative z-10 touch:min-h-11">{t('spaces.transfer')}<span className="sr-only"> {m.name}</span></Button>
   )
@@ -284,16 +291,39 @@ function MineView() {
   const dashboardLink = (m: MarketView) => (
     <Link to={`${marketPath(m.id)}?tab=dashboard`} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'relative z-10 touch:min-h-11')}>{t('stats.space.tab')}<span className="sr-only"> {m.name}</span></Link>
   )
+  // CTO 29, demo: the owner's notice of a pending recovery of one of their markets (the old device's view).
+  const recoveryNotice = demo ? markets.find(yours) : undefined
   return (
     <div className="space-y-4">
-      <ConfirmActionDialog
-        open={transferring !== null}
-        onOpenChange={(o) => { if (!o) setTransferring(null) }}
-        title={t('spaces.transferTitle', { name: transferring?.name ?? '' })}
-        consequence={t('spaces.transferBody')}
-        confirmLabel={t('spaces.transfer')}
-        onConfirm={() => { setTransferring(null); simulatedToast(t('spaces.transferToast')) }}
-      />
+      {recoveryNotice && <RecoveryObjectionBanner marketName={recoveryNotice.name} />}
+      {/* Transferir (demo): the target identity, then the same 7-day safety period with objection as a recovery (CTO 29). */}
+      <Dialog open={transferring !== null} onOpenChange={(o) => { if (!o) { setTransferring(null); setTransferTo('') } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.transferTitle', { name: transferring?.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('spaces.transferBody')}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const to = transferTo.trim()
+              if (!to || !transferring) return
+              simulatedToast(t('spaces.transferToast', { name: transferring.name, to: to.length > 20 ? `${to.slice(0, 10)}…${to.slice(-6)}` : to }))
+              setTransferring(null)
+              setTransferTo('')
+            }}
+          >
+            <label htmlFor="transfer-to" className="text-sm font-medium text-brand-text">{t('spaces.transferTo')}</label>
+            <Input id="transfer-to" name="transfer-to" autoComplete="off" spellCheck={false} value={transferTo} onChange={(e) => setTransferTo(e.target.value)} className="font-mono" />
+            <p className="text-caption text-brand-text-secondary">{t('spaces.transferSafety')}</p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="ghost" onClick={() => { setTransferring(null); setTransferTo('') }} className="touch:min-h-11">{t('common.cancel')}</Button>
+              <Button type="submit" disabled={!transferTo.trim()} className="touch:min-h-11">{t('spaces.transfer')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {/* The page h1 already says Meus mercados: this h2 names the list by its size. */}
         <h2 className="text-section-title">{t('spaces.portal.mineCount', { count: markets.length })}</h2>
@@ -310,7 +340,7 @@ function MineView() {
             <li key={m.id} className="flex">
               <MarketCard
                 market={m} copy={cardCopy} className="w-full"
-                badges={yours(m) ? <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge> : undefined}
+                badges={yours(m) ? <><Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge>{roleLine(m, 'basis-full')}</> : undefined}
                 action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && dashboardLink(m)}{yours(m) && transferButton(m)}</div>}
               />
             </li>
@@ -324,6 +354,7 @@ function MineView() {
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
               <div className="flex flex-wrap items-center justify-end gap-1">
+                {roleLine(m, 'w-full text-right sm:w-auto')}
                 {yours(m) && <Badge variant="outline" className="hidden border-transparent bg-brand-tonal font-medium text-brand-text sm:inline-flex">{t('spaces.yourSpace')}</Badge>}
                 {yours(m) && dashboardLink(m)}
                 {yours(m) && transferButton(m)}
@@ -432,6 +463,7 @@ function CreateView() {
         retainUrl={isRetainedPreview}
         privateHostingSlot={<PrivateHostingNote own={<p className="text-caption text-brand-text-secondary"><span className="font-medium text-brand-text">{t('spaces.hosting.own')}.</span> {t(simple ? 'spaces.hosting.ownNote' : 'spaces.hosting.ownInWizard')}</p>} />}
         brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
+        recoverySlot={<RecoveryAuthorityChoice name="market-recovery" />}
         invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}
         createAvailable={demo}
         unavailableNote={<WireNote ids={['createMarket']} />}

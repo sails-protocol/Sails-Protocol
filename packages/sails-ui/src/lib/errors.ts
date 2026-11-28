@@ -39,8 +39,8 @@ const SDK_ERROR_MESSAGES: Record<string, MessageKey> = {
   INTENT_BOUND: 'shell.errors.intentBound',
   AMBIGUOUS_INTENT: 'shell.errors.ambiguousIntent',
   IDEMPOTENCY_OUTCOME_UNKNOWN: 'shell.errors.idempotencyUnknown',
-  // 403 from settlement.create when ESCROW_CREATE_SELLER_ONLY is enforced (CTO D7): the buyer never creates the escrow.
-  ESCROW_CREATE_SELLER_ONLY: 'shell.errors.escrowCreateSellerOnly',
+  // 403 from settlement.create when ESCROW_CREATE_SELLER_ONLY is enforced (CTO D7): the buyer sees the same waiting line as the trade card (EPM 2026-11-27).
+  ESCROW_CREATE_SELLER_ONLY: 'escrow.action.waitCreate.title',
 }
 
 /** User-facing message for a caught error: known SDK codes first, then the error's own message, then `fallback`. */

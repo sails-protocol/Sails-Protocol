@@ -4,7 +4,15 @@
  * defensive read of Dispute.evidence (typed `unknown[]` by the SDK).
  */
 import type { Dispute, DisputeRuling, Escrow, EscrowType } from '@satsails/p2p-trading-sdk'
-import { t } from '../i18n'
+import { t, type MessageKey } from '../i18n'
+
+// Keys, not copy: t() runs on read so the labels follow the interface language.
+const EVIDENCE_TYPE_KEY: Record<string, MessageKey> = {
+  text: 'disputes.evidenceType.text', payment_receipt: 'disputes.evidenceType.payment_receipt',
+  chat_log: 'disputes.evidenceType.chat_log', screenshot: 'disputes.evidenceType.screenshot',
+}
+/** A human label for an evidence type; an unknown type is shown as recorded. */
+export const evidenceTypeLabel = (type: string) => (EVIDENCE_TYPE_KEY[type] ? t(EVIDENCE_TYPE_KEY[type]) : type)
 
 // RFC-021 D9 — SPLIT only works for these three; SAFE_GUARD_EVM's
 // immutable Guard contract and LIGHTNING_HODL's fixed-leaf VtxoScript

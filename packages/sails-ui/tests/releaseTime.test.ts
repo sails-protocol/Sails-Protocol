@@ -1,4 +1,4 @@
-import { averageDuration, durationParts, mapLimited, releaseDurationMs, releaseSample, RELEASE_SAMPLE_CAP, type TradeRecord } from '../src/lib/tradeStats'
+import { averageDuration, durationParts, inFlightOnce, mapLimited, releaseDurationMs, releaseSample, RELEASE_SAMPLE_CAP, type TradeRecord } from '../src/lib/tradeStats'
 
 const ev = (fromStatus: string, toStatus: string, createdAt: string) => ({ fromStatus, toStatus, createdAt })
 const COOPERATIVE = [
@@ -61,5 +61,21 @@ describe('release sample (one escrow read per trade, capped)', () => {
     })
     expect(out).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18])
     expect(peak).toBe(4)
+  })
+})
+
+describe('inFlightOnce', () => {
+  it('shares one call per key while it runs, then calls again', async () => {
+    let calls = 0
+    const once = inFlightOnce(async (k: string) => { calls += 1; return `${k}:${calls}` })
+    const [a, b, c] = await Promise.all([once('me'), once('me'), once('other')])
+    expect([a, b, c]).toEqual(['me:1', 'me:1', 'other:2'])
+    expect(await once('me')).toBe('me:3')
+  })
+  it('forgets a failed call so a retry runs again', async () => {
+    let calls = 0
+    const once = inFlightOnce(async () => { calls += 1; if (calls === 1) throw new Error('down'); return 'ok' })
+    await expect(once('me')).rejects.toThrow('down')
+    await expect(once('me')).resolves.toBe('ok')
   })
 })

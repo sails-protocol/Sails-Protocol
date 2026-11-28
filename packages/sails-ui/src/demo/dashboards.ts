@@ -1,6 +1,6 @@
 /**
- * Demo-only dashboard fixtures (PO 2026-11-23): fictional trade records for "Painel do espaço" and "Minhas
- * estatísticas", always shown with the "Simulado" badge. Deterministic (seeded), dated relative to today so every
+ * Demo-only dashboard fixtures (PO 2026-11-23): fictional trade records for "Painel do espaço", always shown
+ * with the "Simulado" badge. Deterministic (seeded), dated relative to today so every
  * preset has data. Never imported by real-mode code paths: the containers read them only under isDemoMode().
  */
 import type { TradeRecord } from '../lib/tradeStats'
@@ -19,14 +19,14 @@ function rng(seed: number) {
 
 const DAY = 86_400_000
 const UNITS = [
-  { unit: 'BTC', weight: 0.45, price: 92_000, min: 0.002, max: 0.08, decimals: 6 },
-  { unit: 'USDT', weight: 0.4, price: 1, min: 50, max: 4_000, decimals: 2 },
-  { unit: 'USDC', weight: 0.15, price: 1, min: 50, max: 2_500, decimals: 2 },
+  { unit: 'BTC', weight: 0.55, price: 92_000, min: 0.002, max: 0.08, decimals: 6 },
+  { unit: 'USDT', weight: 0.45, price: 1, min: 50, max: 4_000, decimals: 2 },
 ] as const
 
 function trade(r: () => number, at: number): TradeRecord {
   const x = r()
-  const u = x < UNITS[0].weight ? UNITS[0] : x < UNITS[0].weight + UNITS[1].weight ? UNITS[1] : UNITS[2]
+  // Only assets the demo offers (BTC and USDT; USDC is "Em breve" in the catalog).
+  const u = x < UNITS[0].weight ? UNITS[0] : UNITS[1]
   const amount = Number((u.min + r() * (u.max - u.min)).toFixed(u.decimals))
   const roll = r()
   const status: TradeRecord['status'] = roll < 0.86 ? 'COMPLETED' : roll < 0.95 ? 'CANCELLED' : 'DISPUTED'
@@ -69,7 +69,9 @@ export function demoMarketDashboard(marketId: string, activity30d: number | unde
   const start = new Date(DEMO_DASHBOARD_MARKET_START)
   const cut = now.getTime() - 30 * DAY
   // Older disputes are settled in this fiction (shown as cancelled), so "Disputas abertas" counts today's only.
-  const older = history(2024, start.getTime(), cut, 9).map((tr): TradeRecord => tr.status === 'DISPUTED' ? { ...tr, status: 'CANCELLED', cancelledAt: new Date(Date.parse(tr.createdAt) + 2 * DAY).toISOString() } : tr)
+  // The history grows to about 1.4x its base rate by the end: start at activity30d / 1.4 so the month before the last
+  // 30 days is about as busy, and "vs período anterior" never reads as a fall caused by the fixture.
+  const older = history(2024, start.getTime(), cut, Math.max(1, (activity30d ?? 9) / 1.4)).map((tr): TradeRecord => tr.status === 'DISPUTED' ? { ...tr, status: 'CANCELLED', cancelledAt: new Date(Date.parse(tr.createdAt) + 2 * DAY).toISOString() } : tr)
   const r = rng(30)
   const recent: TradeRecord[] = Array.from({ length: activity30d ?? 0 }, (_, i) => {
     const t = trade(r, cut + ((i + 0.5) / Math.max(1, activity30d ?? 1)) * 30 * DAY)
@@ -81,31 +83,4 @@ export function demoMarketDashboard(marketId: string, activity30d: number | unde
   const span = now.getTime() - start.getTime()
   const memberJoins = Array.from({ length: count }, (_, i) => new Date(start.getTime() + (i === 0 ? 0 : span * (0.2 + 0.78 * (i / Math.max(1, count - 1))))))
   return { start, trades: [...older, ...recent], memberJoins }
-}
-
-export interface DemoPersonalStats {
-  start: Date
-  trades: TradeRecord[]
-  /** Fictional average minutes from payment marked sent to release, per completed trade. */
-  releaseMinutes: { at: Date; minutes: number }[]
-  /** Fictional reputation after each completed trade (the +2 / -5 sum, never a scale). */
-  reputation: { at: Date; score: number }[]
-}
-
-/** The demo user's fictional history, about 13 months. */
-export function demoPersonalStats(now = new Date()): DemoPersonalStats {
-  const start = new Date(now.getTime() - 400 * DAY)
-  const trades = history(7, start.getTime(), now.getTime(), 6)
-  const r = rng(11)
-  const completed = trades.filter((tr) => tr.status === 'COMPLETED').sort((a, b) => (a.completedAt ?? '').localeCompare(b.completedAt ?? ''))
-  const releaseMinutes = completed.map((tr) => ({ at: new Date(tr.completedAt as string), minutes: Math.round(8 + r() * 30) }))
-  let score = 0
-  const reputation = trades
-    .filter((tr) => tr.status === 'COMPLETED' || tr.status === 'DISPUTED')
-    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-    .map((tr) => {
-      score += tr.status === 'COMPLETED' ? 2 : r() < 0.3 ? -5 : 0
-      return { at: new Date(tr.completedAt ?? tr.createdAt), score }
-    })
-  return { start, trades, releaseMinutes, reputation }
 }

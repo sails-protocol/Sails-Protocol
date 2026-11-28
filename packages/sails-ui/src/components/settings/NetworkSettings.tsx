@@ -8,6 +8,9 @@
  */
 import { useId, useState, type ReactNode } from 'react'
 import { BadgeCheck, ChevronDown, Network, Plus } from 'lucide-react'
+import { Link } from 'react-router'
+import { MARKETS_ROUTES } from '../layout/navMatch'
+import { useCloseOnRouteChange } from './useCloseOnRouteChange'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../ui/dialog'
 import { Alert } from '../ui/alert'
 import { Badge } from '../ui/badge'
@@ -97,7 +100,10 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
   const id = useId()
   const [adding, setAdding] = useState(false)
   const [open, setOpen] = useState(false)
-  const nodes = [currentNode(), ...demoNodes()]
+  // Demo: nodes added by hand in this view (fictional, marked like the other demo nodes); nothing is contacted.
+  const [added, setAdded] = useState<NodeView[]>([])
+  useCloseOnRouteChange(adding, () => setAdding(false))
+  const nodes = [currentNode(), ...demoNodes(), ...added]
   const demo = isDemoMode()
   return (
     <>
@@ -115,10 +121,16 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
                 {k === 'managed' && (demo ? <SimulatedBadge label={t('spaces.simulated')} /> : <Badge variant="outline" className={TONAL_BADGE}>{t('common.soon')}</Badge>)}
               </span>
               <span className="block text-caption text-brand-text-secondary">{t(`markets.create.infrastructure.${k}Description`)}</span>
+              {/* Demo: the managed node is chosen where a market is created ("Onde o mercado roda"). */}
+              {k === 'managed' && demo && (
+                <Link to={MARKETS_ROUTES.create} className="inline-flex min-h-8 touch:min-h-11 items-center text-caption font-medium text-brand-link underline-offset-2 hover:underline">
+                  {t('settings.network.managedOptions')}
+                </Link>
+              )}
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-caption text-brand-text-secondary">{t('settings.network.economy')}</p>
+        <p className="mt-2 max-w-[68ch] text-caption text-brand-text-secondary">{t('settings.network.economy')}</p>
         <RoleLinks here="node" className="mt-2" />
       </li>
       <li className="px-4 py-3">
@@ -157,7 +169,12 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
             <DialogDescription>{t('settings.network.addNodeDialog')}</DialogDescription>
           </DialogHeader>
           {/* Demo: the form works and says so; real mode keeps it disabled with its loose wires. */}
-          <AddNodeForm copy={addNodeCopy()} submitAvailable={demo} unavailableNote={<WireNote ids={['nodeCatalog', 'manualServer']} />} onSubmit={() => { setAdding(false); simulatedToast(t('spaces.sim.nodeAdded')) }} onCancel={() => setAdding(false)} />
+          <AddNodeForm copy={addNodeCopy()} submitAvailable={demo} unavailableNote={<WireNote ids={['nodeCatalog', 'manualServer']} />} onSubmit={({ address, name }) => {
+            setAdded((list) => [...list, { id: `demo-added-${list.length + 1}`, name: name || address, illustrative: true }])
+            setAdding(false)
+            setOpen(true)
+            simulatedToast(t('spaces.sim.nodeAdded'))
+          }} onCancel={() => setAdding(false)} />
         </DialogContent>
       </Dialog>
     </>

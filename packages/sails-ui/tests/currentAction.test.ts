@@ -14,7 +14,8 @@ function legacy(status: EscrowStatus, isBuyer: boolean, isSeller: boolean) {
     : isBuyer && status === 'FUNDS_LOCKED' ? 'markPaymentSent'
     : isSeller && status === 'PAYMENT_PENDING' ? 'release'
     : undefined
-  const isTerminal = status === 'COMPLETED' || status === 'DISPUTED' || status === 'REFUNDED'
+  // SPLIT added 2026-11-23: it is only reached through a dispute ruling, so a second dispute is never offered.
+  const isTerminal = status === 'COMPLETED' || status === 'DISPUTED' || status === 'REFUNDED' || status === 'SPLIT'
   return { primary, canDispute: !isTerminal && (isBuyer || isSeller) }
 }
 
@@ -44,8 +45,8 @@ describe('current action derivation (CTO 437)', () => {
     }
   })
 
-  it('offers dispute only to trade parties and never after COMPLETED/DISPUTED/REFUNDED', () => {
-    for (const s of ['COMPLETED', 'DISPUTED', 'REFUNDED'] as const) {
+  it('offers dispute only to trade parties and never after COMPLETED/DISPUTED/REFUNDED/SPLIT', () => {
+    for (const s of ['COMPLETED', 'DISPUTED', 'REFUNDED', 'SPLIT'] as const) {
       for (const r of ROLES) expect(deriveCurrentAction({ status: s, ...r }).canDispute).toBe(false)
     }
     expect(deriveCurrentAction({ status: 'FUNDS_LOCKED', isBuyer: false, isSeller: false }).canDispute).toBe(false)

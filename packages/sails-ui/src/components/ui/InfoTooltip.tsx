@@ -10,12 +10,12 @@ export function InfoTooltip({ text }: { text: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        {/* p-3.5 -m-3.5 (44px) on the button, visible circle kept on the inner span
+        {/* p/-m 14px (44px; px so 200% text does not double the overhang past the line end) on the button, visible circle kept on the inner span
             (2026-08-01): the 16px badge is the intended look everywhere
             it's used inline next to a label, but as the actual button
             box it was also a 16px tap target — real mobile-testing find,
             not hypothetical, same class of fix as FavoriteButton's own. */}
-        <button type="button" aria-label={strings.moreInfo} className="group p-3.5 -m-3.5 flex items-center justify-center">
+        <button type="button" aria-label={strings.moreInfo} className="group p-[14px] -m-[14px] flex items-center justify-center">
           <span className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-xs flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent">
             i
           </span>

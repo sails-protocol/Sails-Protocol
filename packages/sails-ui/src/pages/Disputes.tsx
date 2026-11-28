@@ -25,7 +25,7 @@ import { ESCROW_STATUS_LABEL, TradeStatusBadge } from '../components/ui/StatusBa
 import { formatAmount, formatDateTime, formatUsd } from '../lib/format'
 import { errorMessage } from '../lib/errors'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_STATUS_LABEL } from '../lib/labels'
-import { decisionOptions, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, pendingSuggestion, RULING_DECISION, selectableOption, splitUnavailableHere, type DecisionChoice } from '../lib/disputeCase'
+import { decisionOptions, evidenceTypeLabel, multisigPendingSigner, parseEvidence, partyIdFor, partyRole, pendingSuggestion, RULING_DECISION, selectableOption, splitUnavailableHere, type DecisionChoice } from '../lib/disputeCase'
 import { Button, buttonVariants } from '../components/ui/button'
 import { badgeVariants } from '../components/ui/badge'
 import { Card } from '../components/ui/card'
@@ -41,7 +41,7 @@ import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
 import { Bot, CheckCircle2, ChevronRight, Info, X } from 'lucide-react'
 import { TONE_CLASS } from '../lib/tone'
 import { RadioCard, RadioGroup } from '../components/ui/radio-group'
-import { t, type MessageKey } from '../i18n'
+import { t } from '../i18n'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, disputed rails, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md)
@@ -71,11 +71,6 @@ interface Row {
   escrow: Escrow | null // null if this specific escrow fetch failed — row still shows, just without asset/amount/type-aware actions
 }
 
-// Keys, not copy: t() runs on read so the labels follow the interface language.
-const EVIDENCE_TYPE_KEY: Record<string, MessageKey> = {
-  text: 'disputes.evidenceType.text', payment_receipt: 'disputes.evidenceType.payment_receipt',
-  chat_log: 'disputes.evidenceType.chat_log', screenshot: 'disputes.evidenceType.screenshot',
-}
 const ROLE_KEY = { buyer: 'disputes.role.buyer', seller: 'disputes.role.seller' } as const
 
 const shortId = (id: string) => id.slice(0, 8)
@@ -607,7 +602,7 @@ function CaseFile({
         </SheetClose>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div role="region" aria-label={t('disputes.case.title', { id: shortId(d.tradeId) })} tabIndex={0} className="flex-1 overflow-y-auto focus-visible:-outline-offset-2">
         <Section id="case-summary" title={t('disputes.case.summary')}>
           <dl>
             <Field label={t('disputes.col.trade')}><span className="font-mono">#{shortId(d.tradeId)}</span></Field>
@@ -640,7 +635,7 @@ function CaseFile({
             <ol className="mt-3 space-y-3">
               {evidence.map((e, i) => (
                 <li key={i} className="border-l-2 border-brand-border pl-3">
-                  <div className="text-sm font-medium text-brand-text">{EVIDENCE_TYPE_KEY[e.type] ? t(EVIDENCE_TYPE_KEY[e.type]) : e.type}</div>
+                  <div className="text-sm font-medium text-brand-text">{evidenceTypeLabel(e.type)}</div>
                   <div className="text-metadata">
                     {personLabel(e.submittedBy, escrow)}{e.submittedAt && ` · ${formatDateTime(e.submittedAt)}`}
                   </div>
