@@ -61,6 +61,8 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   managedNode: sim('Serviços Satsails', 'Rede e nós (Onde um mercado pode rodar); Criar mercado (Onde o mercado roda) · Day 0 (CTO 33), modelo CTO 36', SATSAILS),
   merchantBadge: out('Market e ofertas', 'Perfil → Programa Merchant (Em breve); futuro selo nas ofertas · política global + elegibilidade comprovada'),
   merchantProgram: out('Market e ofertas', 'Perfil → Programa Merchant (proposta); Criar mercado (nota) · proposta CTO 36'),
+  marketDashboard: sim('Mercados', 'Página do mercado → Painel (quem administra); Meus mercados → Seu espaço → Ver painel · falta marketId nos trades e o endpoint de agregados'),
+  personalStats: sim('Aparência e conta', 'Perfil → Minhas estatísticas · real: contagens e volume por ativo dos trades; faltam tempo para liberar e histórico de reputação'),
   spacePurchase: out('Serviços Satsails', 'Criar mercado: escolha do tipo e "Revisar e pagar" (checkout simulado); /markets/space redireciona', SATSAILS),
   // Wallet e chaves: never simulated (real secrets or funds outside the app).
   satsailsWallet: notice('Wallet e chaves', 'Configurações → Wallet; Conectar wallet'),
