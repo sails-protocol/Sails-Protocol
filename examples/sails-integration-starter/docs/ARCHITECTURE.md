@@ -47,6 +47,8 @@ Every arrow above is a real HTTP call (`SailsTransport`, `packages/sails-sdk/src
 except the chat step, which opens a real WebSocket (`openp2p.chat()`
 returns a `WebSocketChannel` — `onMessage`/`send`/`close`, not a REST call).
 
+The `release()` arrow is the direct call, which only providers without client-held keys accept (this starter's local default is `MOCK`). `MULTISIG` and `SAFE_GUARD_EVM` use `initiateRelease()` plus participant signatures (see `FAQ.md`), and the destination is the buyer's registered payout address, not an argument.
+
 ## Dispute/arbitration path
 
 `examples/escrow-with-arbitration.ts` exercises the escalation path

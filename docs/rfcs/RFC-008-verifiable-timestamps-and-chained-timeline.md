@@ -188,7 +188,7 @@ Timeline no longer reads from would make `verifyChain()` check history
 nobody actually consults. The real implementation instead adds
 `entryHash`/`prevHash` to `DurableEvent` itself
 (`common/events/event-store.ts`), computed by `EventStore.publish()` at
-write time (`InMemoryEventStore` today; `RedisStreamsEventStore` inherits
+write time (`InMemoryEventStore` at the time of writing, `PostgresEventStore` by default now (Corrected/Implemented 2026-11-27); `RedisStreamsEventStore` inherits
 the same obligation once built) — `EscrowEvent`/`ReputationEvent` are
 unchanged, no migration needed (**this specific claim corrected below,
 2026-08-15 — it traded away durability+tamper-evidence together without
@@ -266,7 +266,7 @@ fund-movement transition — who locked, who released, who refunded, who
 disputed — and it had no tamper-evidence at all: an operator or attacker
 with database write access could edit or delete a row with nothing
 detecting it. Meanwhile the chained `DurableEvent` stream lives in
-`InMemoryEventStore` by default, which is explicitly non-durable — gone
+`InMemoryEventStore` by default at the time (**Corrected/Implemented 2026-11-27:** the default is now `PostgresEventStore`, which is durable; `InMemoryEventStore` remains for tests), which is explicitly non-durable — gone
 on restart. Neither store alone gave settlement's own audit trail both
 properties D2 exists to guarantee together.
 
@@ -399,6 +399,8 @@ Proven, not just asserted: `tests/postgresEventStore.test.ts`'s own
 concurrency test calls `publish()` twice with no intervening `await` and
 shows the resulting fork, same precedent `tests/escrowEventHashChain.test.ts`
 already set for `EscrowEvent`.
+
+> **Corrected/Implemented 2026-11-27 (protection added later; historical text preserved):** the concurrent-fork exposure described above is protected today: `PostgresEventStore.publish()` runs inside a transaction serialized per `correlationId` by `pg_advisory_xact_lock` (`common/events/event-store.ts`), so two concurrent writers for the same `correlationId` no longer fork the chain. The paragraph above describes the state at the time of this amendment.
 
 **Verification — the restart proof.** Beyond the same tamper-detection
 matrix `tests/escrowEventHashChain.test.ts` established (mutated

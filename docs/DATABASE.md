@@ -275,6 +275,8 @@ model Escrow {
   txLockId        String?
   txReleaseId     String?
   timelockHours   Int          @default(24)
+  // Corrected/Implemented 2026-11-27: historical comment. RFC-021 Phase 0's fee collection and the
+  // protocolFeeRate setting were retired (Missao 11 Fase 6.5.2); the current mechanism is a published `FeePolicyVersion` (versioned locally on each node today; a signed global economic authority is the approved direction and is still being implemented) -> `FeeObligation` -> a frozen `DistributionPolicyVersion` -> `EntitlementLedgerEntry`, which is accounting attribution and not a payment, and none of it is economically activated.
   // RFC-021 Phase 0 — real fee collection (PROTOCOL_ECONOMY.md §6.2).
   // Nullable, not defaulted to 0: null means "no fee was computed for
   // this escrow" (protocolFeeRate was 0 at release time, or this escrow
@@ -908,6 +910,8 @@ on every `IntentEvent` row, `sha256(fromStatus|toStatus|triggeredBy|prevHash)`,
 `'genesis'` for an Intent's first event. `payload` is intentionally opaque
 `Json` — a new `IntentType` (e.g. `LoanIntent`) needs zero migration here,
 only application-level TypeScript/Zod validation for its shape.
+**Corrected/Implemented 2026-11-27 (four distinct records, not one):** `IntentEvent` (this section) is the hash-chained lifecycle of one Intent; `EscrowEvent` is the fund-movement history of one escrow; `ReputationEvent` is the per-trade rating record between a rater and a rated participant; `DurableEventRecord` (below) is the shared chained store behind `EventStore`, and the Timeline projection reads `DurableEvent`s by `correlationId` (`src/core/timeline.ts`; the id depends on the stream: `tradeId` for trade, chat, escrow and negotiation events, `intentId` for Intent-lifecycle events), not these tables. They are separate records and none replaces another. The "first implementation" wording of this heading is historical: `Intent` and `IntentEvent` are real, durable PostgreSQL models today. Durable storage is not exactly-once delivery, and neither store makes an external rail result known: the recovery limits are per rail.
+
 Deliberately 2 tables, not the 3 `PROTOCOL_SPECIFICATION.md` §2.6
 originally sketched — see that section for why the `intent_payloads` split
 turned out to add a join without adding any real flexibility once this
@@ -1101,7 +1105,7 @@ originally keyed this by `intentId`. RFC-017
 real events a Timeline consumer actually needs (chat, escrow,
 negotiation) carry `tradeId` as their `correlationId` (RFC-010) today,
 not `intentId` — no Intent-to-Trade persistence link exists yet to make
-`intentId` the right key. `core/timeline.ts`'s real, shipped
+`intentId` the right key. **Corrected/Implemented 2026-11-27:** that sentence is historical. The schema now persists `Intent` and links one to its trade (`Trade.tradeIntentId`, relation `TradeOwnIntent`). What is still keyed by `tradeId` is the event correlation of the trade, chat, escrow and negotiation streams; Intent-lifecycle events use `intentId`. Persistence existing does not mean every flow correlates by `intentId`. `core/timeline.ts`'s real, shipped
 `getTimeline(correlationId)` reflects RFC-017's correction; this section
 previously still described RFC-007's original, superseded shape.
 
@@ -1126,7 +1130,7 @@ change on `EscrowEvent` and the `EventStore` backend since.
 `Timeline.getEvents(correlationId)` is a read projection over
 `EventStore.getEvents(correlationId)` — the Event Bus's own
 `DurableEvent` stream (RFC-010), ordered by `publishedAt` and filtered to
-one `correlationId` (`tradeId` today; `intentId` once Intent persistence
+one `correlationId` (`tradeId` for trade, chat, escrow and negotiation events, `intentId` for Intent-lifecycle events, `userId` for peer/transport events; Intent persistence already exists, but the other streams still correlate by `tradeId`
 exists). As of Missão 05.7 (2026-08-15), that stream is durable by
 default: `PostgresEventStore` persists it to a real table,
 `durable_events` (Prisma model `DurableEventRecord`, documented below) —

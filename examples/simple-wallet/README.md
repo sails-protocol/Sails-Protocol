@@ -55,8 +55,10 @@ prerequisite. Real wallets (see
 full screen-by-screen integration) need those responsibilities in
 addition to the SDK flow demonstrated here.
 
-This example exists purely to prove the SDK's public surface alone is
-enough to drive the entire protocol, without shortcuts.
+This example exists to show that the SDK's public surface alone is enough to
+drive this one golden-path flow, without shortcuts. It uses the `MOCK` provider,
+so it is not evidence about real settlement rails, custody, or any other part of
+the protocol, and it does not authorize production use.
 
 ## A real finding from writing this
 
