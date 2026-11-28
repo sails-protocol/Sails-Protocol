@@ -290,14 +290,18 @@ Nada abaixo de 12px; nada de `text-[13px]`.
 
 | Classe Sails | Largura | Tailwind | Classe M3 adaptada | Navegação | Margem | Gutter | Controles |
 |---|---|---|---|---|---|---|---|
-| Compacta | < 768 | base (`sm` 640 só no PageHeader) | compact + medium baixo | bottom nav + topo móvel | 16 | 16 | 44 |
+| Compacta | < 600 | base (`sm` 640 só no PageHeader) | compact | bottom nav + topo móvel | 16 | 16 | 44 |
+| Compacta larga | 600–767 | `medium` (só o shell) | medium baixo | trilho de 64, expande por cima | 16 | 16 | 44 |
 | Média | 768–1023 | `md` | medium + expanded baixo | trilho de 64, expande por cima | 24 | 16 | pelo ponteiro: 36/40 fino, 44 toque |
 | Expandida | 1024–1279 | `lg` | expanded | trilho de 64, expande por cima | 24 | 24 | pelo ponteiro |
 | Grande | ≥ 1280 | `xl` | large | barra lateral de 224, empurra | 32 | 24 | pelo ponteiro |
 | Extra grande | ≥ 1536 | `2xl` | extra-large | idem, conteúdo até 1280 | 32 | 24 | pelo ponteiro |
 
 Os pontos de quebra são os do Tailwind que o código já usa (768/1024/1280); o
-que muda é o significado de cada classe. **Tablet:** layout da classe Média ou
+que muda é o significado de cada classe. **Corrected 2026-11-28 to match DECISIONS (PO 2026-11-27):**
+a navegação troca a barra inferior pelo trilho a partir de 600 px (`medium`,
+`--breakpoint-medium` em `index.css`); abaixo de 600 px fica a barra inferior.
+Margens, gutter, controles `touch:` e os layouts de página continuam em `md` (768). **Tablet:** layout da classe Média ou
 Expandida (trilho, tabela a partir de 1024), alvos pelo ponteiro: um iPad tem
 44, um laptop estreito mantém 36/40. Nem celular esticado nem desktop espremido.
 Margens no shell (`Layout`): `px-4 md:px-6 xl:px-8`. Larguras do `Page`
