@@ -252,7 +252,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
             {cover || draft.coverUrl ? (
               <ImagePicker kind="cover" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} />
             ) : (
-              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="touch:min-h-11">{copy.images.coverToggle}</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="h-auto min-h-8 touch:min-h-11 max-w-full whitespace-normal py-1.5 text-left">{copy.images.coverToggle}</Button>
             )}
             <p className="text-caption text-brand-text-muted">{copy.images.note}</p>
           </div>

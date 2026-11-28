@@ -63,16 +63,16 @@ describe('entry policy summary', () => {
   })
 })
 
-describe('demo "Verificado" (fictional criteria) and private offers', () => {
+describe('"Mercado ativo" badge (CTO 33 provisional criteria) and private offers', () => {
   const c = DEMO_VERIFIED_CRITERIA
-  const ok = { rating: c.minRating, ratings: c.minRatings, trades: c.minTrades, volumeUsd: c.minVolumeUsd }
-  it('needs every fictional criterion', () => {
+  const ok = { trades: c.minTrades, volumeUsd: c.minVolumeUsd, activeDays: c.minActiveDays, calculatedAt: '2026-11-22T06:00:00Z' }
+  it('needs 100 trades, US$ 50,000 and 10 active days in 90 days; no rating criterion', () => {
+    expect(c).toEqual({ windowDays: 90, minTrades: 100, minVolumeUsd: 50_000, minActiveDays: 10 })
     expect(meetsDemoVerifiedCriteria(ok)).toBe(true)
     expect(meetsDemoVerifiedCriteria(undefined)).toBe(false)
-    expect(meetsDemoVerifiedCriteria({ ...ok, rating: 4.4 })).toBe(false)
-    expect(meetsDemoVerifiedCriteria({ ...ok, ratings: 49 })).toBe(false)
     expect(meetsDemoVerifiedCriteria({ ...ok, trades: 99 })).toBe(false)
     expect(meetsDemoVerifiedCriteria({ ...ok, volumeUsd: 49_999 })).toBe(false)
+    expect(meetsDemoVerifiedCriteria({ ...ok, activeDays: 9 })).toBe(false)
   })
 
   it('private offers only for members and admins', () => {

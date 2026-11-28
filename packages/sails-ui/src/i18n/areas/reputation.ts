@@ -127,15 +127,15 @@ export default defineArea(
       'reputation.explanation.neutral': '0 point quand le litige se termine par un partage ou que le trade est annulé d’un commun accord',
       'reputation.explanation.vouchBurn': '−5 pour le garant d’une personne qui perd son premier litige',
       'reputation.explanation.footer':
-        'C’est une somme de points, sans maximum : 82 signifie 82 points cumulés, pas 82 sur 100. Les étoiles sont des évaluations que les personnes se donnent après un trade : à titre informatif, elles ne changent jamais la réputation.',
+        'C’est une somme de points, sans maximum : 82 signifie 82 points cumulés, pas 82 sur 100. Les étoiles sont des évaluations que les personnes se donnent après un trade : à titre informatif, elles ne changent jamais la réputation.',
       'reputation.explanation.trigger': 'Fonctionnement de la réputation',
 
       'reputation.ratings.title': 'À propos des évaluations',
       'reputation.ratings.scale': 'De 1 à 5 étoiles, données par la contrepartie à la fin d’un trade',
-      'reputation.ratings.informational': 'À titre informatif : elles ne changent pas la réputation',
+      'reputation.ratings.informational': 'À titre informatif : elles ne changent pas la réputation',
       'reputation.ratings.unavailable': 'La lecture des évaluations n’est pas encore disponible',
-      'reputation.ratings.demoUnavailable': 'Chiffres fictifs du mode démonstration : la lecture réelle des évaluations n’est pas encore disponible',
-      'reputation.ratings.description': 'Notes de 1 à 5 étoiles données par les contreparties. À titre informatif : elles ne changent pas la réputation.',
+      'reputation.ratings.demoUnavailable': 'Chiffres fictifs du mode démonstration : la lecture réelle des évaluations n’est pas encore disponible',
+      'reputation.ratings.description': 'Notes de 1 à 5 étoiles données par les contreparties. À titre informatif : elles ne changent pas la réputation.',
       'reputation.ratings.count': { one: '{count} évaluation', other: '{count} évaluations' },
       'reputation.ratings.sr': 'Note moyenne {average} sur 5, {ratings}',
 

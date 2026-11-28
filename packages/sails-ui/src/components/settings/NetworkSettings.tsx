@@ -17,10 +17,9 @@ import { NetworkSummary, type NetworkSummaryCopy } from '../markets/NetworkSumma
 import { AddNodeForm, type AddNodeCopy } from '../markets/AddNodeForm'
 import { demoNodes, isDemoMode } from '../../lib/demoMarkers'
 import { SimulatedBadge } from '../ui/SimulatedBadge'
-import { LOOSE_WIRES } from '../../lib/looseWires'
 import type { NodeView } from '../../lib/sailsNode'
 import { cn } from '../../lib/utils'
-import { simulatedToast, WireNote, WirePlanned } from '../../pages/markets/shared'
+import { RoleLinks, simulatedToast, WireNote, WirePlanned } from '../../pages/markets/shared'
 import { t } from '../../i18n'
 
 const DIALOG_CLASS = 'max-w-lg max-h-[90dvh] overflow-y-auto overscroll-contain max-md:inset-0 max-md:max-h-none max-md:max-w-none max-md:translate-x-0 max-md:translate-y-0 max-md:content-start max-md:border-0'
@@ -83,7 +82,7 @@ export function NetworkRow() {
   return (
     <SettingsRow
       icon={Network}
-      label="Rede Sails"
+      label={t('settings.network.label')}
       description={t('settings.network.description')}
       value={<Badge variant="outline" className={TONAL_BADGE}>{t('settings.network.default')}</Badge>}
     />
@@ -104,10 +103,24 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
     <>
       <SettingsRow icon={BadgeCheck} label={t('settings.network.operator')} description={t('settings.network.operatorDescription')} plannedLabel={t('common.soon')} />
       <SettingsRow icon={Plus} label={t('settings.network.addNode')} description={t('settings.network.addNodeDescription')} onClick={() => setAdding(true)} />
-      {/* Not in Day 0 (DECISIONS.md "Nó Sails gerenciado"): no provisioning, price or availability promise. */}
-      {demo
-        ? <SettingsRow icon={LOOSE_WIRES.managedNode.icon} label={LOOSE_WIRES.managedNode.label} description={<><SimulatedBadge label={t('spaces.simulated')} className="mr-1.5" />{t('spaces.managedNode.description')}</>} onClick={() => simulatedToast(t('spaces.hosting.provisioned'))} />
-        : <SettingsRow icon={LOOSE_WIRES.managedNode.icon} label={LOOSE_WIRES.managedNode.label} description={t('spaces.managedNode.description')} plannedLabel={t('common.soon')} />}
+      {/* Operar infraestrutura (CTO 36): where a market can run, and how node operators are paid. The managed node is
+          simulated in the demo and "Em breve" in real mode; nothing is provisioned. */}
+      <li className="px-4 py-3">
+        <p className="text-sm font-medium text-brand-text">{t('settings.network.infraTitle')}</p>
+        <ul className="mt-2 space-y-2">
+          {(['network', 'own', 'managed'] as const).map((k) => (
+            <li key={k} className="text-body-sm">
+              <span className="flex flex-wrap items-center gap-1.5 font-medium text-brand-text">
+                {t(`markets.create.infrastructure.${k}Label`)}
+                {k === 'managed' && (demo ? <SimulatedBadge label={t('spaces.simulated')} /> : <Badge variant="outline" className={TONAL_BADGE}>{t('common.soon')}</Badge>)}
+              </span>
+              <span className="block text-caption text-brand-text-secondary">{t(`markets.create.infrastructure.${k}Description`)}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-caption text-brand-text-secondary">{t('settings.network.economy')}</p>
+        <RoleLinks here="node" className="mt-2" />
+      </li>
       <li className="px-4 py-3">
         <Alert tone="info" size="sm" title={t('settings.network.notMarketTitle')}>
           {t('settings.network.notMarketBody')}

@@ -19,6 +19,8 @@ export interface ImagePickerCopy {
   choose: string
   replace: string
   remove: string
+  /** Full accessible names of the buttons (e.g. "Escolher imagem: ícone quadrado"), composed by the caller. */
+  names: { choose: string; replace: string; remove: string }
   wrongType: string
   tooBig: string
   warnSmall: string
@@ -59,7 +61,7 @@ export function ImagePicker({ kind, url, copy, onPick }: {
         </div>
         <div className="flex flex-wrap gap-2">
           <input
-            ref={input} id={`${id}-file`} type="file" accept={IMAGE_SPECS[kind].types.join(',')} className="sr-only" tabIndex={-1}
+            ref={input} id={`${id}-file`} type="file" accept={IMAGE_SPECS[kind].types.join(',')} className="sr-only" tabIndex={-1} aria-hidden="true"
             aria-labelledby={`${id}-label`} aria-describedby={`${id}-help`}
             onChange={(e) => {
               const f = e.target.files?.[0] ?? null
@@ -70,12 +72,12 @@ export function ImagePicker({ kind, url, copy, onPick }: {
               if (!err) { vector.current = f.type === 'image/svg+xml'; onPick(f) }
             }}
           />
-          <Button type="button" size="sm" variant="secondary" onClick={() => input.current?.click()} aria-describedby={`${id}-help ${messageId}`} className="touch:min-h-11">
-            <ImagePlus aria-hidden="true" />{url ? copy.replace : copy.choose}<span className="sr-only">: {copy.label}</span>
+          <Button type="button" size="sm" variant="secondary" onClick={() => input.current?.click()} aria-label={url ? copy.names.replace : copy.names.choose} aria-describedby={`${id}-help ${messageId}`} className="touch:min-h-11">
+            <ImagePlus aria-hidden="true" />{url ? copy.replace : copy.choose}
           </Button>
           {url && (
-            <Button type="button" size="sm" variant="ghost" onClick={() => { setError(null); onPick(null) }} className="touch:min-h-11">
-              <Trash2 aria-hidden="true" />{copy.remove}<span className="sr-only">: {copy.label}</span>
+            <Button type="button" size="sm" variant="ghost" onClick={() => { setError(null); onPick(null) }} aria-label={copy.names.remove} className="touch:min-h-11">
+              <Trash2 aria-hidden="true" />{copy.remove}
             </Button>
           )}
         </div>

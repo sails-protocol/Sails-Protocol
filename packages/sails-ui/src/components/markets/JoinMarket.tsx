@@ -25,7 +25,7 @@ const LOOK: Record<ShownState, { tone: AlertTone; Icon: LucideIcon }> = {
   failed: { tone: 'warning', Icon: CircleAlert },
 }
 
-/** One block per state; renders nothing for 'idle'. `live` announces it when it changes. */
+/** One block per state; renders nothing for 'idle'. `live` announces it when it changes (progress politely, the refusal as an alert). */
 export function InviteStatus({ state, copy, live = false, action, className }: {
   state: InviteState
   copy: InviteStatusCopy
@@ -37,7 +37,7 @@ export function InviteStatus({ state, copy, live = false, action, className }: {
   const { tone, Icon } = LOOK[state]
   const text = copy.states[state]
   return (
-    <Alert tone={tone} icon={Icon} live={live} title={text.title} action={action} className={className}>
+    <Alert tone={tone} icon={Icon} live={live && state === 'failed' ? 'assertive' : live} title={text.title} action={action} className={className}>
       <p>{text.description}</p>
       {state === 'validating' && <Progress className="mt-2" label={text.title} />}
     </Alert>
