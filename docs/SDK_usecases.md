@@ -35,7 +35,7 @@ Same legend `ROADMAP.md` already uses, applied here per use case so
 this document can't be read as claiming more than what's actually true
 today:
 
-- **✅ Proven** — implemented and functional in the reference implementation
+- **✅ Proven** — implemented and functional in a reference implementation, with the evidence named in its row. It is not a production homologation, not a conformance certification, and not a claim about third-party deployments
 - **🏗️ Specified** — interface/contract defined, implementation partial or stubbed
 - **📋 Aspirational** — on the roadmap, spec not yet written
 
@@ -63,7 +63,7 @@ document.
 
 ### 🔄 Trading — *the one that already ships*
 
-- **Status: ✅ Proven.** This is not a future use case — it's
+- **Status: ✅ Proven (published SDK; the runtime is not production-homologated).** This is not a future use case — it's
   `PROJECT_CONTEXT.md`'s **Sails P2P Trading SDK**, shipping today
   (`@satsails/p2p-trading-sdk`, OpenP2P + OpenSettlement + OpenReputation +
   OpenIdentity). Included here only so the comparison table below has
@@ -71,8 +71,10 @@ document.
   new.
 - Market equivalents: Binance P2P, Bisq, HodlHodl.
 - Differentiator: not a platform an integrator visits — a library any
-  wallet embeds, carrying **portable** reputation (via `peerId`) instead
-  of reputation locked inside one platform's silo.
+  wallet embeds, aiming at reputation that is not locked inside one
+  platform's silo. Today the score is held by each node, and `peerId` is a
+  per-session transport key, not a portable identity; cross-operator
+  portability is an objective, not a demonstrated property.
 
 ### 💸 Settlement — *candidate: "Sails Settlement SDK"*
 
@@ -84,9 +86,8 @@ document.
   Current state: `MULTISIG`, `LIGHTNING_HODL` (real since 2026-07-27, via
   Arkade/VTXO/Taproot — not the classic HTLC/hold-invoice design this
   cell originally implied), `WDK_USDT_EVM`, and `SAFE_GUARD_EVM` are all
-  real providers today; none is production-authorized (each is
-  testnet-only or explicitly production-ineligible, per
-  `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7).
+  real providers today; none is production-authorized, and each rail differs: `MULTISIG` is the only provider with a supported mainnet configuration and mainnet evidence (one disclosed micro-value rehearsal) and is not decided or homologated for production (`docs/adr/ADR-002` section 5B); `LIGHTNING_HODL` and `SAFE_GUARD_EVM` are testnet only; `WDK_USDT_EVM` and `MOCK` are production-ineligible (per
+  `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md` §7). Update (2026-11-27): new offers, intents, trades and escrows for `LN_BTC` or `LIGHTNING_HODL` are refused with `RAIL_CLOSED` in every environment (`src/common/day0-closed-rails.ts`); existing escrows keep their dispatch, refund and recovery paths. A single micro-value Bitcoin mainnet rehearsal of `MULTISIG` is recorded in `docs/MAINNET_MULTISIG_PROOF.md`; it is a historical record, not a production authorization.
   `LiquidCovenantProvider` remains genuinely unimplemented — reserved,
   deliberately not built (2026-08-01 decision) — the one part of the
   original claim still accurate. The "abstract multiple rails behind one
@@ -120,9 +121,10 @@ document.
   pull in just portable reputation — today it ships bundled inside the
   Trading SDK.
 - Market equivalents: Binance P2P ratings, Bisq reputation.
-- Differentiator: reputation tied to a portable `peerId`, not to one
-  platform's account — a trader's history could follow them across
-  wallets built on this protocol.
+- Differentiator (objective, not demonstrated): reputation not tied to one
+  platform's account — a trader's history could one day follow them across
+  wallets built on this protocol. Today the score is node-local, and `peerId`
+  is a transport key, not the portability mechanism.
 
 ### 🛡️ Policy — *candidate: "Sails Policy SDK"*
 
@@ -169,10 +171,10 @@ document.
 
 | Use case | Market equivalent | Similarity | Differentiator | Status |
 |---|---|---|---|---|
-| Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; portable reputation via `peerId` | ✅ Proven — shipping today as the Sails P2P Trading SDK |
-| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
+| Trading | Binance P2P, Bisq, HodlHodl | P2P market, seller reputation, escrow | Embeddable library, not a platform; cross-wallet reputation is an objective (the score is node-local today) | ✅ Proven — published as the Sails P2P Trading SDK; runtime not production-homologated |
+| Settlement | Lightning (LDK), Liquid, Strike | On/off-chain settlement, fiat↔crypto rails | One interface across rails | 🏗️ Specified — WDK_USDT_EVM and MULTISIG real; `LIGHTNING_HODL` real via Ark/Arkade (closed to new admissions for Day 0, `RAIL_CLOSED`; see this document's own 2026-09-06 correction above — **corrected 2026-09-10, Product Truth Sweep, F17**, this row previously said "Lightning/Liquid still stubs," contradicting that correction); Liquid Covenant still a stub |
 | Liquidity | 1inch, CowSwap, OTC books | Liquidity discovery, order matching | Fiat rails (PIX/BRL) first-class, not EVM-only | 🏗️ Specified — real order book, cross-rail *routing* not yet proven live |
-| Reputation | Binance P2P ratings, Bisq | Trade-history-based score | Portable across wallets via `peerId`, not platform-locked | ✅ Proven as a module / 📋 Aspirational as a standalone SDK |
+| Reputation | Binance P2P ratings, Bisq | Trade-history-based score | Objective: portable across wallets and operators, not platform-locked (node-local score today; portability not demonstrated) | ✅ Proven as a module / 📋 Aspirational as a standalone SDK |
 | Policy | Internal permission/rule engines | Capability/rule validation | Not KYC/AML — a reusable authorization primitive | Capability Registry ✅ Proven+enforced / Policy Engine 📋 Aspirational |
 | AI (QVAC) | Hummingbot, Gauntlet | Automated offer/risk evaluation | On-device inference, feeds a policy check rather than deciding alone | Integration ✅ Proven / external Agent SDK surface 📋 Aspirational |
 

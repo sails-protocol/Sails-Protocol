@@ -138,6 +138,8 @@ computed from Sails' own report.
 
 ## Sails Protocol fee
 
+> **Corrected/Implemented 2026-11-27:** this paragraph is a historical record of the rehearsal. `chargeProtocolFee()` and the `PROTOCOL_FEE_RATE` setting were retired later (Missao 11 Fase 6.5.2); fees are now a `FeePolicyVersion` (versioned locally on each node today) that is not economically activated. The conclusion below (no Sails Protocol fee in this settlement) is unchanged.
+
 Audited directly against the real code (`escrow-lifecycle.ts`'s
 `chargeProtocolFee()`, called unconditionally from `escrow.service.ts`'s
 release-completion path): the mechanism is real and wired into this
@@ -162,8 +164,7 @@ to 0).
   human-reviewed before any signature.
 - Real buyer and real seller client-side signatures, produced with
   private keys that never left the client side.
-- Real server-side combine/finalize (server never held a signing key,
-  only combined two independently-produced signatures).
+- Real server-side combine/finalize. In this cooperative rehearsal the server held no participant signing key and only combined the two independently produced participant signatures; the arbiter key remains derived on the server, as stated elsewhere in this document.
 - A real mainnet broadcast, with a confirmed release transaction.
 - Both the funding and the release are independently, externally
   verifiable by anyone via public block explorers — this proof does not

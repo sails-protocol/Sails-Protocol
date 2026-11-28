@@ -341,6 +341,8 @@ silently patched.
 
 ## 23. Current Implementation Conformance
 
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** the table below records the state when this document was frozen. It is a dated conformance record and not a current status: later work added an internal `packages/sails-core` package, a durable semantic transition record for MULTISIG disputes and a published Condition Algebra vector set, among other things, and the rows have not been re-evaluated here. Where this table and a newer evidence record disagree, the newer record governs.
+
 | | Status | Evidence |
 |---|---|---|
 | K1 | IMPLEMENTED | Real state machines with valid-transition gating for Trade/Escrow/Dispute. |

@@ -1,5 +1,7 @@
 # RELATÓRIO DE GARGALOS DE PERFORMANCE — Sails Protocol
 
+> **Corrected/Implemented 2026-11-27 (historical report, delimitation):** this is a dated performance analysis and not a current status or a work order. (1) Its remarks about `InMemoryEventStore` describe the default at the time; `PostgresEventStore` is the default `EventStore` today and `InMemoryEventStore` remains for tests. (2) Its remark that Redis is "never used" is also historical: Redis now carries rate-limit counters and a cross-instance fan-out signal (`docs/DATABASE.md`, Redis usage table). (3) Its suggestions to parallelize or batch sequential work, including refund and release paths and the expired-escrow sweep, are performance ideas only. They do not authorize any change of economic behavior: fund-moving paths depend on authority checks, an atomic status claim and per-escrow serialization, and any such change needs its own design and review.
+
 ## CRÍTICO
 
 ### C1. `settlement.escrow.released` handler: cascata de awaits sequenciais (7-10 round-trips ao DB)

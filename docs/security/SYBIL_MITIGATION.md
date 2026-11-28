@@ -33,6 +33,8 @@ is real and asymmetric on purpose:
 📋 **Planned, no code exists yet** — everything below this line. This
 document exists specifically because none of it does.
 
+> **Corrected/Implemented 2026-11-27 (historical delimitation):** this describes the state when the document was written. One related mechanism has since been implemented: a burned vouch costs the voucher 5 score points (RFC-021 D7, `reputation.service.ts`, `vouch.service.ts`), and `recordOutcome()` is no longer the only path that changes the score. The graph analysis and the other planned items below remain without code.
+
 ## 2. Graph Analysis — Detecting Sybil Clusters
 
 **The gap:** nothing today looks *across* trades to notice that

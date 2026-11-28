@@ -33,7 +33,7 @@ Leave `type` unset when calling `settlement.create()`. The server picks
 a sane default (`MOCK` on this repo's own local dev config, or
 `MULTISIG` if `MOCK_ESCROW` isn't set) — both examples in this starter
 do this deliberately. If you request a specific real provider
-(`MULTISIG`, `LIGHTNING_HODL`, `WDK_USDT_EVM`, `SAFE_GUARD_EVM`)
+(`MULTISIG`, `WDK_USDT_EVM`, `SAFE_GUARD_EVM`; `LIGHTNING_HODL` is closed to new admissions)
 directly, you take on that provider's real requirements: `MULTISIG`
 needs actual on-chain BTC sent to a derived address before `lock()`
 succeeds (it's genuinely non-custodial — it verifies funding, it

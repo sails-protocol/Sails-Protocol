@@ -41,7 +41,7 @@ representation-only mandate (no architecture redesign, no inferred
 missing architecture, no hypotheses promoted to implemented fact).
 
 **Baseline analyzed:** repository revision
-[`de2afb8a6aa38d0a1ac783f1ef55f4767312883b`](https://github.com/alan-schramm/Sails-Protocol/commit/de2afb8a6aa38d0a1ac783f1ef55f4767312883b)
+[`de2afb8a6aa38d0a1ac783f1ef55f4767312883b`](https://github.com/sails-protocol/Sails-Protocol/commit/de2afb8a6aa38d0a1ac783f1ef55f4767312883b)
 (`main`, the frozen **SAILS PROJECT BACKLOG RECONCILIATION BASELINE**,
 a descendant of the **SAILS M10 SDK ADAPTER BASELINE** at `02e7fb2f`).
 
@@ -59,7 +59,7 @@ a descendant of the **SAILS M10 SDK ADAPTER BASELINE** at `02e7fb2f`).
 
 ## Live, always-current rendered site
 
-**[alan-schramm.github.io/Sails-Protocol](https://alan-schramm.github.io/Sails-Protocol/)**
+**[sails-protocol.github.io/Sails-Protocol](https://sails-protocol.github.io/Sails-Protocol/)**
 — published automatically by
 [`.github/workflows/architecture-pages.yml`](../../.github/workflows/architecture-pages.yml)
 every time a push to `main` touches `docs/architecture/archify/**.json`,
@@ -144,7 +144,7 @@ pins for this reason, not because their content is less grounded.
 - **Canonical Semantic Profile** — architecturally required, not yet
   specified (`CORE_ARCHITECTURE.md` §18); represented in the
   high-level diagram as an explicitly tagged residual, not a built
-  layer.
+  layer. **Corrected/Implemented 2026-11-27:** a first profile, `sails-semantic-profile@1.0`, is now published (`conformance/profiles/sails-semantic-profile-1.0.json`). That does not demonstrate an independent second implementation or a certification.
 - **Workflow Terminal ≠ Mathematical Irreversibility** and
   **Historical Completion ≠ Current Settlement Satisfaction** — both
   real, disclosed architectural debt (`TECHNICAL_DEBT_AUDIT.md` #40,

@@ -239,7 +239,7 @@ already disclosed for this environment). Natural next steps, tracked in
    HTTP endpoint once trade/chat routes are restored (`app.ts`'s own
    comments confirm they aren't wired up yet), so a client can request a
    precise delta instead of the automatic trigger's full recent history.
-2. Once Timeline (RFC-008 D5) ships, switch `reconcileTrade()` to compare
+2. (**Corrected/Implemented 2026-11-27:** Timeline has since shipped, RFC-017, `core/timeline.ts`; whether `reconcileTrade()` was switched to compare `entryHash` chain tips is not established here, and this item is historical.) Once Timeline (RFC-008 D5) ships, switch `reconcileTrade()` to compare
    `entryHash` chain tips instead of `Message.createdAt` — same
    `ReconciliationService` interface, different internal query.
 3. Decide, separately, whether `NegotiationService`'s in-memory status
