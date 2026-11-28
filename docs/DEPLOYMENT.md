@@ -107,7 +107,7 @@ letting a non-technical project owner or a brand-new contributor get a
 real, working instance up without installing a JS toolchain first):
 
 ```bash
-git clone https://github.com/alan-schramm/Sails-Protocol.git
+git clone https://github.com/sails-protocol/Sails-Protocol.git
 cd Sails-Protocol
 docker compose up -d --build      # Postgres + Redis + the server itself — http://localhost:3000
 ```
