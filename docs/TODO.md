@@ -415,10 +415,7 @@ makes the same point in more detail.
 
 ## 5. Liquidity Providers Beyond Internal
 
-- [ ] `HodlHodlProvider.isAvailable()` always returns `false` — the
-      integration is a stub. Real implementation needs to call
-      `https://hodlhodl.com/api/v1/offers` per the TODO comments already in
-      `liquidity.service.ts`.
+- [ ] External liquidity aggregation remains roadmap work. The historical HodlHodl stub was removed on 2026-08-09 (see `BACKLOG.md`, OpenLiquidity row); the current router registers only `InternalOrderBook`. No external provider is integrated.
 
 ## 5B. OpenAgents — QvacAgentProvider + BuyerAgent/SellerAgent *(section added QVAC/WDK MVP pass 2026-07-17, consolidated same day)*
 
