@@ -257,7 +257,7 @@ full technical detail and is unchanged.
 | Module | Marketplace role | Responsibility | Status |
 |---|---|---|---|
 | **Sails OpenP2P** | Coordinates negotiation between participants. | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles persisted messages against Postgres on peer reconnect (RFC-011): `Message` persistence before send and `ReconciliationService` on `peer.connected` mitigate missed real-time delivery within the reference node's available database. This is not proof of cross-operator replication, recovery after loss of that database, or shared-market availability; those require separate Day-0 evidence (ADR-001 / #105). | ✅ Proven |
-| **Sails OpenAgents** | Runs automation, fraud prevention, risk analysis, and mediation assistance. | QVAC integration as a cross-cutting SDK — a **Crypto-Native Agent** (RFC-016): only ever acts on digital assets via WDK (negotiate, create/accept offers, lock/release escrow), never on fiat or banking rails. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. **Social Engineering Agent real as of RFC-017** (`social-engineering-agent.ts`) — watches real chat messages (via the real `Timeline` read-model, RFC-007 D5/RFC-017) for two of RFC-007 D7's three named fraud-precursor patterns (off-channel migration, payment-instruction changes) using QVAC, and raises a real `RISK_WARNING` in the trade's chat — detection only, never unilateral action; the third pattern (unexpected flow deviation) and full Policy Engine integration remain future work (RFC-017's own scope note). Off by default (`config.features.socialEngineeringDetection`). | 🟡 First real capabilities |
+| **Sails OpenAgents** | Runs automation, fraud prevention, risk analysis, and mediation assistance. | QVAC integration as a cross-cutting SDK — a **Crypto-Native Agent** (RFC-016): only ever acts on digital assets via WDK (negotiate, create/accept offers, lock/release escrow), never on fiat or banking rails. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. **Social Engineering Agent real as of RFC-017** (`social-engineering-agent.ts`) — watches real chat messages (via the real `Timeline` read-model, RFC-007 D5/RFC-017) for RFC-007 D7's three named fraud-precursor patterns (off-channel migration, payment-instruction changes, unexpected flow deviation using trade/escrow context) using QVAC, and raises a real `RISK_WARNING` in the trade's chat — detection only, never unilateral action; full Policy Engine integration remains future work; the presence of classifiers does not establish detection effectiveness. Off by default (`config.features.socialEngineeringDetection`). | 🟡 First real capabilities |
 | **Sails OpenFinance** | Stays ready for future expansion, out of scope for the MVP. | Future financial modules: `LoanIntent`, `SwapIntent`, `EarnIntent`. Reuses OpenSettlement, OpenLiquidity, OpenReputation without duplicating logic. | 📋 Aspirational |
 | **Sails SDK** (MVP release: **Sails P2P Trading SDK**) | The single interface a wallet integrates to get the whole Marketplace. | `@satsails/p2p-trading-sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | **Corrected (2026-09-10, Product Truth Sweep, F12):** this row previously read "📋 Aspirational (spec only, see `SDK_GUIDE.md`)" — stale. The SDK is real, versioned (`v1.0.0-rc1` per the whitepapers' own Proven-vs-Designed table), and tested; it is not spec-only. See `SDK_GUIDE.md` for real usage. |
 
@@ -511,12 +511,11 @@ packages/                                (npm workspaces — root package.json's
         ├── errors.ts                      reputation/liquidity/openp2p/
         ├── intent-facade.ts                settlement/peers, each verified
         ├── encoding.ts                     against its real route) + the
-        ├── types.ts                        Intent facade (createIntent/
-        └── modules/                        cancelIntent real;
-            (identity, reputation,          negotiate/submitProof/
-             liquidity, openp2p,            releaseAsset/dispute throw
-             settlement, peers)             SailsNotImplementedError —
-                                            see intent-facade.ts's header)
+        ├── types.ts                        Intent facade (create/cancel,
+        └── modules/                        submitProof, releaseAsset,
+            (identity, reputation,          dispute implemented;
+             liquidity, openp2p,            negotiate throws; use chat.
+             settlement, peers)             See intent-facade.ts.)
 
 tests/
 ├── intentFlow.test.ts                  (Intent Engine happy path + CISO
