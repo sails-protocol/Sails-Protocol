@@ -57,6 +57,8 @@ export interface CreateMarketCopy {
     thresholdError: string
     provider: string
     providerHelp: string
+    providerName: string
+    providerNameHelp: string
     providerError: string
     socialLegend: string
     socialHelp: string
@@ -193,6 +195,16 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
                     aria-invalid={thresholdBad || undefined} aria-describedby={`${id}-threshold-help`} onChange={(e) => set('kycThreshold', e.target.value)}
                   />
                   <p id={`${id}-threshold-help`} className={thresholdBad ? 'mt-1 text-caption text-brand-danger-fg' : 'mt-1 text-caption text-brand-text-muted'}>{thresholdBad ? copy.entry.thresholdError : copy.entry.thresholdHelp}</p>
+                </div>
+              )}
+              {draft.kyc !== 'none' && (
+                <div>
+                  <label htmlFor={`${id}-provider-name`} className="text-sm font-medium text-brand-text">{copy.entry.providerName}</label>
+                  <Input
+                    id={`${id}-provider-name`} name="kyc-provider-name" autoComplete="organization" className="mt-1" value={draft.kycProviderName}
+                    aria-describedby={`${id}-provider-name-help`} onChange={(e) => set('kycProviderName', e.target.value)}
+                  />
+                  <p id={`${id}-provider-name-help`} className="mt-1 text-caption text-brand-text-muted">{copy.entry.providerNameHelp}</p>
                 </div>
               )}
               {draft.kyc !== 'none' && (

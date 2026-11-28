@@ -50,6 +50,11 @@ export function demoMemberSinceOf(raw: unknown): string | undefined {
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : undefined
 }
 
+/** Demo-only flag on one raw escrow: show the gated fee breakdown with "—" amounts (CTO 38 complement 1); false for real data. */
+export function demoFeeBreakdownOf(raw: unknown): boolean {
+  return isDemoMode() && (raw as { demoFeeBreakdown?: unknown } | null)?.demoFeeBreakdown === true
+}
+
 /**
  * Demo-only contest view on a raw dispute from the demo backend (no endpoint yet, LOOSE_WIRES.disputeAppealView);
  * undefined for real data, so real mode never sees a fictional deadline or permission.

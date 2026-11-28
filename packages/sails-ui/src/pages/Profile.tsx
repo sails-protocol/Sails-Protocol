@@ -180,7 +180,7 @@ export function Profile() {
         <MarketsCallToAction className="mt-2 -ml-3 justify-start" />
       </section>
 
-      <MerchantProgramSection className="mt-8" />
+      <MerchantProgramSection user={user} className="mt-8" />
 
     </Page>
   )

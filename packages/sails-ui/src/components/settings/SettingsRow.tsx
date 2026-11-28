@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router'
-import { ChevronRight, type LucideIcon } from 'lucide-react'
+import { ChevronRight, ExternalLink, type LucideIcon } from 'lucide-react'
 import { Badge } from '../ui/badge'
 import { Card } from '../ui/card'
 import { cn } from '../../lib/utils'
@@ -50,12 +50,15 @@ interface SettingsRowProps {
   onClick?: () => void
   /** Navigates to this route (a real link: Cmd/Ctrl+click, middle-click). Takes the chevron like `onClick`. */
   to?: string
+  /** External page, opened in a new tab (noopener noreferrer) with an external-link icon; `newTabLabel` goes to screen readers. */
+  href?: string
+  newTabLabel?: string
   /** Marks the row as planned: disabled, no value, no action, shows this badge text. */
   plannedLabel?: string
 }
 
 /** Icon + label + value right-aligned + chevron/control (mobile P2P app pattern). */
-export function SettingsRow({ icon: Icon, label, description, value, control, onClick, to, plannedLabel }: SettingsRowProps) {
+export function SettingsRow({ icon: Icon, label, description, value, control, onClick, to, href, newTabLabel, plannedLabel }: SettingsRowProps) {
   const planned = !!plannedLabel
   const body = (
     <>
@@ -63,7 +66,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
         <Icon className={cn('h-4 w-4', planned ? 'text-brand-text-muted' : 'text-brand-text-secondary')} aria-hidden="true" />
       </span>
       <span className="flex-1 min-w-0">
-        <span className={cn('block text-sm font-medium', planned ? 'text-brand-text-secondary' : 'text-brand-text')}>{label}</span>
+        <span className={cn('block text-sm font-medium', planned ? 'text-brand-text-secondary' : 'text-brand-text')}>{label}{href && newTabLabel && <span className="sr-only"> {newTabLabel}</span>}</span>
         {description && <span className="block text-xs text-brand-text-muted mt-0.5">{description}</span>}
       </span>
       {planned ? (
@@ -72,6 +75,7 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
         <>
           {value !== undefined && <span className="text-sm text-brand-text-secondary text-right shrink-0 max-w-[50%] break-words">{value}</span>}
           {control}
+          {href && <ExternalLink className="h-4 w-4 text-brand-text-muted shrink-0" aria-hidden="true" />}
           {(onClick || to) && !control && <ChevronRight className="h-4 w-4 text-brand-text-muted shrink-0" aria-hidden="true" />}
         </>
       )}
@@ -91,6 +95,13 @@ export function SettingsRow({ icon: Icon, label, description, value, control, on
     return (
       <li>
         <Link to={to} className={cn(rowClass, interactive)}>{body}</Link>
+      </li>
+    )
+  }
+  if (href) {
+    return (
+      <li>
+        <a href={href} target="_blank" rel="noopener noreferrer" className={cn(rowClass, interactive)}>{body}</a>
       </li>
     )
   }

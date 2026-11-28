@@ -27,7 +27,7 @@ import { TradeParties } from '../components/trade/TradeParties'
 import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import type { DisputeNotice } from '../components/trade/DisputeAppealBlock'
 import { deriveAppealBlock, parseAppealView, submitFailure, type AppealViewState } from '../lib/disputeAppeal'
-import { demoAppealViewOf, isDemoMode } from '../lib/demoMarkers'
+import { demoAppealViewOf, demoFeeBreakdownOf, isDemoMode } from '../lib/demoMarkers'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { RateCounterpartyCard, type RateCounterpartyCopy } from '../components/trade/RateCounterpartyCard'
@@ -46,8 +46,13 @@ const qty = (v: number | string) => (Number.isFinite(Number(v)) ? formatAmount(N
 import { detectRiskLocally } from '../lib/socialEngineering'
 import { ASSET_LABELS, ASSET_SHORT_LABELS, DISPUTE_RULING_LABEL, ESCROW_TYPE_LABEL, PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { AssetNetworkLabel } from '../components/ui/AssetIcon'
-import { t } from '../i18n'
+import { getLocale, t } from '../i18n'
+import { FaqLink } from '../components/faq/FaqLink'
+import { protocolFeeRateLabel } from '../lib/faq'
+import { FeeBreakdown } from '../components/ui/FeeBreakdown'
+import { SimulatedBadge } from '../components/ui/SimulatedBadge'
 import { AsideResizer, useTradeAsideWidth } from '../components/trade/AsideResizer'
+import { SafetyCenterLink } from '../components/safety/SafetyCenterLink'
 
 // Sails Core Implementation Program M8-R2 (Destination Authority
 // Conformance, 2026-09-11, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md) —
@@ -937,6 +942,24 @@ export function Trade() {
   const custodyRow: SpecRow[] = escrow && escrow.custodyModel !== undefined
     ? [{ label: t('trade.record.custodyModel'), value: custodyModelLabel(escrow.custodyModel) }]
     : []
+  // The protocol fee frozen on this escrow by the global fee policy (CTO 38), only when the backend gives a rate > 0.
+  const feeRate = escrow ? protocolFeeRateLabel(escrow.snapshotProtocolFeeRate, getLocale()) : null
+  const protocolFeeRow: SpecRow[] = escrow && feeRate ? [{
+    label: t('trade.record.protocolFee'),
+    value: <>{feeRate}<FaqLink slug="taxas" className="ml-0.5 align-middle" /></>,
+  }] : []
+  // Base fee · Merchant benefit · effective fee: gated. No backend field proves a benefit yet, so real mode never shows
+  // it; the one marked demo trade shows the labels with "—" and the approval note (CTO 38 complement 1).
+  const feeBreakdownRow: SpecRow[] = escrow && demoFeeBreakdownOf(escrow) ? [{
+    label: t('trade.fee.breakdown'),
+    value: (
+      <FeeBreakdown
+        items={(['trade.fee.base', 'trade.fee.merchantBenefit', 'trade.fee.effective'] as const).map((key) => ({ label: t(key), value: '—' }))}
+        badge={<SimulatedBadge label={t('spaces.simulated')} />}
+        note={t('trade.fee.pendingApproval')}
+      />
+    ),
+  }] : []
   // Registro: the recorded details grouped by the stage that produced them (rail = index, Registro = full values).
   const registro: SpecGroup[] = [
     { title: t('trade.record.groupTrade'), rows: [
@@ -950,8 +973,10 @@ export function Trade() {
     ] },
     { title: t('trade.record.groupEscrow'), rows: escrow ? [
       { label: t('trade.record.escrowId'), value: escrow.id, mono: true, copy: escrow.id },
-      { label: t('trade.record.escrowType'), value: ESCROW_TYPE_LABEL[escrow.type] ?? escrow.type },
+      { label: t('trade.record.escrowType'), value: <>{ESCROW_TYPE_LABEL[escrow.type] ?? escrow.type}<FaqLink slug="escrow" className="ml-0.5 align-middle" /></> },
       ...custodyRow,
+      ...protocolFeeRow,
+      ...feeBreakdownRow,
       { label: t('trade.record.escrowState'), value: ESCROW_STATE_LABEL[escrowStatus] ?? escrow.status },
       ...(escrow.lockedAt ? [{ label: t('trade.record.lockedAt'), value: formatDateTime(escrow.lockedAt) }] : []),
       { label: t('trade.record.escrowUpdatedAt'), value: formatDateTime(escrow.updatedAt) },
@@ -1153,6 +1178,7 @@ export function Trade() {
                 className="mt-1 w-full"
                 rows={3}
               />
+              <SafetyCenterLink page="incident" className="mt-1 text-sm">{t('shell.safetyCenter.ifSomethingWrong')}</SafetyCenterLink>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row">
                 <Button variant="destructive" onClick={handleOpenDispute} loading={acting} className="min-h-11 text-sm">{t('trade.disputeForm.confirm')}</Button>
                 <Button variant="outline" onClick={cancelDisputeForm} className="min-h-11 text-sm">{t('common.cancel')}</Button>

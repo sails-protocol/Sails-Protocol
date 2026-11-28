@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Popover, PopoverTrigger, PopoverContent } from './popover'
 import { cn } from '../../lib/utils'
 import type { Explanation } from './trustTypes'
@@ -8,13 +9,15 @@ import type { Explanation } from './trustTypes'
  * `variant="text"` shows `label` as a quiet text button. All copy comes from props.
  */
 export function ExplanationPopover({
-  explanation, label, variant = 'icon', className,
+  explanation, label, variant = 'icon', className, more,
 }: {
   explanation: Explanation
   /** Accessible name (icon) or visible text (text). */
   label: string
   variant?: 'icon' | 'text'
   className?: string
+  /** Optional link under the explanation (the caller owns any routing), e.g. the matching FAQ answer. */
+  more?: ReactNode
 }) {
   return (
     <Popover>
@@ -38,6 +41,7 @@ export function ExplanationPopover({
           {explanation.lines.map((line) => <li key={line}>{line}</li>)}
         </ul>
         {explanation.footer && <p className="mt-2.5 pt-2.5 border-t border-brand-border-subtle">{explanation.footer}</p>}
+        {more && <div className="mt-2">{more}</div>}
       </PopoverContent>
     </Popover>
   )

@@ -29,6 +29,8 @@ export interface MarketDraft {
   /** Text as typed; read with parseUsdWhole. */
   kycThreshold: string
   kycProviderUrl: string
+  /** The partner who runs the verification; participants see it as "Responsável". */
+  kycProviderName: string
   social: readonly SocialLogin[]
 }
 
@@ -37,7 +39,7 @@ export const EMPTY_DRAFT: MarketDraft = {
   name: '', description: '', visibility: null, preset: null, infrastructure: 'network', participants: [],
   // Category and profile start on the most common choice, so the badge always has a value.
   category: 'GENERAL', profile: 'P2P', iconUrl: null, bannerUrl: null, coverUrl: null,
-  kyc: 'none', kycThreshold: '10000', kycProviderUrl: '', social: [],
+  kyc: 'none', kycThreshold: '10000', kycProviderUrl: '', kycProviderName: '', social: [],
 }
 
 /** A whole-dollar amount typed with or without separators ("10.000", "10,000", "10000"); null unless > 0. */
@@ -48,10 +50,10 @@ export function parseUsdWhole(raw: string): number | null {
   return n > 0 ? n : null
 }
 
-/** KYC needs the admin's own provider form link (https only); "above a value" also needs a positive amount. */
-export function entryPolicyValid(d: Pick<MarketDraft, 'kyc' | 'kycThreshold' | 'kycProviderUrl'>): boolean {
+/** Identity verification needs the responsible partner's name and flow link (https only); "above a value" also a positive amount. */
+export function entryPolicyValid(d: Pick<MarketDraft, 'kyc' | 'kycThreshold' | 'kycProviderUrl' | 'kycProviderName'>): boolean {
   if (d.kyc === 'none') return true
-  if (!safeHttpsUrl(d.kycProviderUrl)) return false
+  if (!safeHttpsUrl(d.kycProviderUrl) || d.kycProviderName.trim() === '') return false
   return d.kyc === 'all' || parseUsdWhole(d.kycThreshold) !== null
 }
 
@@ -119,7 +121,7 @@ export interface MarketPreviewModel {
   profile: MarketProfile
   iconUrl: string | null
   bannerUrl: string | null
-  entry: { kyc: KycMode; thresholdUsd: number | null; providerUrl: string | null; social: readonly SocialLogin[] }
+  entry: { kyc: KycMode; thresholdUsd: number | null; providerUrl: string | null; providerName: string | null; social: readonly SocialLogin[] }
   /** Always null: the Sails Market ID format is not defined yet. */
   marketId: null
   /** Always empty: a market that does not exist has no offers. */
@@ -149,6 +151,7 @@ export function marketPreview(draft: MarketDraft): MarketPreviewModel | null {
       kyc: draft.kyc,
       thresholdUsd: draft.kyc === 'above_threshold' ? parseUsdWhole(draft.kycThreshold) : null,
       providerUrl: draft.kyc === 'none' ? null : safeHttpsUrl(draft.kycProviderUrl),
+      providerName: draft.kyc === 'none' ? null : draft.kycProviderName.trim() || null,
       social: draft.social,
     },
     marketId: null,
