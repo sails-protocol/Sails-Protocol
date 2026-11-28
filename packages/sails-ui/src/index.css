@@ -476,6 +476,21 @@ body {
   @media (max-width: 767.98px) { @slot; }
 }
 
+/* A control that keeps a small look (the 44x24 switch, the thin demo banner's links) gets a 44 px hit
+   area from an invisible ::after centered on it. Use as `touch:hit-area`. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--control-h-touch));
+    height: max(100%, var(--control-h-touch));
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* Enter/exit motion for overlays (no plugin): the shadcn-style classes
    animate-in/out, fade-*, zoom-*, slide-* set per-element variables these
    two keyframes read. Variables do not inherit, so nested overlays start clean. */

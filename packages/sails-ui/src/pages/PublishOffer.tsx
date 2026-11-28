@@ -340,7 +340,7 @@ export function PublishOffer() {
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fixedPrice')}</label>
                 <div className="flex items-center input-field field-focus-within !p-0 h-9 touch:h-11">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full touch:h-11 min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
@@ -349,7 +349,7 @@ export function PublishOffer() {
                     className="flex-1 min-w-0 bg-transparent text-center text-field font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full touch:h-11 min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
                 </div>
                 {loadingSuggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">{t('publish.loadingRange')}</p>
