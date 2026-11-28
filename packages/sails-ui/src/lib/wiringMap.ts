@@ -47,17 +47,19 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   marketSpaceTransfer: sim('Serviços Satsails', 'Meus mercados → Seu espaço → Transferir', 'Satsails (serviço comercial)'),
   marketModeration: sim('Mercados', 'Página do mercado → Conversas (fixar) e Sobre (remover citando a regra)'),
   marketIntentPost: sim('Mercados', 'Página do mercado → Chat do grupo → Publicar intenção'),
-  marketDirectMessage: sim('Mercados', 'Página do mercado → Conversas privadas'),
+  marketDirectMessage: sim('Mercados', 'Página do mercado → Conversas privadas · Day 0 (CTO 33)'),
   communities: sim('Mercados', 'Substituído por marketMembership (id mantido)'),
-  marketGroupChat: out('Mercados', 'Página do mercado → Chat do grupo'),
-  marketVerification: out('Mercados', 'Selo Verificado: cartões e página do mercado'),
+  // Day 0 (CTO 33, 2026-11-23): group chat, pre-trade private messages, the "Mercado ativo" badge and the managed node.
+  marketGroupChat: sim('Mercados', 'Página do mercado → Chat do grupo · Day 0 (CTO 33)'),
+  marketVerification: sim('Mercados', 'Selo Mercado ativo: cartões e página do mercado · Day 0 (CTO 33)'),
   // Rede e nós.
   publicPrivateServers: sim('Rede e nós', 'Configurações → Rede e nós'),
   manualServer: sim('Rede e nós', 'Configurações → Rede e nós → Adicionar nó manualmente'),
   connectionDiagnostics: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   nodeCatalog: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   nodeStateSync: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
-  managedNode: out('Serviços Satsails', 'Rede e nós; Comprar espaço (onde roda); Criar mercado (privado)', SATSAILS),
+  managedNode: sim('Serviços Satsails', 'Rede e nós (Onde um mercado pode rodar); Criar mercado (Onde o mercado roda) · Day 0 (CTO 33), modelo CTO 36', SATSAILS),
+  merchantProgram: out('Market e ofertas', 'Perfil → Programa Merchant (proposta); Criar mercado (nota) · proposta CTO 36'),
   spacePurchase: out('Serviços Satsails', 'Criar mercado: escolha do tipo e "Revisar e pagar" (checkout simulado); /markets/space redireciona', SATSAILS),
   // Wallet e chaves: never simulated (real secrets or funds outside the app).
   satsailsWallet: notice('Wallet e chaves', 'Configurações → Wallet; Conectar wallet'),

@@ -14,6 +14,8 @@ import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 import { SailsLogo } from '../brand/SailsLogo'
 import { useNavPosition } from '../../lib/navPosition'
 import { t } from '../../i18n'
+import { isDemoMode } from '../../lib/demoMarkers'
+import { SkipLink } from './SkipLink'
 
 /** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
 export interface LayoutOutletContext {
@@ -67,13 +69,9 @@ export function Layout() {
     // reserves its width. Mobile is completely untouched: same header +
     // BottomNav as before, `md:hidden`-gated exactly as they already were.
     <div className="min-h-screen bg-brand-bg md:flex">
-      {/* First stop for keyboard users in both menu positions: jump past the navigation. */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-brand-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-text focus:shadow-elevation-2"
-      >
-        {t('shell.nav.skipToContent')}
-      </a>
+      {/* First stop for keyboard users in both menu positions: jump past the navigation. In the demo the demo
+          root renders it before its banner (demo/install.tsx), so it stays first. */}
+      {!isDemoMode() && <SkipLink />}
       <Sidebar hideFromLg={topNav} />
       <div className="flex-1 min-w-0">
         <Topbar withNav={topNav} />
