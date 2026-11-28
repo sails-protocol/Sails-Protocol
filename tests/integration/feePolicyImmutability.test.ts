@@ -163,6 +163,62 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     expect(unchanged.requiredConfirmations).toBe(2)
   })
 
+  // G3 (Despacho 069, migration 20261128160000): the signed document is stored with the row and frozen with it, and a
+  // published policy never goes back nor disappears. The database does not check the signature
+  // (the application does, against the pinned authority); here the document is a placeholder.
+  // shortcut: placeholder document, replace with a real signed fixture in the D-E1 package (new-use verification).
+  const DOC = { placeholder: 'signed-fee-policy-fixture' }
+
+  it("G3: the signed document of a PUBLISHED policy cannot be swapped", async () => {
+    requirePostgres('G3 document frozen')
+    const p = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC, status: 'PUBLISHED', publishedAt: new Date() }) })
+    // Refused by the write-once rule first; the column guard would refuse it too.
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"other":true}'::jsonb WHERE id = $1`, p.id))
+      .rejects.toThrow(/the signed document is write-once|economic\/identity fields are immutable/)
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: p.id } })).signedDocument).toEqual(DOC)
+  })
+
+  it("G3: the signed document is write-once, even on a DRAFT", async () => {
+    requirePostgres('G3 write-once draft')
+    const d = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC }) })
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"other":true}'::jsonb WHERE id = $1`, d.id))
+      .rejects.toThrow(/the signed document is write-once/)
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = NULL WHERE id = $1`, d.id))
+      .rejects.toThrow(/the signed document is write-once/)
+  })
+
+  it("G3: a historical policy published without a document can never receive one later", async () => {
+    requirePostgres('G3 no late document')
+    const legacy = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ status: 'PUBLISHED', publishedAt: new Date() }) })
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"late":true}'::jsonb WHERE id = $1`, legacy.id))
+      .rejects.toThrow(/economic\/identity fields are immutable/)
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: legacy.id } })).signedDocument).toBeNull()
+  })
+
+  it("G3: a PUBLISHED policy never goes back to DRAFT, and a RETIRED one never changes status", async () => {
+    requirePostgres('G3 forward only')
+    const p = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC, status: 'PUBLISHED', publishedAt: new Date() }) })
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET status = 'DRAFT' WHERE id = $1`, p.id))
+      .rejects.toThrow(/a PUBLISHED policy can only be retired/)
+    await prisma.feePolicyVersion.update({ where: { id: p.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
+    for (const to of ['DRAFT', 'PUBLISHED']) {
+      await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET status = '${to}'::"FeePolicyStatus" WHERE id = $1`, p.id))
+        .rejects.toThrow(/a RETIRED policy never changes status/)
+    }
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: p.id } })).status).toBe('RETIRED')
+  })
+
+  it("G3: only a DRAFT policy can be deleted; a PUBLISHED or RETIRED one is history", async () => {
+    requirePostgres('G3 no delete')
+    const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
+    await prisma.feePolicyVersion.delete({ where: { id: draft.id } })
+    const p = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC, status: 'PUBLISHED', publishedAt: new Date() }) })
+    await expect(prisma.$executeRawUnsafe(`DELETE FROM fee_policy_versions WHERE id = $1`, p.id)).rejects.toThrow(/a PUBLISHED policy is never deleted/)
+    await prisma.feePolicyVersion.update({ where: { id: p.id }, data: { status: 'RETIRED', retiredAt: new Date() } })
+    await expect(prisma.$executeRawUnsafe(`DELETE FROM fee_policy_versions WHERE id = $1`, p.id)).rejects.toThrow(/a RETIRED policy is never deleted/)
+    expect(await prisma.feePolicyVersion.findUnique({ where: { id: p.id } })).not.toBeNull()
+  })
+
   // Test E: Escrow's own thin fee-policy scalar snapshot is immutable once set.
   it('Test E: an Escrow\'s fee-policy snapshot cannot change once set, via raw SQL', async () => {
     requirePostgres('Test E')

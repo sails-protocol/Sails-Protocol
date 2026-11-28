@@ -56,6 +56,8 @@ export interface CreateDraftFeePolicyVersionData {
   arbitratorReservePct?: Prisma.Decimal | string
   smallTradeRule?: Prisma.InputJsonValue
   triggerSemantics?: Prisma.InputJsonValue
+  /** G3: the signed policy document, frozen with the row once it leaves DRAFT. Requiring it to publish comes with D-E1. */
+  signedDocument?: Prisma.InputJsonValue
   createdBy: string
 }
 
@@ -106,6 +108,7 @@ class PrismaFeePolicyVersionRepository implements FeePolicyVersionRepository {
         arbitratorReservePct: input.arbitratorReservePct,
         smallTradeRule: input.smallTradeRule ?? {},
         triggerSemantics: input.triggerSemantics ?? {},
+        signedDocument: input.signedDocument,
         createdBy: input.createdBy,
       },
     })
