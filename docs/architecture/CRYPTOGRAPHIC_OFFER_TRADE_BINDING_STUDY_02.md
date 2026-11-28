@@ -126,7 +126,7 @@ The current main branch contains E21 R1 service, persistence, and database-guard
 
 The PR is therefore relevant to delivery of the §27.2 property, but the parameter alone is not the cryptographic guarantee: server admission and durable database enforcement remain essential. This documentary note does not authorize the PR's merge.
 
-The EPM reference to a “D-A” point was not identifiable in the supplied audit text. The direct, verifiable architectural mapping for #771 is ADR-001 §27.2. The D-A label should not be treated as reconciled until its exact source passage is identified.
+The direct, verifiable architectural mapping for #771 is ADR-001 §27.2. The related open point is the verification obligation in §6 item 2 (“atomicity between the current accepted revision and the transition to COMMITTED”).
 
 ### 5.2 ADR-001 §28.1 — fiat-side obligation
 
@@ -324,7 +324,7 @@ Source: [schema and F4 binding comments](https://github.com/sails-protocol/Sails
 
 The exact conclusions of the original sections **02-A through 02-G** and the original per-scenario invariant/outcome/evidence rows for the twelve scenarios were not present in the materials available for this repository update. This record preserves the recovered D01–D09 decisions, twelve scenario references and AS02-R01–R07 audit deltas, but does not fabricate the missing section conclusions or scenario test mappings.
 
-The label **“D-A”** mentioned in connection with #771 was also not recoverable from the material inspected. The direct, verifiable mapping for #771 remains ADR-001 §27.2; no equivalence to an unrecovered D-A label is asserted.
+The open point connected to #771 is tracked as §6 item 2 (“atomicity between the current accepted revision and the transition to COMMITTED”); the direct, verifiable mapping for #771 remains ADR-001 §27.2.
 
 Until the original Study 02 source is reconciled against §§10–18, this file is an expanded documentary consolidation, not a claim that every original section has been reproduced verbatim.
 
