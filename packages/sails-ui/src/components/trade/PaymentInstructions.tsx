@@ -77,7 +77,7 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details, 
             )}
             {details && (
               <p className="mt-2 text-xs text-brand-text-secondary">
-                {/* CTO D6: only the seller can cancel today, so the buyer is told not to pay and to use the chat or a dispute. */}
+                {/* Payment details show only once the escrow is locked (hiddenUntilLocked), when neither party can cancel (cancel is only before the escrow): the seller warns the buyer in the chat or opens a dispute; the buyer does not pay. */}
                 {t(viewer === 'seller' ? 'trade.payment.noEditAfterAgreement' : 'trade.payment.noEditAfterAgreementBuyer')}
               </p>
             )}

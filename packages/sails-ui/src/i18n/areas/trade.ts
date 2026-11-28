@@ -78,7 +78,7 @@ export default defineArea(
     'trade.payment.hiddenUntilLocked': 'As instruções de pagamento aparecem nesta tela depois que o vendedor registrar o bloqueio dos fundos no escrow.',
     'trade.payment.safety': 'Pague somente para estes dados, de uma conta no seu nome. Não aceite outros dados enviados por chat, e-mail ou telefone, nem pagamentos de terceiros.',
     'trade.payment.sellerNote': 'O comprador vê estes dados na tela depois que os fundos forem registrados como bloqueados.',
-    'trade.payment.noEditAfterAgreement': 'Os dados de pagamento não podem ser alterados depois do acordo. Se estiverem errados, cancele e abra uma nova negociação.',
+    'trade.payment.noEditAfterAgreement': 'Os dados de pagamento não podem ser alterados depois do acordo. Se estiverem errados, avise o comprador no chat do trade para não pagar ou abra uma disputa.',
     'trade.payment.noEditAfterAgreementBuyer': 'Os dados de pagamento não podem ser alterados depois do acordo. Se parecerem errados, não pague: fale com o vendedor no chat do trade ou abra uma disputa.',
 
     // Payout address
@@ -378,7 +378,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'The payment instructions appear on this screen after the seller records the funds as locked in the escrow.',
       'trade.payment.safety': 'Pay only to these details, from an account in your name. Do not accept other details sent by chat, email or phone, or payments from third parties.',
       'trade.payment.sellerNote': 'The buyer sees these details on screen after the funds are recorded as locked.',
-      'trade.payment.noEditAfterAgreement': 'Payment details cannot be changed after the agreement. If they are wrong, cancel and open a new trade.',
+      'trade.payment.noEditAfterAgreement': 'Payment details cannot be changed after the agreement. If they are wrong, tell the buyer in the trade chat not to pay, or open a dispute.',
       'trade.payment.noEditAfterAgreementBuyer': 'Payment details cannot be changed after the agreement. If they look wrong, do not pay: talk to the seller in the trade chat or open a dispute.',
 
       'trade.payout.newAddress': 'New address: {asset}',
@@ -668,7 +668,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Las instrucciones de pago aparecen en esta pantalla después de que el vendedor registre el bloqueo de los fondos en el escrow.',
       'trade.payment.safety': 'Paga solo a estos datos, desde una cuenta a tu nombre. No aceptes otros datos enviados por chat, correo o teléfono, ni pagos de terceros.',
       'trade.payment.sellerNote': 'El comprador ve estos datos en pantalla después de que los fondos se registren como bloqueados.',
-      'trade.payment.noEditAfterAgreement': 'Los datos de pago no se pueden cambiar después del acuerdo. Si están mal, cancela y abre una nueva negociación.',
+      'trade.payment.noEditAfterAgreement': 'Los datos de pago no se pueden cambiar después del acuerdo. Si están mal, avisa al comprador en el chat del trade para que no pague o abre una disputa.',
       'trade.payment.noEditAfterAgreementBuyer': 'Los datos de pago no se pueden cambiar después del acuerdo. Si parecen incorrectos, no pagues: habla con el vendedor en el chat del trade o abre una disputa.',
 
       'trade.payout.newAddress': 'Nueva dirección: {asset}',
@@ -958,7 +958,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Les instructions de paiement apparaissent sur cet écran une fois que le vendeur a enregistré le blocage des fonds dans l’escrow.',
       'trade.payment.safety': 'Payez uniquement vers ces coordonnées, depuis un compte à votre nom. N’acceptez pas d’autres coordonnées envoyées par chat, e-mail ou téléphone, ni de paiements de tiers.',
       'trade.payment.sellerNote': 'L’acheteur voit ces coordonnées à l’écran une fois les fonds enregistrés comme bloqués.',
-      'trade.payment.noEditAfterAgreement': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles sont erronées, annulez et ouvrez une nouvelle négociation.',
+      'trade.payment.noEditAfterAgreement': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles sont erronées, prévenez l’acheteur dans le chat du trade pour qu’il ne paie pas, ou ouvrez un litige.',
       'trade.payment.noEditAfterAgreementBuyer': 'Les coordonnées de paiement ne peuvent plus être modifiées après l’accord. Si elles semblent erronées, ne payez pas : parlez au vendeur dans le chat du trade ou ouvrez un litige.',
 
       'trade.payout.newAddress': 'Nouvelle adresse : {asset}',
@@ -1248,7 +1248,7 @@ export default defineArea(
       'trade.payment.hiddenUntilLocked': 'Die Zahlungsanweisungen erscheinen auf diesem Bildschirm, nachdem der Verkäufer die Sperrung der Mittel im Escrow erfasst hat.',
       'trade.payment.safety': 'Zahle nur an diese Daten, von einem Konto auf deinen Namen. Akzeptiere keine anderen Daten per Chat, E-Mail oder Telefon und keine Zahlungen Dritter.',
       'trade.payment.sellerNote': 'Der Käufer sieht diese Daten auf dem Bildschirm, nachdem die Mittel als gesperrt erfasst wurden.',
-      'trade.payment.noEditAfterAgreement': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch sind, brich ab und eröffne einen neuen Trade.',
+      'trade.payment.noEditAfterAgreement': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch sind, sag dem Käufer im Trade-Chat, dass er nicht zahlen soll, oder eröffne einen Streitfall.',
       'trade.payment.noEditAfterAgreementBuyer': 'Die Zahlungsdaten können nach der Einigung nicht mehr geändert werden. Wenn sie falsch aussehen, zahle nicht: Schreib dem Verkäufer im Trade-Chat oder eröffne einen Streitfall.',
 
       'trade.payout.newAddress': 'Neue Adresse: {asset}',

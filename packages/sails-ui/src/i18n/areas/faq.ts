@@ -75,7 +75,7 @@ export default defineArea(
     'faq.thirdParty.q': 'Posso pagar fora do trade ou para um terceiro?',
     'faq.thirdParty.a': 'Não. Pague só para os dados mostrados no trade, de uma conta no seu nome.',
     'faq.fixPayment.q': 'Errei os dados de pagamento. Posso corrigir?',
-    'faq.fixPayment.a': 'Não. Depois do acordo, os dados de pagamento do trade não podem ser alterados. Se você vende e os dados estão errados, cancele e abra uma nova negociação. Se você compra e eles parecem errados, não pague: fale com o vendedor no chat do trade ou abra uma disputa.',
+    'faq.fixPayment.a': 'Não. Depois do acordo, os dados de pagamento do trade não podem ser alterados. Se você vende e os dados estão errados, avise o comprador no chat do trade para não pagar ou abra uma disputa. Com o escrow criado, a negociação não pode ser cancelada. Se você compra e eles parecem errados, não pague: fale com o vendedor no chat do trade ou abra uma disputa.',
 
     'faq.fees.q': 'Pago taxa para negociar?',
     'faq.fees.answer': 'O Sails Protocol está estruturando uma política global de taxas, com referência inicial de 0,40% sobre as negociações. Essa política financiará a infraestrutura, os integradores, o desenvolvimento do protocolo e os mecanismos de resolução de disputas. A cobrança ainda depende de ativação. Quando aplicável, a taxa efetiva será informada antes da confirmação da negociação. Taxas de rede e de serviços externos poderão ser cobradas separadamente.',
@@ -197,7 +197,7 @@ export default defineArea(
       'faq.thirdParty.q': 'Can I pay outside the trade or to a third party?',
       'faq.thirdParty.a': 'No. Pay only to the details shown in the trade, from an account in your name.',
       'faq.fixPayment.q': 'I entered the wrong payment details. Can I fix them?',
-      'faq.fixPayment.a': 'No. After the agreement, the trade’s payment details cannot be changed. If you are selling and they are wrong, cancel and open a new trade. If you are buying and they look wrong, do not pay: talk to the seller in the trade chat or open a dispute.',
+      'faq.fixPayment.a': 'No. After the agreement, the trade’s payment details cannot be changed. If you are selling and they are wrong, tell the buyer in the trade chat not to pay, or open a dispute. Once the escrow exists, the trade cannot be cancelled. If you are buying and they look wrong, do not pay: talk to the seller in the trade chat or open a dispute.',
 
       'faq.fees.q': 'Do I pay a fee to trade?',
       'faq.fees.answer': 'Sails Protocol is setting up a global fee policy, with an initial reference of 0.40% on trades. This policy will fund the infrastructure, the integrators, the protocol’s development and the dispute resolution mechanisms. Charging still depends on activation. When applicable, the effective fee will be shown before you confirm the trade. Network and outside service fees may be charged separately.',
@@ -318,7 +318,7 @@ export default defineArea(
       'faq.thirdParty.q': '¿Puedo pagar fuera del trade o a un tercero?',
       'faq.thirdParty.a': 'No. Paga solo a los datos que muestra el trade, desde una cuenta a tu nombre.',
       'faq.fixPayment.q': 'Me equivoqué en los datos de pago. ¿Puedo corregirlos?',
-      'faq.fixPayment.a': 'No. Después del acuerdo, los datos de pago del trade no se pueden cambiar. Si vendes y están mal, cancela y abre una nueva negociación. Si compras y parecen incorrectos, no pagues: habla con el vendedor en el chat del trade o abre una disputa.',
+      'faq.fixPayment.a': 'No. Después del acuerdo, los datos de pago del trade no se pueden cambiar. Si vendes y están mal, avisa al comprador en el chat del trade para que no pague o abre una disputa. Con el escrow creado, la negociación no se puede cancelar. Si compras y parecen incorrectos, no pagues: habla con el vendedor en el chat del trade o abre una disputa.',
 
       'faq.fees.q': '¿Pago comisión por negociar?',
       'faq.fees.answer': 'Sails Protocol está estructurando una política global de comisiones, con una referencia inicial del 0,40 % sobre las negociaciones. Esa política financiará la infraestructura, los integradores, el desarrollo del protocolo y los mecanismos de resolución de disputas. El cobro todavía depende de su activación. Cuando corresponda, la comisión efectiva se informará antes de confirmar la negociación. Las comisiones de red y de servicios externos podrán cobrarse por separado.',
@@ -439,7 +439,7 @@ export default defineArea(
       'faq.thirdParty.q': 'Puis-je payer en dehors du trade ou à un tiers ?',
       'faq.thirdParty.a': 'Non. Payez uniquement aux coordonnées affichées dans le trade, depuis un compte à votre nom.',
       'faq.fixPayment.q': 'Je me suis trompé dans les coordonnées de paiement. Puis-je les corriger ?',
-      'faq.fixPayment.a': 'Non. Après l’accord, les coordonnées de paiement du trade ne peuvent plus être modifiées. Si vous vendez et qu’elles sont erronées, annulez et ouvrez une nouvelle négociation. Si vous achetez et qu’elles semblent erronées, ne payez pas : parlez au vendeur dans le chat du trade ou ouvrez un litige.',
+      'faq.fixPayment.a': 'Non. Après l’accord, les coordonnées de paiement du trade ne peuvent plus être modifiées. Si vous vendez et qu’elles sont erronées, prévenez l’acheteur dans le chat du trade pour qu’il ne paie pas, ou ouvrez un litige. Une fois l’escrow créé, la négociation ne peut plus être annulée. Si vous achetez et qu’elles semblent erronées, ne payez pas : parlez au vendeur dans le chat du trade ou ouvrez un litige.',
 
       'faq.fees.q': 'Est-ce que je paie des frais pour échanger ?',
       'faq.fees.answer': 'Sails Protocol met en place une politique de frais globale, avec une référence initiale de 0,40 % sur les transactions. Cette politique financera l’infrastructure, les intégrateurs, le développement du protocole et les mécanismes de résolution des litiges. La perception dépend encore de son activation. Le cas échéant, les frais effectifs seront indiqués avant la confirmation de la transaction. Les frais de réseau et de services externes pourront être facturés séparément.',
@@ -560,7 +560,7 @@ export default defineArea(
       'faq.thirdParty.q': 'Kann ich außerhalb des Trades oder an Dritte zahlen?',
       'faq.thirdParty.a': 'Nein. Zahle nur an die im Trade angezeigten Daten, von einem Konto auf deinen Namen.',
       'faq.fixPayment.q': 'Ich habe falsche Zahlungsdaten angegeben. Kann ich sie korrigieren?',
-      'faq.fixPayment.a': 'Nein. Nach der Einigung können die Zahlungsdaten des Trades nicht mehr geändert werden. Wenn du verkaufst und sie falsch sind, brich ab und eröffne einen neuen Trade. Wenn du kaufst und sie falsch aussehen, zahle nicht: Schreib dem Verkäufer im Trade-Chat oder eröffne einen Streitfall.',
+      'faq.fixPayment.a': 'Nein. Nach der Einigung können die Zahlungsdaten des Trades nicht mehr geändert werden. Wenn du verkaufst und sie falsch sind, sag dem Käufer im Trade-Chat, dass er nicht zahlen soll, oder eröffne einen Streitfall. Sobald der Escrow besteht, kann der Trade nicht mehr abgebrochen werden. Wenn du kaufst und sie falsch aussehen, zahle nicht: Schreib dem Verkäufer im Trade-Chat oder eröffne einen Streitfall.',
 
       'faq.fees.q': 'Zahle ich eine Gebühr für den Handel?',
       'faq.fees.answer': 'Das Sails Protocol baut eine globale Gebührenrichtlinie auf, mit einem anfänglichen Richtwert von 0,40 % auf Trades. Diese Richtlinie wird die Infrastruktur, die Integratoren, die Entwicklung des Protokolls und die Mechanismen zur Streitbeilegung finanzieren. Die Erhebung hängt noch von der Aktivierung ab. Falls zutreffend, wird die tatsächliche Gebühr vor der Bestätigung des Trades angezeigt. Netzwerkgebühren und Gebühren externer Dienste können separat berechnet werden.',
