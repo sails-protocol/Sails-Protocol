@@ -6,7 +6,7 @@
     "output": "sails-high-level.architecture.html",
     "quality_profile": "showcase",
     "repository": {
-      "url": "https://github.com/alan-schramm/Sails-Protocol",
+      "url": "https://github.com/sails-protocol/Sails-Protocol",
       "revision": "de2afb8a6aa38d0a1ac783f1ef55f4767312883b"
     },
     "views": [
