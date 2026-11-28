@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { LOOSE_WIRES, type LooseWireId } from '../../lib/looseWires'
 import { WIRE_META } from '../../lib/wiringMap'
 import { simulatedToast } from '../../pages/markets/shared'
+import { BackupDemoRow } from './BackupDemo'
 import { t } from '../../i18n'
 
 const TOGGLES: ReadonlySet<LooseWireId> = new Set(['notifyTrades', 'notifyChat', 'notifyDisputes', 'sessionLock', 'publicAvatar', 'marketParticipationPrivacy'])
@@ -63,6 +64,7 @@ export function SimulatedSettingRow({ id, description }: { id: LooseWireId; desc
   if (!meta.simulatedInDemo) return null
   if (TOGGLES.has(id)) return <Toggle id={id} description={description} />
   if (id === 'helpCenter') return <Help />
+  if (id === 'keyBackupExport' || id === 'keyBackupImport') return <BackupDemoRow kind={id === 'keyBackupExport' ? 'export' : 'import'} />
   const result = id === 'connectionDiagnostics' ? t('spaces.sim.diagnostics') : id === 'displayCurrency' ? t('spaces.sim.currency') : undefined
   return (
     <SettingsRow

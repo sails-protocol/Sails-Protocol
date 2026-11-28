@@ -74,6 +74,8 @@ export default defineArea(
     'faq.markedPaid.a': 'Não. Marcar avisa o vendedor, mas não comprova nem libera nada. Quem libera é o vendedor, depois de conferir o dinheiro na conta.',
     'faq.thirdParty.q': 'Posso pagar fora do trade ou para um terceiro?',
     'faq.thirdParty.a': 'Não. Pague só para os dados mostrados no trade, de uma conta no seu nome.',
+    'faq.fixPayment.q': 'Errei os dados de pagamento. Posso corrigir?',
+    'faq.fixPayment.a': 'Não. Depois do acordo, os dados de pagamento do trade não podem ser alterados. Se você vende e os dados estão errados, avise o comprador no chat do trade para não pagar ou abra uma disputa. Com o escrow criado, a negociação não pode ser cancelada. Se você compra e eles parecem errados, não pague: fale com o vendedor no chat do trade ou abra uma disputa.',
 
     'faq.fees.q': 'Pago taxa para negociar?',
     'faq.fees.answer': 'O Sails Protocol está estruturando uma política global de taxas, com referência inicial de 0,40% sobre as negociações. Essa política financiará a infraestrutura, os integradores, o desenvolvimento do protocolo e os mecanismos de resolução de disputas. A cobrança ainda depende de ativação. Quando aplicável, a taxa efetiva será informada antes da confirmação da negociação. Taxas de rede e de serviços externos poderão ser cobradas separadamente.',
@@ -108,7 +110,7 @@ export default defineArea(
     'faq.reputation.q': 'Como a reputação é calculada?',
     'faq.reputation.a': 'É uma soma sem teto: +2 por trade concluído, −5 por disputa perdida. As estrelas são avaliações das pessoas e contam à parte.',
     'faq.password.q': 'E se eu perder minha senha ou minha chave?',
-    'faq.password.a': 'A senha protege a sua chave só neste navegador e não vai para o nó Sails. Hoje não existe recuperação; guarde-a.',
+    'faq.password.a': 'A senha desbloqueia a sua chave, guardada neste navegador. Sem a senha, ou sem os dados deste navegador e sem um backup, a sua identidade e as operações ligadas a ela não podem ser recuperadas. Ainda não existe recuperação automática. O backup está em preparação. Para restaurar, você precisa do arquivo de backup e da frase-senha dele, juntos. A Sails não consegue recuperar a sua identidade. O backup é uma foto do momento: conversas, negociações abertas em privado e escrows criados depois dele não voltam com ele. Em alguns tipos de escrow, fundos podem ser tratados por disputa, com a contraparte ou o árbitro; isso não substitui o backup.',
 
     'faq.markets.q': 'O que são mercados e comunidades? Preciso entrar em um?',
     'faq.markets.a': 'O Mercado aberto é o padrão e não exige nada. Comunidades e mercados privados têm regras de entrada definidas pelo administrador. O administrador nunca altera um trade já em escrow nem toma fundos.',
@@ -194,6 +196,8 @@ export default defineArea(
       'faq.markedPaid.a': 'No. Marking notifies the seller but proves or releases nothing. The seller releases, after checking the money in their account.',
       'faq.thirdParty.q': 'Can I pay outside the trade or to a third party?',
       'faq.thirdParty.a': 'No. Pay only to the details shown in the trade, from an account in your name.',
+      'faq.fixPayment.q': 'I entered the wrong payment details. Can I fix them?',
+      'faq.fixPayment.a': 'No. After the agreement, the trade’s payment details cannot be changed. If you are selling and they are wrong, tell the buyer in the trade chat not to pay, or open a dispute. Once the escrow exists, the trade cannot be cancelled. If you are buying and they look wrong, do not pay: talk to the seller in the trade chat or open a dispute.',
 
       'faq.fees.q': 'Do I pay a fee to trade?',
       'faq.fees.answer': 'Sails Protocol is setting up a global fee policy, with an initial reference of 0.40% on trades. This policy will fund the infrastructure, the integrators, the protocol’s development and the dispute resolution mechanisms. Charging still depends on activation. When applicable, the effective fee will be shown before you confirm the trade. Network and outside service fees may be charged separately.',
@@ -228,7 +232,7 @@ export default defineArea(
       'faq.reputation.q': 'How is reputation calculated?',
       'faq.reputation.a': 'It is an uncapped sum: +2 per completed trade, −5 per lost dispute. Stars are people’s ratings and count separately.',
       'faq.password.q': 'What if I lose my passphrase or my key?',
-      'faq.password.a': 'The passphrase protects your key only in this browser and is not sent to the Sails node. There is no recovery today; keep it safe.',
+      'faq.password.a': 'The passphrase unlocks your key, stored in this browser. Without the passphrase, or without this browser’s data and without a backup, your identity and the activity tied to it cannot be recovered. There is no automatic recovery yet. The backup is being prepared. To restore, you need the backup file and its passphrase, together. Sails cannot recover your identity for you. A backup is a snapshot: chats, privately opened trades and escrows created after it do not come back with it. With some escrow types, funds can be handled through a dispute, with the counterparty or the arbiter; this does not replace a backup.',
 
       'faq.markets.q': 'What are markets and communities? Do I need to join one?',
       'faq.markets.a': 'The Open market is the default and requires nothing. Communities and private markets have entry rules set by the market administrator. The market administrator never changes a trade already in escrow or takes funds.',
@@ -313,6 +317,8 @@ export default defineArea(
       'faq.markedPaid.a': 'No. Marcarlo avisa al vendedor, pero no comprueba ni libera nada. Quien libera es el vendedor, después de comprobar el dinero en su cuenta.',
       'faq.thirdParty.q': '¿Puedo pagar fuera del trade o a un tercero?',
       'faq.thirdParty.a': 'No. Paga solo a los datos que muestra el trade, desde una cuenta a tu nombre.',
+      'faq.fixPayment.q': 'Me equivoqué en los datos de pago. ¿Puedo corregirlos?',
+      'faq.fixPayment.a': 'No. Después del acuerdo, los datos de pago del trade no se pueden cambiar. Si vendes y están mal, avisa al comprador en el chat del trade para que no pague o abre una disputa. Con el escrow creado, la negociación no se puede cancelar. Si compras y parecen incorrectos, no pagues: habla con el vendedor en el chat del trade o abre una disputa.',
 
       'faq.fees.q': '¿Pago comisión por negociar?',
       'faq.fees.answer': 'Sails Protocol está estructurando una política global de comisiones, con una referencia inicial del 0,40 % sobre las negociaciones. Esa política financiará la infraestructura, los integradores, el desarrollo del protocolo y los mecanismos de resolución de disputas. El cobro todavía depende de su activación. Cuando corresponda, la comisión efectiva se informará antes de confirmar la negociación. Las comisiones de red y de servicios externos podrán cobrarse por separado.',
@@ -347,7 +353,7 @@ export default defineArea(
       'faq.reputation.q': '¿Cómo se calcula la reputación?',
       'faq.reputation.a': 'Es una suma sin tope: +2 por trade completado, −5 por disputa perdida. Las estrellas son valoraciones de las personas y cuentan aparte.',
       'faq.password.q': '¿Y si pierdo mi contraseña o mi clave?',
-      'faq.password.a': 'La contraseña protege tu clave solo en este navegador y no se envía al nodo Sails. Hoy no existe recuperación; guárdala.',
+      'faq.password.a': 'La contraseña desbloquea tu clave, guardada en este navegador. Sin la contraseña, o sin los datos de este navegador y sin una copia de seguridad, tu identidad y las operaciones vinculadas a ella no se pueden recuperar. Todavía no existe recuperación automática. La copia de seguridad está en preparación. Para restaurar, necesitas el archivo de copia de seguridad y su frase de contraseña, juntos. Sails no puede recuperar tu identidad. La copia de seguridad es una foto del momento: las conversaciones, las operaciones abiertas en privado y los escrows creados después no vuelven con ella. En algunos tipos de escrow, los fondos pueden tratarse mediante una disputa, con la contraparte o el árbitro; esto no sustituye la copia de seguridad.',
 
       'faq.markets.q': '¿Qué son los mercados y las comunidades? ¿Tengo que entrar en uno?',
       'faq.markets.a': 'El Mercado abierto es el predeterminado y no exige nada. Las comunidades y los mercados privados tienen reglas de entrada definidas por el administrador. El administrador nunca modifica un trade ya en escrow ni toma fondos.',
@@ -432,6 +438,8 @@ export default defineArea(
       'faq.markedPaid.a': 'Non. Marquer prévient le vendeur, mais ne prouve ni ne libère rien. C’est le vendeur qui libère, après avoir contrôlé l’argent sur son compte.',
       'faq.thirdParty.q': 'Puis-je payer en dehors du trade ou à un tiers ?',
       'faq.thirdParty.a': 'Non. Payez uniquement aux coordonnées affichées dans le trade, depuis un compte à votre nom.',
+      'faq.fixPayment.q': 'Je me suis trompé dans les coordonnées de paiement. Puis-je les corriger ?',
+      'faq.fixPayment.a': 'Non. Après l’accord, les coordonnées de paiement du trade ne peuvent plus être modifiées. Si vous vendez et qu’elles sont erronées, prévenez l’acheteur dans le chat du trade pour qu’il ne paie pas, ou ouvrez un litige. Une fois l’escrow créé, la négociation ne peut plus être annulée. Si vous achetez et qu’elles semblent erronées, ne payez pas : parlez au vendeur dans le chat du trade ou ouvrez un litige.',
 
       'faq.fees.q': 'Est-ce que je paie des frais pour échanger ?',
       'faq.fees.answer': 'Sails Protocol met en place une politique de frais globale, avec une référence initiale de 0,40 % sur les transactions. Cette politique financera l’infrastructure, les intégrateurs, le développement du protocole et les mécanismes de résolution des litiges. La perception dépend encore de son activation. Le cas échéant, les frais effectifs seront indiqués avant la confirmation de la transaction. Les frais de réseau et de services externes pourront être facturés séparément.',
@@ -466,7 +474,7 @@ export default defineArea(
       'faq.reputation.q': 'Comment la réputation est-elle calculée ?',
       'faq.reputation.a': 'C’est une somme sans plafond : +2 par trade terminé, −5 par litige perdu. Les étoiles sont les évaluations des personnes et comptent à part.',
       'faq.password.q': 'Et si je perds mon mot de passe ou ma clé ?',
-      'faq.password.a': 'Le mot de passe protège votre clé uniquement dans ce navigateur et n’est pas envoyé au nœud Sails. Il n’existe pas de récupération aujourd’hui ; conservez-le.',
+      'faq.password.a': 'Le mot de passe déverrouille votre clé, conservée dans ce navigateur. Sans le mot de passe, ou sans les données de ce navigateur et sans sauvegarde, votre identité et les opérations qui y sont liées ne peuvent pas être récupérées. Il n’existe pas encore de récupération automatique. La sauvegarde est en préparation. Pour restaurer, il vous faut le fichier de sauvegarde et sa phrase secrète, ensemble. Sails ne peut pas récupérer votre identité. La sauvegarde est une photo à un instant donné : les conversations, les transactions ouvertes en privé et les escrows créés après elle ne reviennent pas avec elle. Pour certains types d’escrow, les fonds peuvent être traités par un litige, avec la contrepartie ou l’arbitre ; cela ne remplace pas la sauvegarde.',
 
       'faq.markets.q': 'Que sont les marchés et les communautés ? Dois-je en rejoindre un ?',
       'faq.markets.a': 'Le Marché ouvert est le marché par défaut et n’exige rien. Les communautés et les marchés privés ont des règles d’entrée définies par l’administrateur. L’administrateur ne modifie jamais un trade déjà en escrow et ne prend pas de fonds.',
@@ -551,6 +559,8 @@ export default defineArea(
       'faq.markedPaid.a': 'Nein. Das Markieren benachrichtigt den Verkäufer, beweist aber nichts und gibt nichts frei. Freigeben kann nur der Verkäufer, nachdem er den Zahlungseingang auf seinem Konto geprüft hat.',
       'faq.thirdParty.q': 'Kann ich außerhalb des Trades oder an Dritte zahlen?',
       'faq.thirdParty.a': 'Nein. Zahle nur an die im Trade angezeigten Daten, von einem Konto auf deinen Namen.',
+      'faq.fixPayment.q': 'Ich habe falsche Zahlungsdaten angegeben. Kann ich sie korrigieren?',
+      'faq.fixPayment.a': 'Nein. Nach der Einigung können die Zahlungsdaten des Trades nicht mehr geändert werden. Wenn du verkaufst und sie falsch sind, sag dem Käufer im Trade-Chat, dass er nicht zahlen soll, oder eröffne einen Streitfall. Sobald der Escrow besteht, kann der Trade nicht mehr abgebrochen werden. Wenn du kaufst und sie falsch aussehen, zahle nicht: Schreib dem Verkäufer im Trade-Chat oder eröffne einen Streitfall.',
 
       'faq.fees.q': 'Zahle ich eine Gebühr für den Handel?',
       'faq.fees.answer': 'Das Sails Protocol baut eine globale Gebührenrichtlinie auf, mit einem anfänglichen Richtwert von 0,40 % auf Trades. Diese Richtlinie wird die Infrastruktur, die Integratoren, die Entwicklung des Protokolls und die Mechanismen zur Streitbeilegung finanzieren. Die Erhebung hängt noch von der Aktivierung ab. Falls zutreffend, wird die tatsächliche Gebühr vor der Bestätigung des Trades angezeigt. Netzwerkgebühren und Gebühren externer Dienste können separat berechnet werden.',
@@ -585,7 +595,7 @@ export default defineArea(
       'faq.reputation.q': 'Wie wird die Reputation berechnet?',
       'faq.reputation.a': 'Sie ist eine Summe ohne Obergrenze: +2 pro abgeschlossenem Trade, −5 pro verlorenem Streitfall. Sterne sind Bewertungen von Personen und zählen separat.',
       'faq.password.q': 'Was, wenn ich meine Passphrase oder meinen Schlüssel verliere?',
-      'faq.password.a': 'Die Passphrase schützt deinen Schlüssel nur in diesem Browser und wird nicht an den Sails-Knoten gesendet. Eine Wiederherstellung gibt es derzeit nicht; bewahre sie gut auf.',
+      'faq.password.a': 'Das Passwort entsperrt deinen Schlüssel, der in diesem Browser gespeichert ist. Ohne das Passwort, oder ohne die Daten dieses Browsers und ohne Backup, lassen sich deine Identität und die daran gebundenen Vorgänge nicht wiederherstellen. Eine automatische Wiederherstellung gibt es noch nicht. Das Backup ist in Vorbereitung. Zum Wiederherstellen brauchst du die Backup-Datei und ihre Passphrase, zusammen. Sails kann deine Identität nicht für dich wiederherstellen. Ein Backup ist eine Momentaufnahme: Chats, privat eröffnete Trades und danach erstellte Escrows kommen damit nicht zurück. Bei manchen Escrow-Arten lassen sich Mittel über einen Streitfall klären, mit der Gegenpartei oder dem Schiedsrichter; das ersetzt kein Backup.',
 
       'faq.markets.q': 'Was sind Märkte und Communities? Muss ich einem beitreten?',
       'faq.markets.a': 'Der Offene Markt ist der Standard und setzt nichts voraus. Bei Communities und privaten Märkten legt die Zugangsregeln fest, wer den Markt verwaltet. Wer den Markt verwaltet, ändert nie einen Trade, der schon im Escrow ist, und nimmt keine Mittel.',
@@ -609,6 +619,7 @@ export default defineArea(
       'faq.fees.t4.protocol', 'faq.fees.t4.protocolToday', 'faq.fees.t4.protocolNote', 'faq.fees.t4.network', 'faq.fees.t4.networkToday',
       'faq.fees.t4.networkNote', 'faq.fees.t4.external', 'faq.fees.t4.externalToday', 'faq.fees.t4.externalNote', 'faq.fees.t4.space',
       'faq.fees.t4.spaceToday', 'faq.fees.t4.spaceNote', 'faq.markedPaid.q', 'faq.markedPaid.a', 'faq.thirdParty.q', 'faq.thirdParty.a',
+      'faq.fixPayment.q', 'faq.fixPayment.a',
       'faq.merchantHow.a', 'faq.merchantCriteria.a', 'faq.merchantPerks.q', 'faq.merchantPerks.a', 'faq.merchantSpace.q', 'faq.merchantSpace.a',
     ],
     dispute: [

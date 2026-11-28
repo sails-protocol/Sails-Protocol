@@ -2,9 +2,9 @@ import { FAQ_GROUPS, FAQ_ITEMS, faqAnchor, faqPath, faqSlugFromHash, protocolFee
 import { CATALOGS, type MessageKey } from '../src/i18n/catalog'
 
 describe('FAQ structure', () => {
-  it('has the 13 approved questions plus the 4 Merchant ones, unique slugs, each in a known group with a question and an answer', () => {
-    expect(FAQ_ITEMS).toHaveLength(17)
-    expect(new Set(FAQ_ITEMS.map((i) => i.slug)).size).toBe(17)
+  it('has the 13 approved questions, "corrigir-pagamento" (CTO D6) and the 4 Merchant ones, unique slugs, each in a known group with a question and an answer', () => {
+    expect(FAQ_ITEMS).toHaveLength(18)
+    expect(new Set(FAQ_ITEMS.map((i) => i.slug)).size).toBe(18)
     for (const i of FAQ_ITEMS) {
       expect(FAQ_GROUPS).toContain(i.group)
       expect(CATALOGS['pt-BR'][`faq.${i.key}.q` as MessageKey]).toBeTruthy()
@@ -16,6 +16,7 @@ describe('FAQ structure', () => {
     expect(faqPath('escrow')).toBe('/settings/help/faq#faq-escrow')
     expect(faqSlugFromHash('#faq-taxas')).toBe('taxas')
     expect(faqSlugFromHash(`#${faqAnchor('prazo')}`)).toBe('prazo')
+    expect(faqSlugFromHash('#faq-corrigir-pagamento')).toBe('corrigir-pagamento')
     expect(faqSlugFromHash('#faq-nada')).toBeNull()
     expect(faqSlugFromHash('')).toBeNull()
   })

@@ -30,7 +30,7 @@ export interface FaqItem {
 export const FAQ_LINKS = { merchant: '/profile#merchant', myMarkets: '/markets/mine' } as const
 export type FaqLink = keyof typeof FAQ_LINKS
 
-// Order on screen = the approved proposal (13 questions), then the Merchant group (PO 2026-11-23).
+// Order on screen = the approved proposal (13 questions, plus "corrigir-pagamento", CTO D6), then the Merchant group (PO 2026-11-23).
 export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'como-funciona', key: 'howItWorks', group: 'start', extras: ['d1'], more: ['safeDecision'] },
   { slug: 'estados', key: 'states', group: 'start', extras: ['t1'] },
@@ -38,6 +38,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'prazo', key: 'deadline', group: 'safety' },
   { slug: 'marquei-pago', key: 'markedPaid', group: 'safety' },
   { slug: 'terceiros', key: 'thirdParty', group: 'safety', more: ['thirdPartyPayments'] },
+  { slug: 'corrigir-pagamento', key: 'fixPayment', group: 'safety' },
   { slug: 'taxas', key: 'fees', group: 'fees', extras: ['t4'] },
   { slug: 'disputa', key: 'dispute', group: 'disputes', extras: ['d2'], more: ['evidence', 'incident'] },
   { slug: 'contestar', key: 'appeal', group: 'disputes' },
@@ -51,7 +52,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'merchant-space', key: 'merchantSpace', group: 'merchant', links: ['merchant', 'myMarkets'] },
 ]
 
-export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'mercados' | 'kyc' | 'merchant-how' | 'merchant-criteria' | 'merchant-perks' | 'merchant-space'
+export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'corrigir-pagamento' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'mercados' | 'kyc' | 'merchant-how' | 'merchant-criteria' | 'merchant-perks' | 'merchant-space'
 
 export const faqAnchor = (slug: FaqSlug | string) => `faq-${slug}`
 export const faqPath = (slug: FaqSlug) => `${FAQ_ROUTE}#${faqAnchor(slug)}`

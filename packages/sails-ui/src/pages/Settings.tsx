@@ -369,7 +369,10 @@ export function Settings() {
           </SettingsGroup>
 
           <SettingsGroup {...panel('seguranca')} title={t('settings.section.security')} icon={Shield}>
-            <Planned id="keyBackup" />
+            {/* CTO R1 (2026-11-23): what is true today, in both modes; the backup itself is "Em breve". */}
+            <SettingsRow icon={LOOSE_WIRES.keyBackup.icon} label={LOOSE_WIRES.keyBackup.label} description={t('settings.security.recovery')} plannedLabel={t('common.soon')} />
+            <Planned id="keyBackupExport" />
+            <Planned id="keyBackupImport" />
             <Planned id="sessionLock" />
           </SettingsGroup>
 

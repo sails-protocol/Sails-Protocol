@@ -336,9 +336,11 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
     return { tone: 'terminal', actorLabel: t('escrow.actor.closed'), title: t('escrow.state.cancelled'), description: t('escrow.action.noMoreActions'), canDispute: false }
   }
   if (!i.escrowStatus) {
-    return i.isSeller
+    // D7 (CTO 2026-11-23, backend flag ESCROW_CREATE_SELLER_ONLY): only the seller creates the escrow.
+    const canCreateEscrow = i.isSeller
+    return canCreateEscrow
       ? { tone: 'action', actorLabel: t('escrow.actor.sellerNeeded'), title: t('escrow.action.createEscrow.title'), description: t('escrow.action.createEscrow.description'), primary: { action: 'createEscrow', label: t('escrow.action.createEscrow.label') }, canDispute: false }
-      : { tone: 'waiting', actorLabel: t(i.isBuyer ? 'escrow.actor.waiting' : 'escrow.actor.following'), title: t('escrow.action.waitCreate.title'), description: t('escrow.action.noPaymentBeforeLock'), canDispute: false }
+      : { tone: 'waiting', actorLabel: t(i.isBuyer ? 'escrow.actor.waiting' : 'escrow.actor.following'), title: t('escrow.action.waitCreate.title'), description: `${t('escrow.action.waitCreate.why')} ${t('escrow.action.noPaymentBeforeLock')}`, canDispute: false }
   }
   const view = deriveCurrentAction({ status: i.escrowStatus, isBuyer: i.isBuyer, isSeller: i.isSeller, releaseUnavailable: i.releaseUnavailable, signingUnavailable: i.signingUnavailable, deadlinePassed: escrowDeadlinePassed(i) })
   // A resolved dispute can still be appealed (TradeDisputePanel): never say nothing is left to do next to that button.
@@ -347,6 +349,15 @@ function action(i: TradeStateInput, cancelled: boolean): CurrentAction {
   }
   // While a signing round exists, its card is the next step; never offer a second release.
   return i.signingRoundKind ? { ...view, primary: undefined } : view
+}
+
+/**
+ * "Cancelar negociação" (trade status -> CANCELLED), Principal on 8f80d4b6: either party, only while the trade is
+ * PENDING/ACTIVE and no escrow exists. Never once any escrow exists, whatever its status: the backend does not
+ * refuse a manual cancel over a funded escrow yet (pending CTO), and a funded refund is the seller's MULTISIG round.
+ */
+export function canCancelTrade(i: { tradeStatus: TradeStatus; hasEscrow: boolean; isBuyer: boolean; isSeller: boolean }): boolean {
+  return (i.isBuyer || i.isSeller) && !i.hasEscrow && (i.tradeStatus === 'PENDING' || i.tradeStatus === 'ACTIVE')
 }
 
 export function deriveTradeState(i: TradeStateInput): TradeState {
