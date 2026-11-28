@@ -38,6 +38,7 @@ export function SpaceTypePicker({ value, onPick, disabled = false }: { value: Sp
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-2">{spaceName(p.id)}{disabled && <Badge variant="outline" className={TAG}>{t('common.soon')}</Badge>}</span>
               <span className="mt-0.5 block text-caption font-normal text-brand-text-secondary">{t(`shop.product.${p.id}Description`)}</span>
+              <span className="mt-1 block text-caption font-normal text-brand-text-secondary">{t('spaces.hosting.cardLine')}</span>
               {!disabled && (
                 <>
                   <span className="mt-2 block text-caption font-normal text-brand-text-muted">{t('shop.priceLabel')}</span>
@@ -51,6 +52,7 @@ export function SpaceTypePicker({ value, onPick, disabled = false }: { value: Sp
       </RadioGroup>
       {!disabled && <p className="mt-2 text-caption text-brand-text-muted">{t('shop.notFinal')}</p>}
       <p className="mt-1 text-body-sm text-brand-text-secondary">{t('shop.developers')}</p>
+      <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.create.merchantNote')}</p>
     </div>
   )
 }

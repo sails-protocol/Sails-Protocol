@@ -49,8 +49,9 @@ export function RadioCard({ checked, disabled, children, className, ...input }: 
   return (
     <label
       className={cn(
-        // Transparent border so focus can draw on the card's own edge (one boundary).
-        'flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm transition-colors duration-short field-focus-within',
+        // Transparent border so focus can draw on the card's own edge (one boundary); only the fill animates, so the
+        // keyboard focus border shows at once.
+        'flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm transition-[background-color] duration-short field-focus-within',
         disabled
           ? 'cursor-not-allowed bg-brand-disabled-container text-brand-text-secondary'
           : cn('cursor-pointer state-layer', checked ? 'bg-brand-selected text-brand-text font-medium' : 'bg-brand-tonal text-brand-text'),

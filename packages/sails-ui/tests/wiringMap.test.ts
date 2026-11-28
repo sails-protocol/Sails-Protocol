@@ -26,8 +26,9 @@ describe('wiring map', () => {
     }
   })
 
-  it('CTO roadmap items stay out of Day 0 (simulated only in the demo)', () => {
-    for (const id of ['marketGroupChat', 'marketVerification', 'managedNode', 'spacePurchase'] as const) expect(WIRE_META[id].status).toBe('outOfDay0')
+  it('CTO 33 Day 0 items are simulated in the demo; the space purchase stays out of Day 0', () => {
+    for (const id of ['marketGroupChat', 'marketDirectMessage', 'marketVerification', 'managedNode'] as const) expect(WIRE_META[id].status).toBe('simulated')
+    expect(WIRE_META.spacePurchase.status).toBe('outOfDay0')
   })
 
   it('in the demo a simulated wire never shows an unexplained "Em breve"; real mode always does', () => {
