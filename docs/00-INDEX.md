@@ -102,6 +102,7 @@ Use this path when you need to understand what was decided, how it was governed,
 - [`GOVERNANCE.md`](GOVERNANCE.md) — decision/governance process and publication discipline.
 - Relevant ADRs under [`adr/`](adr/) — scoped architectural decisions.
 - Discovery, validation and proof documents — evidence and institutional findings.
+- [Architecture Study 02 — Cryptographic Offer-to-Trade Binding](architecture/CRYPTOGRAPHIC_OFFER_TRADE_BINDING_STUDY_02.md) — independent, non-normative documentary audit and source-traceability record.
 - [`BACKLOG.md`](BACKLOG.md) — unresolved findings, dependency context and supersession links.
 
 **Decision ≠ Evidence ≠ Implementation ≠ Claim.** An implementation, test result, discovery finding or evidence record does not automatically redefine protocol truth.
