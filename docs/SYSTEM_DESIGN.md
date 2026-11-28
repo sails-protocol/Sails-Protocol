@@ -618,15 +618,14 @@ A node-local computed score is not automatically portable protocol truth. Cross-
 
 ### 14.5 Portable identity, Pears and social recovery (diagrams)
 
-Working rule: **Pears carries; Pubky identifies and authorises; Sails records and verifies; the wallet moves the funds.**
+Working rule: **Pears carries; Pubky identifies and authorizes; Sails records and verifies; the wallet moves the funds.**
 This section draws the rule. It complements §14.1-§14.4 and
 [IDENTITY_ARCHITECTURE_DISCOVERY.md](IDENTITY_ARCHITECTURE_DISCOVERY.md) (candidate models and evidence), and leaves
 cryptographic detail to [CRYPTOGRAPHIC_MODEL.md](CRYPTOGRAPHIC_MODEL.md). It is not a homologation.
 
 **Status of this section.** The architecture for portable identity, social data and market ownership was accepted as direction on 2026-11-23 in [ADR-008](adr/ADR-008-portable-identity-market-ownership.md), which prevails over these diagrams where they differ. These diagrams follow the ADR: the first release keeps contacts on the device, and the backup file is requested only while an escrow is open.
 
-**Legend.** Every node and
-edge carries exactly one label. A dotted edge or node is **not operational**. No element should be read above its label.
+**Legend.** Every node and every visible edge carries exactly one label. Invisible layout links and group boxes carry no label. A dotted edge or node is **not operational**. No element should be read above its label.
 
 | Label | Meaning |
 | --- | --- |
@@ -636,13 +635,13 @@ edge carries exactly one label. A dotted edge or node is **not operational**. No
 
 Today Pubky appears only in lab experiments, not in `src/` or the SDK. The escrow backup format `SAILS-BACKUP/1` is
 *under specification*; its parameters will be documented once the format is approved. Whether a third party can check that a
-delegated authorisation was revoked is an upstream dependency (pubky-homeserver #824/#825) and is **not** assumed anywhere below.
+delegated authorization was revoked is an upstream dependency (pubky-homeserver #824/#825) and is **not** assumed anywhere below.
 
 #### Diagram 1 - Architecture and key separation
 
 ```mermaid
 flowchart LR
-  WDK["Wallet seed and financial keys, moves the funds<br/>Implemented"]
+  W["User wallet seed and financial keys, held by the host wallet outside this repository, moves the funds<br/>Implemented"]
   P["Sails participant key P, economic identity<br/>Implemented"]
   ES["Optional client escrow seed<br/>Implemented"]
   EK["Buyer and seller escrow keys, random or derived from the escrow seed<br/>Implemented"]
@@ -746,6 +745,7 @@ No edge copies chat or economic data into the homeserver. The homeserver never d
 
 - *Implemented* here means the key or store exists today; the arrows that depend on Pubky or the escrow backup are intent.
 - The recovery path never promises that funds return with the identity: it depends on the rail and on the counterpart or arbiter.
+- The wallet seed lives in the host wallet, not in this repository; it is shown only to make the key separation explicit. It is not the node-held `WDK_SEED_PHRASE` of the `WDK_USDT_EVM` reference rail: that seed is read from the node environment, is server-custodial, and in production the node refuses to boot when it is set while `MOCK_ESCROW=false` (`src/config/index.ts`; RFC-019).
 - Contacts, groups and favorites are convenience data kept on the device in the first release. They are not a source of economic truth and carry no chat history.
 
 ---
