@@ -52,7 +52,7 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
     // MULTISIG_NETWORK=mainnet while the explorer URL still looks
     // testnet-pointed. This test's own explorer calls are separately
     // mocked (see below), so the URL's real reachability doesn't matter.
-    process.env.MULTISIG_EXPLORER_API_URL = process.env.MULTISIG_EXPLORER_API_URL || 'https://mempool.space/api'
+    process.env.MULTISIG_EXPLORER_API_URL = process.env.MULTISIG_EXPLORER_API_URL || 'http://127.0.0.1:1'
     // Missão 11 Fase 8.1 LB-02 — required alongside MULTISIG_NETWORK=mainnet.
     process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS || '1'
 
