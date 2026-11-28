@@ -26,7 +26,7 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
   let makerId: string, takerId: string, strangerId: string, feePolicyVersionId: string, feePolicyDigest: string, legacyOfferId: string
   const RUN = randomUUID().slice(0, 8)
   let revision = 1
-  const logicalOfferId = `f3-offer-${RUN}`
+  let logicalOfferId = `f3-offer-${RUN}` // D-1 window tests switch to a fresh Offer each (a tombstone is final)
 
   beforeAll(async () => {
     await pg.probe()
@@ -64,11 +64,11 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
   afterAll(async () => { if (prisma) await prisma.$disconnect() })
 
   let envelopeDigest = ''
-  async function publishOffer(status: 'ACTIVE' | 'CANCELLED', bump = false) {
+  async function publishOffer(status: 'ACTIVE' | 'CANCELLED', bump = false, priceUsd = '65000.00000000') {
     if (bump) revision++
     const now = Date.now()
     const content = {
-      logicalOfferId, ownerPublicKey: hex(maker.publicKey), asset: 'BTC', side: 'SELL', priceUsd: '65000.00000000',
+      logicalOfferId, ownerPublicKey: hex(maker.publicKey), asset: 'BTC', side: 'SELL', priceUsd,
       minAmount: '0.00100000', maxAmount: '0.01000000', paymentMethod: 'PIX', revision,
       createdAt: iso(now - 120_000), revisedAt: iso(now - 60_000 + revision), expiresAt: iso(now + 86_400_000), status,
     }
@@ -500,4 +500,79 @@ describe('E25/E26 F3 - commitment pair persistence (real PostgreSQL)', () => {
     const ok = await fresh({ anchorRef: await admitTrade({ amount: '0.00500000', status: 'ACTIVE' }) }) // control: same value, other text form, live
     await expect(s.proposePair(ok.proposeInput())).resolves.toMatchObject({ state: 'PARTIALLY_SIGNED' })
   })
+
+  // D-1 envelope window (GK_spec_teste_barreira_atomicidade). signPair reads the offer's latest signed envelope OUTSIDE
+  // its transaction, then admits and writes COMMITTED inside it. A newer envelope (a tombstone or a revision) of the
+  // same offer, ingested and committed between the two, is not seen. W1/W2 CHARACTERIZE that documented residual under
+  // the current design (they assert COMMITTED); they are not a security property. Production code is unchanged.
+  async function newOffer() {
+    logicalOfferId = `f3-offer-${RUN}-${randomUUID().slice(0, 6)}`; revision = 1
+    await publishOffer('ACTIVE')
+  }
+  const latestOf = async () => {
+    const l = await offerRepo.getLatest(hex(maker.publicKey), logicalOfferId)
+    return { revision: l?.row?.revision ?? null, status: l?.row?.status ?? l?.status ?? null }
+  }
+  /** Sessions of the worker inside a transaction (or running a statement): none may exist at the before-tx barrier. */
+  const workerBusy = async (label: string): Promise<number> => {
+    const [{ n }] = await prisma.$queryRaw`SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE application_name = ${`f3-${label}-${RUN}`} AND state IN ('active', 'idle in transaction', 'idle in transaction (aborted)')`
+    return n
+  }
+  const reservationsOf = (pairId: string) => prisma.offerCapacityReservation.count({ where: { commitmentPairId: pairId } })
+
+  for (const variant of ['tombstone', 'revision'] as const) {
+    const id = variant === 'tombstone' ? 'W1' : 'W2'
+    it(`D-1 window (documented residual): ${id}, a ${variant === 'tombstone' ? 'tombstone' : 'newer active revision'} committed between signPair's envelope read and its transaction is not seen; the pair still COMMITS`, async () => {
+      pg.requirePostgres(`D-1 ${id}`)
+      await newOffer()
+      const s = service(); const f = await fresh()
+      const p = await s.proposePair(f.proposeInput())
+      const label = `d1${id}`
+      const W = startWorker(label, 'before-tx', f.makerSign(p.pairId), true)
+      const arrived = JSON.parse(await W.arrived())
+      // The barrier is in the window: the envelope was read once (r1, ACTIVE), and no transaction of the worker is open.
+      expect(arrived).toMatchObject({ point: 'before-tx', getLatestCalls: 1, revisionsRead: [1], statusesRead: ['ACTIVE'] })
+      const busyAtBarrier = await workerBusy(label)
+      expect(busyAtBarrier).toBe(0)
+      // Session B (this process): ingest and COMMIT the newer envelope; it is the latest before the worker resumes.
+      if (variant === 'tombstone') await publishOffer('CANCELLED', true)
+      else await publishOffer('ACTIVE', true, '66000.00000000')
+      const latestAtRelease = await latestOf()
+      expect(latestAtRelease).toEqual({ revision: 2, status: variant === 'tombstone' ? 'CANCELLED' : 'ACTIVE' })
+      W.release()
+      const result = await W.result()
+      const reservations = await reservationsOf(p.pairId)
+      const pairState = (await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state
+      process.stdout.write(`[evidence] ${JSON.stringify({ label: `D-1 ${id}`, arrived, busyAtBarrier, latestAtRelease, result, reservations, pairState })}
+`)
+      expect(result).toMatchObject({ ok: true, view: { state: 'COMMITTED' }, afterTxEnvelopeRead: false })
+      expect(pairState).toBe('COMMITTED')
+      expect(reservations).toBe(1)
+    })
+  }
+
+  it("D-1 window control W0: the tombstone committed BEFORE signPair starts is seen; the maker signature is refused and nothing is reserved", async () => {
+    pg.requirePostgres('D-1 W0')
+    await newOffer()
+    const s = service(); const f = await fresh()
+    const p = await s.proposePair(f.proposeInput())
+    await publishOffer('CANCELLED', true)
+    const latestBefore = await latestOf()
+    expect(latestBefore).toEqual({ revision: 2, status: 'CANCELLED' })
+    const W = startWorker('d1W0', 'none', f.makerSign(p.pairId), false)
+    const result = await W.result()
+    const reservations = await reservationsOf(p.pairId)
+    const pairState = (await prisma.commitmentPair.findUnique({ where: { id: p.pairId } })).state
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: 'D-1 W0', latestBefore, result, reservations, pairState })}
+`)
+    expect(result).toMatchObject({ ok: false, code: 'E25_OFFER_ENVELOPE_INVALID' })
+    expect(pairState).toBe('PARTIALLY_SIGNED')
+    expect(reservations).toBe(0)
+  })
+
+  // Only if the CTO chooses B or C, in the same PR as the production change (GK spec §3/§4):
+  it.todo("D-1 W3 (design B only): HOLD at after-tx-envelope-read, ingest the tombstone, release: COMMITTED under READ COMMITTED (B narrows the window, does not close it)")
+  it.todo("D-1 W1/W2 under design B (re-read getLatest inside the transaction): refused (E25_OFFER_ENVELOPE_INVALID or equivalent), 0 reservations; the mutant 'revert to A' leaves W1 red")
+  it.todo("D-1 W1/W2 under design C (serialize ingest and COMMITTED per offer): one order only, never both; never 'tombstone committed before the pair commit' together with 'pair COMMITTED' (by real commit order)")
 })
