@@ -97,7 +97,7 @@ Other relations:
 
 ## 12. Amendment (dated 2026-11-28): Tier 1 merge by the Documentary Auditor
 
-Dated amendment, appended without rewriting any earlier section. It follows an express CTO authorization of 2026-11-28 and enters into force only when this change is itself merged under the Tier 3 rule of Section 3.
+Dated amendment, appended without rewriting any earlier section. The authorization has been in operational effect since 2026-11-28, by decision of the owner ratified by the CTO; this amendment records it. This change to the policy is itself merged only with an express CTO authorization by SHA.
 
 **Rule.** The Documentary Auditor may merge only the PRs the Auditor authored classified Tier 1, and only when all of the following hold:
 - the GK independently confirms the Tier 1 classification;
