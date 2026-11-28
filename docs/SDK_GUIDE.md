@@ -138,12 +138,16 @@ interface SailsClient {
   // conventional values include 'payment_sent', 'invoice_paid',
   // 'oracle_verified', 'delivery_confirmed', 'collateral_held'. The SDK and Core
   // never special-case any of these; a new claimType needs no protocol change.
-  // Media evidence attached via submitProof() is stored through an
-  // EvidenceProvider (RFC-007) the Reference Implementation configures —
-  // the SDK/Core never receive or hold the raw media, only the resulting
-  // signed EvidenceReference. See the proof: namespace below for reading
-  // that evidence back.
-  releaseAsset(intentId: string, toAddress: string): Promise<Escrow>
+  // Corrected 2026-11-28: the earlier description stated that submitProof
+  // attached media and that the SDK never received raw media. The separate
+  // proof.attachEvidence(proofId, media, mimeType, wallet) accepts raw bytes,
+  // hashes them, requests a wallet signature, and uploads encoded media.
+  // The Reference Implementation verifies the digest/signature and stores
+  // bytes via EvidenceProvider; the resulting EvidenceReference is metadata.
+  // This does not establish production storage availability.
+  releaseAsset(intentId: string, toAddress?: string): Promise<Escrow>
+  // Corrected 2026-11-28: the earlier required toAddress argument is optional
+  // and inert; the registered PayoutAddress determines the destination.
   // Designed (RFC-007 D3), not yet migrated: settlement status is intended
   // to eventually pass through PENDING_BANK_SETTLEMENT before COMPLETED —
   // representing a payment held/processing at the payer's financial
@@ -306,7 +310,7 @@ interface SailsClient {
     assertClaim(input: { claimType: string; assertion: unknown }): Promise<Proof>   // requires an active session
     submitProof(input: { claimId: string; evidence: unknown; claimedHash?: string }): Promise<Proof>   // requires an active session
     issueVerificationNonce(proofId: string): Promise<{ nonce: string }>   // requires an active session
-    verifyProof(proofId: string, input: { verdict: 'ACCEPTED' | 'REJECTED'; nonce: string; reason?: string }): Promise<Proof>   // requires an active session
+    verifyProof(proofId: string, input: { verdict: 'ACCEPTED' | 'REJECTED'; nonce: string; reason?: string }): Promise<Verification>   // requires an active session
     getEvidenceBundle(claimId: string): Promise<EvidenceBundle>   // requires an active session — aggregates that Intent's Claims/Proofs/Verifications/Timeline/external references (RFC-007 D6)
   }
 }
