@@ -85,6 +85,9 @@ export {
 } from './modules/agents'
 export type { Proof, Verification } from './types'
 export { generateEscrowKeypair, signEscrowPsbt, type EscrowKeypair } from './modules/escrow-key'
+// G3 + G4: verify the signed fee policy and a fee-aware MULTISIG PSBT before signing it (signEscrowPsbt does not).
+export { verifySignedFeePolicy, type SignedFeePolicy, type FeePolicyV2, type VerificationContext as FeePolicyVerificationContext } from './modules/fee-policy'
+export { verifyFeeAwarePsbt, type Outcome as FeeAwareOutcome } from './modules/fee-outputs'
 // Deterministic, recoverable participant-key derivation (Missão 10,
 // Fase 6-9) — ADDITIVE to generateEscrowKeypair() above, which is
 // unchanged and remains the default (fresh random, non-recoverable) key

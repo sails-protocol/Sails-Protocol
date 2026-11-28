@@ -11,7 +11,7 @@
  * Mirrors multisig.provider.ts; a parity test against the provider proves the two agree.
  */
 import * as bitcoin from 'bitcoinjs-lib'
-import type { FeePolicyV2 } from './fee-policy'
+import { verifySignedFeePolicy, type FeePolicyV2, type SignedFeePolicy, type VerificationContext } from './fee-policy'
 
 export interface BreakEvenParams { fMaxSatPerVb: number; vBytes: number; dMaxSats: number; collectionDustSats: number }
 
@@ -177,4 +177,22 @@ export function checkFeeAwarePsbt(
     if (expected.length === outs.length && expected.every((x, i) => x.address === outs[i].address && x.value === outs[i].value)) return { ok: true, feeRate: f }
   }
   return { ok: false, reason: 'the outputs do not match the committed fee terms' }
+}
+
+/**
+ * The pre-sign check a client runs on a fee-aware MULTISIG settlement PSBT (G4, W2). Builds the fee terms ONLY from a
+ * signed policy that passes verifySignedFeePolicy (never from fields in the node's response), with T from the commitment
+ * the client signed, then requires the PSBT to pay exactly those outputs. A V1 policy never yields a fee destination.
+ *
+ * signEscrowPsbt() does NOT check the fee: an integrator calls this first and signs only on { ok: true }. For an escrow
+ * already open, pass ctx.purpose = 'existing' (its frozen terms settle even after the policy's window closes).
+ */
+export function verifyFeeAwarePsbt(i: {
+  signedPolicy: SignedFeePolicy; ctx: VerificationContext; lockedSats: bigint; outcome: Outcome; psbtBase64: string; maxFeeRateSatPerVb: number
+}): { ok: true; feeRate: number } | { ok: false; reason: string } {
+  const v = verifySignedFeePolicy(i.signedPolicy, i.ctx)
+  if (!v.ok) return { ok: false, reason: `fee policy: ${v.reason}` }
+  const network = i.ctx.network.bitcoin
+  const escrow = feeAwareEscrowFromPolicy(i.signedPolicy.policy, i.lockedSats, network)
+  return checkFeeAwarePsbt(i.psbtBase64, escrow, i.outcome, network, { maxFeeRateSatPerVb: i.maxFeeRateSatPerVb })
 }

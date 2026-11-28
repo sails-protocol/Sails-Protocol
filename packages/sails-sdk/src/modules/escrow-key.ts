@@ -89,6 +89,9 @@ export function generateEscrowKeypair(): EscrowKeypair {
  * `verifyAndSignEscrowPsbt()` instead, via `packages/sails-ui/src/lib/multisigSigningIntent.ts`.
  * See `BACKLOG.md`'s own entry for the full detail.)
  *
+ * It does not check the protocol fee either: for a fee-aware MULTISIG escrow, call `verifyFeeAwarePsbt()`
+ * (`fee-outputs.ts`) before signing, and sign only when it returns { ok: true }.
+ *
  * `@bitcoinerlab/secp256k1` — pure JS, no WASM, built specifically to
  * integrate into the BitcoinJS ecosystem without WASM (same tradeoff
  * `escrow-key.ts`'s own header comment already made for `@noble/curves`
