@@ -15,3 +15,7 @@ This file is a **navigation and onboarding contract**, not a new source of proto
 **Core rule:** OUTPUT ≠ EVIDENCE ≠ PROPERTY ≠ CLAIM. Make reality pass the test; do not make the test pass instead of reality.
 
 If a linked file moves, repair this router and its links; do not recreate its rules here.
+
+## CTO integration policy (permanent)
+
+The repository integrates small, compatible changes progressively into `main`, with evidence proportionate to risk and explicit authorization for each merge. Avoid administrative accumulation of completed work in Draft PRs. **The single normative rule set** (risk classes R1/R2/R3, VERIFY, bounded HOLDs, exact-HEAD GO, post-merge checks, and separation from deploy/economic activation) is in [Engineering Governance — Progressive integration](docs/ENGINEERING_GOVERNANCE.md#progressive-integration-into-main--evidence-based-cto-operating-policy). Read it before making or reviewing merge decisions; do not duplicate or relax those gates here.
