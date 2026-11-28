@@ -7,6 +7,8 @@
 
 ---
 
+> **CURRENT REALITY UPDATE (2026-10-24; proposed, pending CTO review):** The historical six-stage Phase Verification below is not an up-to-date completion score. See [Master Closure & Reality Ledger](MASTER_CLOSURE_REALITY_LEDGER.md) for the active audit/gate inventory, P3/P4 and CI work, canonical issue owners and evidence-based closure methodology. Master closure is NOT PROVEN; Beta/Day-0 production remain NO-GO. The ledger is an initial, explicitly non-exhaustive inventory; no global percentage is authorized.
+
 ## Phase Verification — where the project actually stands
 
 Checked directly against the CTO's proposed 6-stage schedule, not assumed:
