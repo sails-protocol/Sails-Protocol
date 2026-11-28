@@ -17,6 +17,11 @@ BEGIN
   IF OLD.status = 'RETIRED' AND NEW.status <> 'RETIRED' THEN
     RAISE EXCEPTION 'fee_policy_versions: a RETIRED policy never changes status (id=%, % -> %)', OLD.id, OLD.status, NEW.status;
   END IF;
+  -- The signed document is write-once (Despacho 069): once set it never changes, in any status; and a row that left
+  -- DRAFT without one (a historical policy) can never receive one later (covered by the column guard below).
+  IF OLD."signedDocument" IS NOT NULL AND NEW."signedDocument" IS DISTINCT FROM OLD."signedDocument" THEN
+    RAISE EXCEPTION 'fee_policy_versions: the signed document is write-once (id=%)', OLD.id;
+  END IF;
   IF OLD.status <> 'DRAFT' THEN
     IF NEW."protocolFeeRate" IS DISTINCT FROM OLD."protocolFeeRate"
       OR NEW."payerModel" IS DISTINCT FROM OLD."payerModel"

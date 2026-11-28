@@ -177,6 +177,23 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: p.id } })).signedDocument).toEqual(DOC)
   })
 
+  it("G3: the signed document is write-once, even on a DRAFT", async () => {
+    requirePostgres('G3 write-once draft')
+    const d = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC }) })
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"other":true}'::jsonb WHERE id = $1`, d.id))
+      .rejects.toThrow(/the signed document is write-once/)
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = NULL WHERE id = $1`, d.id))
+      .rejects.toThrow(/the signed document is write-once/)
+  })
+
+  it("G3: a historical policy published without a document can never receive one later", async () => {
+    requirePostgres('G3 no late document')
+    const legacy = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ status: 'PUBLISHED', publishedAt: new Date() }) })
+    await expect(prisma.$executeRawUnsafe(`UPDATE fee_policy_versions SET "signedDocument" = '{"late":true}'::jsonb WHERE id = $1`, legacy.id))
+      .rejects.toThrow(/economic\/identity fields are immutable/)
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: legacy.id } })).signedDocument).toBeNull()
+  })
+
   it("G3: a PUBLISHED policy never goes back to DRAFT, and a RETIRED one never changes status", async () => {
     requirePostgres('G3 forward only')
     const p = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC, status: 'PUBLISHED', publishedAt: new Date() }) })
