@@ -10,7 +10,7 @@
  * real; only the server round trips are fake. Every escrow is type MOCK
  * (single-call release, no PSBT, no escrow signatures).
  */
-import { SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
+import { SailsError, SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
 import type {
   ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, IntentRiskAssessment, Message, Offer, Participant,
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
@@ -150,6 +150,9 @@ function seed(): DemoState {
   add(seedTrade('8b3d0f14-demo-h2', o('demo-offer-2'), f, ME, '0.02', daysAgo(12), 'COMPLETED'), 'COMPLETED')
   add(seedTrade('2e7a4c91-demo-h3', o('demo-offer-4'), a, ME, '250', daysAgo(45), 'COMPLETED'), 'COMPLETED')
   add(seedTrade('9d0b6e35-demo-h4', o('demo-offer-3'), ME, m, '300', daysAgo(8), 'CANCELLED'))
+  // Before any escrow: the seller has not created it yet, so either party may still cancel the trade.
+  add(seedTrade('e5a17c3b-demo-p1', o('demo-offer-6'), ME, g, '150', daysAgo(0.02), 'PENDING'))
+  add(seedTrade('a9c42e61-demo-p2', o('demo-offer-me-1'), f, ME, '0.002', daysAgo(0.03), 'PENDING'))
   add(seedTrade('4a8f2d60-demo-h5', o('demo-offer-5'), ME, a, '0.005', daysAgo(29), 'CANCELLED'), 'REFUNDED', (eid) => [
     newDispute('4a8f2d60-demo-h5', eid, ME, JUDGE, 'O vendedor diz que o TED não chegou (exemplo fictício).', daysAgo(30), {
       status: 'RESOLVED', ruling: 'REFUND', resolvedAt: daysAgo(29),
@@ -357,7 +360,8 @@ function setEscrowStatus(e: Escrow, status: Escrow['status'], patch: Partial<Esc
 
 function createEscrow(tradeId: string, actorId: string): Escrow {
   const t = findTrade(tradeId)
-  if (actorId !== t.sellerId) throw new Error('Somente o vendedor cria o escrow')
+  // Same refusal as the node with ESCROW_CREATE_SELLER_ONLY enforced (CTO D7).
+  if (actorId !== t.sellerId) throw new SailsError('Somente o vendedor cria o escrow', 'ESCROW_CREATE_SELLER_ONLY', 403)
   if (t.escrowId) return clone(findEscrow(t.escrowId))
   if (t.status !== 'PENDING') throw new Error(`Não é possível criar escrow com o trade em ${t.status}`)
   const e = mockEscrow(t, 'CREATED', now())
@@ -750,6 +754,16 @@ export function installDemoBackend() {
       const t = findTrade(id)
       // Same as the real route: trade parties only (an assigned arbiter reads the escrow/dispute, not the trade).
       if (!isParty(t, needMe())) throw notFound('Trade')
+      return clone(tradeWithOffer(t))
+    },
+    // Same rules as trade.service.ts updateStatus: parties only, from PENDING/ACTIVE, refused once an escrow governs the trade.
+    async updateTradeStatus(id, status) {
+      const t = findTrade(id)
+      if (!isParty(t, needMe())) throw notFound('Trade')
+      const allowed = t.status === 'PENDING' ? ['ACTIVE', 'CANCELLED'] : t.status === 'ACTIVE' ? ['CANCELLED'] : []
+      if (!allowed.includes(status) || t.escrowId) throw new Error('Esta negociação não pode mais ser alterada manualmente (exemplo).')
+      Object.assign(t, { status, updatedAt: now() }, status === 'CANCELLED' ? { cancelledAt: now() } : {})
+      save()
       return clone(tradeWithOffer(t))
     },
     async getMessages(tradeId) {
