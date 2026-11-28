@@ -43,14 +43,7 @@ automatable in an unattended script the way `MOCK` is.
 
 ## Can I call `negotiate()`, `submitProof()`, or `releaseAsset()`?
 
-They exist on `SailsClient`'s six-verb Intent facade, but all three
-throw `SailsNotImplementedError` unconditionally today
-(`packages/sails-sdk/src/intent-facade.ts`) — there's no server-side
-Intent → Trade → Escrow resolution wired up yet. Use the lower-level
-`openp2p.*`/`settlement.*` methods instead, exactly as both example
-scripts in this starter do. `createIntent()`, `cancelIntent()`, and
-`dispute()` (the facade's `dispute`, distinct from
-`settlement.dispute()`) are real and working.
+`negotiate()` unconditionally throws `SailsNotImplementedError`; use `openp2p.chat(tradeId)` for the persistent negotiation channel. `submitProof()` calls the authenticated Claim and Proof endpoints. `releaseAsset()` and `dispute()` resolve the Intent to its Trade and Escrow and call the corresponding endpoint; a Trade without an Escrow is a conditional error. A legacy `toAddress` argument does not select the payout destination; the registered `PayoutAddress` does. The examples use the lower-level `openp2p.*` and `settlement.*` methods. Implementation does not imply rail eligibility or production readiness.
 
 ## Do I need a `WalletAdapter`?
 
@@ -61,11 +54,11 @@ doesn't need a wallet at all. `WalletAdapter`
 extension point for apps that also want to plug in on-chain signing —
 none of the golden-path or dispute examples require it.
 
-## What assets are actually supported?
+## What asset identifiers can the SDK represent?
 
 `BTC`, `USDT_ERC20`, `USDT_TRC20`, `USDT_LIQUID`, `USDT_LIGHTNING`,
 `LN_BTC`, `LIQUID_BTC`, `SPARK`, `STACKS`, `RSK_BTC`
-(`packages/sails-sdk/src/types.ts`'s `AssetType`). No NFT or arbitrary
+(`packages/sails-sdk/src/types.ts`'s `AssetType`). These identifiers do not establish enabled or homologated settlement rails; consult the current eligibility evidence in [Issue #105](https://github.com/sails-protocol/Sails-Protocol/issues/105). No NFT or arbitrary
 ERC-20/ERC-721 type exists — see `docs/USE_CASES.md` for what that
 means for an NFT use case.
 
