@@ -28,8 +28,8 @@ export default defineArea(
       'ui.moreInfo': 'Plus d’informations',
       'ui.favoriteSeller': 'Mettre cet annonceur en favori',
       'ui.presence.unknown': 'Présence pas encore observée dans cette session',
-      'ui.presence.online': 'En ligne : vu dans le salon de discussion de ce trade',
-      'ui.presence.offline': 'Hors ligne : a quitté le salon de discussion de ce trade',
+      'ui.presence.online': 'En ligne : vu dans le salon de discussion de ce trade',
+      'ui.presence.offline': 'Hors ligne : a quitté le salon de discussion de ce trade',
     },
     de: {
       'ui.moreInfo': 'Weitere Informationen',
