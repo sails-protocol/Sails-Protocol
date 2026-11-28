@@ -154,7 +154,7 @@ export default defineArea(
       'settings.section.help': 'Help and about',
       'settings.systemDefault': 'System default',
 
-      'settings.network.description': 'Works behind the Market. You do not need to choose a node to use the Sails Market.',
+      'settings.network.description': 'Works behind the Market. You do not need to choose a node to use the Sails Public Market.',
       'settings.network.label': 'Sails Network',
       'settings.network.default': 'Default',
       'settings.network.node': 'Sails node',
@@ -172,7 +172,7 @@ export default defineArea(
       'settings.network.addNodeDescription': 'With the address or identifier the operator sent',
       'settings.network.addNodeDialog': 'Optional. The node keeps your connection to the network; it does not decide who takes part in each market.',
       'settings.network.notMarketTitle': 'A node is not a market',
-      'settings.network.notMarketBody': 'Connecting to a node does not give access to the markets it hosts. The Sails Market does not belong to the node; it runs on the Sails Network. Each operator is responsible for their own node.',
+      'settings.network.notMarketBody': 'Connecting to a node does not give access to the markets it hosts. The Sails Public Market does not belong to the node; it runs on the Sails Network. Each operator is responsible for their own node.',
       'settings.network.infraTitle': 'Where a market can run',
       'settings.network.economy': 'Node operators may be paid for services actually provided, under the approved economic policy. There is no guaranteed return.',
       'settings.network.advanced': 'Advanced',

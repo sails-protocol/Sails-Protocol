@@ -239,7 +239,7 @@ export default defineArea(
       'faq.loseAll.a': 'With the portable identity and the backup, both being prepared: without the identity app’s recovery and without the backup, you lose the identity, the markets (unless you chose a trusted group), the contacts and the reputation. Reputation is recorded on the node where you trade, tied to your identity; moving it to another node is not available yet. Funds stay with your wallet and its backup. Escrows only through a dispute, with no guarantee.',
 
       'faq.markets.q': 'What are markets and communities? Do I need to join one?',
-      'faq.markets.a': 'The Sails Market is the default and requires nothing. Public and private markets have entry rules set by the market administrator. The market administrator never changes a trade already in escrow or takes funds.',
+      'faq.markets.a': 'The Sails Public Market is the default and requires nothing. Public and private markets have entry rules set by the market administrator. The market administrator never changes a trade already in escrow or takes funds.',
       'faq.kyc.q': 'Do I need to sign up or do KYC?',
       'faq.kyc.a': 'Sails Protocol does not require identity verification to use its open infrastructure. However, some markets, partners or integrated services may ask for sign-up or KYC under their own rules. When needed, the verification is carried out by the responsible partner or provider, and the requirements must be stated before you use the service.',
       'faq.merchantHow.q': 'How do I become a Merchant?',

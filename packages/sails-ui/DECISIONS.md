@@ -62,7 +62,9 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Na interface (versão final, 2026-11-21): os nós ficam em Configurações → Rede e nós, com a lista na área Avançado. Os mercados ficam no Market: seletor no topo (protótipo D1, PR #727), Explorar mercados, Meus mercados, Criar mercado e Entrar com convite. Ver "Decisão final" abaixo.
   - O nome oficial de mercados e servidores públicos e privados ainda está em aberto no backlog. Até decidir, a tela usa "Mercado público" e o nome dado pelo grupo.
     - **Decidido 2026-11-28 (CTO 30, com o PO): nomenclatura oficial.** Só nome e posicionamento de produto; arquitetura, governança, autoridade e contratos do protocolo não mudam.
-      - **Mercado Sails:** nome próprio da experiência de mercado padrão do ecossistema (en "Sails Market", es "Mercado Sails", fr "Marché Sails", de "Sails-Markt"). Não é um terceiro tipo arquitetural de mercado.
+      - **Mercado Sails:** nome próprio da experiência de mercado padrão do ecossistema (en "Sails Public Market", es "Mercado Sails", fr "Marché Sails", de "Sails-Markt"). Não é um terceiro tipo arquitetural de mercado.
+      - **Inglês (PO, 2026-11-28):** "Sails Market" fica exclusivo do aplicativo; o mercado padrão em inglês é "Sails Public Market".
+      - **Globo do Mercado Sails sempre laranja (PO, 2026-11-28): exceção explícita à regra "laranja = ação principal / você está aqui".** A identidade do Mercado Sails usa o acento da marca: globo em `brand-orange-accent` sobre o tint `brand-orange-accent/10` (o mesmo padrão do painel do Sails Agent), em toda lista, seletor e portal. Contraste do ícone contra o tint, sobre superfície, fundo ou elevado: 4,1 a 4,5:1 no claro e 4,5 a 5,9:1 no escuro (mínimo 3:1 para gráfico). Os outros mercados continuam no quadrado tonal neutro.
       - **Mercado público:** classificação do mercado criado por uma empresa, comunidade ou operador, com visibilidade pública e regras próprias.
       - **Mercado privado:** classificação do mercado com acesso controlado, por convite ou autorização.
       - **Rede Sails:** a infraestrutura de comunicação, descoberta e propagação.

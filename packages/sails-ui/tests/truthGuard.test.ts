@@ -110,7 +110,7 @@ describe('truth guard: forbidden copy in every language', () => {
   // Glossary (DESIGN_SYSTEM.md 7.3): when the pt-BR source says it, every translation says it the same way.
   const GLOSSARY: { pt: RegExp; en: RegExp; es: RegExp; fr: RegExp; de: RegExp }[] = [
     { pt: /nó Sails|nós Sails/i, en: /Sails nodes?/i, es: /nodos? Sails/i, fr: /nœuds? Sails/i, de: /Sails-Knoten/i },
-    { pt: /Mercado Sails/, en: /Sails Market/, es: /Mercado Sails/, fr: /Marché Sails/, de: /Sails-Markt/ },
+    { pt: /Mercado Sails/, en: /Sails Public Market/, es: /Mercado Sails/, fr: /Marché Sails/, de: /Sails-Markt/ },
     { pt: /marcad[oa]s? como enviad/i, en: /marked as sent/i, es: /marc(?:ad[oa]s?|ó|ara|a) como enviad/i, fr: /marqu[ée]e?s? comme envoy/i, de: /als (?:gesendet|versendet) markiert/i },
     { pt: /marcado como concluído/i, en: /marked as completed/i, es: /marcado como completado/i, fr: /marqué comme terminé/i, de: /als abgeschlossen markiert/i },
   ]

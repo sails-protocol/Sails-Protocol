@@ -326,7 +326,7 @@ export default defineArea(
       'spaces.page.notFoundTitle': 'Market not found or no access',
       'spaces.page.notFoundBody': 'Check the address. If it is a private market, join with the invite you received.',
       'spaces.page.preparingTitle': 'Market page in preparation',
-      'spaces.page.preparingBody': 'For now only the Sails Market exists. Community and private market pages depend on the protocol.',
+      'spaces.page.preparingBody': 'For now only the Sails Public Market exists. Community and private market pages depend on the protocol.',
       'spaces.page.openInvited': 'Open the market',
       'spaces.page.participants': 'Participants',
       'spaces.page.model': 'Model',
