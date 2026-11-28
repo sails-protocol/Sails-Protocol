@@ -46,7 +46,7 @@ describe('default market on open', () => {
     expect(defaultMarketTarget('abc', all)).toBe('abc')
     expect(defaultMarketTarget('loja', all)).toBe('loja')
   })
-  it('falls back to Mercado aberto when nothing is saved, the default is saved, the market is gone or was left', () => {
+  it('falls back to Mercado Sails when nothing is saved, the default is saved, the market is gone or was left', () => {
     expect(defaultMarketTarget(null, all)).toBeNull()
     expect(defaultMarketTarget('public', all)).toBeNull()
     expect(defaultMarketTarget('gone', all)).toBeNull()
