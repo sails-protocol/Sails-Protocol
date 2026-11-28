@@ -7,6 +7,8 @@
 **Status:** CANDIDATE / NOT HOMOLOGATED / NO ECONOMIC ACTIVATION.  
 **Code baseline:** [`8aab207ecb1d074c43e7dabccd7c107c568afe45`](https://github.com/sails-protocol/Sails-Protocol/commit/8aab207ecb1d074c43e7dabccd7c107c568afe45). All repository claims below refer to that snapshot unless a dated institutional decision is explicitly identified. This is a research companion, not an ADR, RFC, normative specification or authorized implementation plan. The CTO reviews this revision before any EPM handoff.
 
+> *Status note: historical process record of the review at the time; superseded by the publication header above.*
+
 ## 1. Executive summary
 
 Research prompted by OpenBazaar's resurgence identified an opportunity to constrain the financial authority of resolution executors without importing unnecessary cryptographic complexity. Sails already has OpenSettlement, provider interfaces, structural capability discovery and distinct concepts of decision and execution authority. Federated resolution, signing and recovery are target arrangements, not deployed components. Evolve the existing settlement architecture rather than create a parallel escrow protocol.
@@ -262,6 +264,8 @@ Visible: contracts, signatures, calls and code. Invisible: pre-signature retenti
 
 ## 11. Validation plan — not an authorized backlog
 
+> *Process record of the 2026-11 review workflow; roles as defined in [`docs/ENGINEERING_GOVERNANCE.md`](../ENGINEERING_GOVERNANCE.md); not a protocol component.*
+
 1. Documentary Auditor: reconcile sources, terminology, diagrams and status; return revised study to CTO only.
 2. CTO: independent completeness sweep; reconcile with Delivery A and existing decisions before authorizing any handoff. No new implementation decision by this document.
 3. EPM, only after CTO release: map existing issues/RFCs/ADRs and Project #3, sequence authorized work, preserve critical queue and avoid duplicates; no economic execution authorization by coordination alone.
@@ -271,6 +275,8 @@ Visible: contracts, signatures, calls and code. Invisible: pre-signature retenti
 Historical queue in original study: #776 → BTC break-even → G3+G4 → D4+D5 → D7 → D6. Recheck live state with EPM before scheduling; do not treat the recorded order as a current queue audit. #121/#619 planning record places Gen-2 on Day-0 security critical path, with M-1b immediate P0 preserved; #438 follows research, E26 remains documentary HOLD in the baseline. Project #3 priority change is recorded, but exact card/field state not independently inspected. Preserve #105/Backlog existing gates, #207/ADR-003 and #580 Draft authority proposal. RFC-024 remains candidate despite strategic reprioritization; Delivery A conditioned, Delivery B not authorized. Any authorized implementation must use existing draft/review/test/CI/merge governance, not create parallel obligations.
 
 ### Diagram 7 — controlled handoff and validation
+
+> *Process record of the 2026-11 review workflow; roles as defined in [`docs/ENGINEERING_GOVERNANCE.md`](../ENGINEERING_GOVERNANCE.md); not a protocol component.*
 
 ```mermaid
 flowchart TD
@@ -298,7 +304,7 @@ All repository paths below are at the fixed baseline unless a live issue/PR is i
 - [Signing Federation governance](https://github.com/sails-protocol/Sails-Protocol/blob/8aab207ecb1d074c43e7dabccd7c107c568afe45/docs/architecture/SAILS_SIGNING_FEDERATION/README.md)
 - [SailsEscrowSafe.sol](https://github.com/sails-protocol/Sails-Protocol/blob/8aab207ecb1d074c43e7dabccd7c107c568afe45/contracts/contracts/SailsEscrowSafe.sol)
 - [Arkade provider](https://github.com/sails-protocol/Sails-Protocol/blob/8aab207ecb1d074c43e7dabccd7c107c568afe45/src/modules/open-settlement/lightning-hodl.provider.ts#L1-L105)
-- [Changelog — Despacho 064](https://github.com/sails-protocol/Sails-Protocol/blob/8aab207ecb1d074c43e7dabccd7c107c568afe45/CHANGELOG.md)
+- [Changelog (#759)](https://github.com/sails-protocol/Sails-Protocol/blob/8aab207ecb1d074c43e7dabccd7c107c568afe45/CHANGELOG.md)
 
 ### External research references (not independently validated in full)
 
@@ -329,6 +335,8 @@ All repository paths below are at the fixed baseline unless a live issue/PR is i
 - [Issue #105 — completion gate](https://github.com/sails-protocol/Sails-Protocol/issues/105)
 
 ## 13. CTO completeness sweep (original coverage, preserved for independent review)
+
+> *Process record of the 2026-11 review workflow; roles as defined in [`docs/ENGINEERING_GOVERNANCE.md`](../ENGINEERING_GOVERNANCE.md); not a protocol component.*
 
 | Stage | Coverage | Remaining evidence |
 |---|---|---|
