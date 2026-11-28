@@ -7,7 +7,8 @@ import { useEffect, useState } from 'react'
 import { toast } from '../components/ui/toast'
 import { Button } from '../components/ui/button'
 import { EscrowStatusBadge } from '../components/ui/StatusBadges'
-import { REFRESH_TRADE_ID, resetDemoAndReload, simulateCounterparty, viewTrade, type DemoTradeView } from './demoBackend'
+import { firstActiveOwnOffer, REFRESH_TRADE_ID, resetDemoAndReload, simulateCounterparty, simulateIncomingTrade, viewTrade, type DemoTradeView } from './demoBackend'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { useT, type MessageKey } from '../i18n'
 
 const ROLE_LABEL: Record<DemoTradeView['role'], MessageKey> = {
@@ -53,14 +54,34 @@ export function DemoControls() {
     }
   }
 
-  if (!tradeId) return null
+  // A fictional counterparty opens a trade on your first active offer, so the seller journey can be repeated.
+  const ownOffer = firstActiveOwnOffer()
+  const newTrade = () => {
+    try {
+      if (!ownOffer) throw new Error(t('shell.demo.noActiveOffer'))
+      const id = simulateIncomingTrade(ownOffer)
+      toast.success(t('trades.offers.simulatedTrade'))
+      window.history.pushState(null, '', `/trade/${id}`)
+      window.dispatchEvent(new PopStateEvent('popstate', { state: null }))
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('shell.demo.simulateFailed'))
+    }
+  }
+  const newTradeButton = (
+    <Button variant="secondary" onClick={newTrade} disabled={!ownOffer} className="w-full min-h-[44px] whitespace-normal">
+      {t('trades.offers.simulateTrade')}
+    </Button>
+  )
+
+  // Shown on a trade and on "Minhas ofertas" (where a new demo trade starts).
+  if (!tradeId && path !== TRADES_ROUTES.offers) return null
 
   return (
     // In the page flow under the demo banner (not floating), collapsed by default: it never covers page content.
     <details className="border-b border-brand-border bg-brand-surface text-brand-text">
       <summary className="cursor-pointer select-none px-4 min-h-[44px] flex items-center text-sm font-semibold">{t('shell.demo.controls')}</summary>
       <div className="px-4 pb-3 space-y-2 text-sm max-w-md">
-        {view ? (
+        {!tradeId ? null : view ? (
           <>
             <p>{t(ROLE_LABEL[view.role])}</p>
             <p className="flex items-center gap-2">
@@ -77,6 +98,7 @@ export function DemoControls() {
         ) : (
           <p className="text-brand-text-secondary">{t('shell.demo.loadingTrade')}</p>
         )}
+        {newTradeButton}
         <Button variant="outline" onClick={resetDemoAndReload} className="w-full min-h-[44px]">{t('shell.demo.resetDemo')}</Button>
       </div>
     </details>

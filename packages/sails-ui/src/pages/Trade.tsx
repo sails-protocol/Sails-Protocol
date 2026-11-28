@@ -28,6 +28,7 @@ import { TradeDisputePanel } from '../components/trade/TradeDisputePanel'
 import type { DisputeNotice } from '../components/trade/DisputeAppealBlock'
 import { deriveAppealBlock, parseAppealView, submitFailure, type AppealViewState } from '../lib/disputeAppeal'
 import { demoAppealViewOf, demoFeeBreakdownOf, isDemoMode } from '../lib/demoMarkers'
+import { demoTradePaymentMethodOf } from '../lib/demoHooks'
 import { ChatWindow } from '../components/chat/ChatWindow'
 import { AgentRiskCard } from '../components/agent/AgentRiskCard'
 import { RateCounterpartyCard, type RateCounterpartyCopy } from '../components/trade/RateCounterpartyCard'
@@ -51,6 +52,7 @@ import { FaqLink } from '../components/faq/FaqLink'
 import { protocolFeeRateLabel } from '../lib/faq'
 import { FeeBreakdown } from '../components/ui/FeeBreakdown'
 import { SimulatedBadge } from '../components/ui/SimulatedBadge'
+import { EscrowBackupPrompt } from '../components/settings/BackupDemo'
 import { AsideResizer, useTradeAsideWidth } from '../components/trade/AsideResizer'
 import { SafetyCenterLink } from '../components/safety/SafetyCenterLink'
 
@@ -228,7 +230,9 @@ export function Trade() {
   const [acting, setActing] = useState(false)
   const [confirmRelease, setConfirmRelease] = useState(false)
   // The other one-way steps with a confirmation (release has its own flag above).
-  const [confirmStep, setConfirmStep] = useState<'markPaid' | 'contest' | 'appeal' | 'cancelTrade' | null>(null)
+  const [confirmStep, setConfirmStep] = useState<'markPaid' | 'contest' | 'appeal' | 'cancelTrade' | 'refund' | null>(null)
+  // What the contest/appeal dialog shows, frozen when it opens: the dispute changes under it once the step is sent.
+  const [disputeSummary, setDisputeSummary] = useState<{ label: string; value: string }[]>([])
   const [pending, setPending] = useState<PendingState>({ status: 'none' })
   const [roundDialog, setRoundDialog] = useState<RoundDialog | null>(null)
   const [showDisputeForm, setShowDisputeForm] = useState(false)
@@ -673,7 +677,7 @@ export function Trade() {
     toast.info(t(result.outcome === 'CANCELLED' ? 'trade.toast.roundCancelled' : 'trade.toast.roundGone'))
   })
 
-  const handleReleaseFunds = () => escrow && withGuard(async () => {
+  const handleReleaseFunds = () => escrow && trade && withGuard(async () => {
     // The confirmation dialog may be stale: re-read the escrow and release
     // only if it is still PAYMENT_PENDING and this viewer is still the seller.
     const fresh = await sailsClient.settlement.get(escrow.id)
@@ -717,7 +721,25 @@ export function Trade() {
     }
     const e = await sailsClient.settlement.release(escrow.id)
     setEscrow(e)
+    // Like the buyer's frame refetch: the trade record carries COMPLETED, so the rating card shows on this page.
+    const freshTrade = await sailsClient.openp2p.getTrade(trade.id).catch(() => null)
+    if (freshTrade) setTrade(freshTrade)
     toast.info(t(e.status === 'COMPLETED' ? 'trade.toast.escrowCompleted' : 'trade.toast.releaseRequested'))
+  })
+
+  // "Cancelar e devolver" (MULTISIG, seller, funds locked): only starts the refund round; this page never signs it.
+  const handleStartRefund = () => escrow && trade && withGuard(async () => {
+    const fresh = await sailsClient.settlement.get(escrow.id)
+    if (fresh.status !== 'FUNDS_LOCKED' || !user || user.id !== trade.sellerId) {
+      setEscrow(fresh)
+      toast.error(t('trade.toast.stateChanged'))
+      return
+    }
+    await sailsClient.settlement.initiateRefund(escrow.id)
+    const e = await sailsClient.settlement.get(escrow.id)
+    setEscrow(e)
+    await refreshPending(e)
+    toast.info(t('trade.toast.refundStarted'))
   })
 
   // Cancel returns focus to the "Abrir disputa" trigger (re-mounted with the action card).
@@ -936,7 +958,9 @@ export function Trade() {
   })
 
   const short = ASSET_SHORT_LABELS[trade.asset]
-  const methodLabel = trade.offer ? PAYMENT_METHOD_LABELS[trade.offer.paymentMethod] : null
+  // Demo: the method picked before the trade (demoHooks); real trades carry only the offer's one method.
+  const tradeMethod = demoTradePaymentMethodOf(trade) ?? trade.offer?.paymentMethod
+  const methodLabel = tradeMethod ? PAYMENT_METHOD_LABELS[tradeMethod] : null
   const fallbackName = t('trade.header.counterpartyFallback')
   const title = isBuyer ? t('trade.header.buying', { amount: trade.amount, asset: short, name: seller.displayName ?? fallbackName })
     : isSeller ? t('trade.header.selling', { amount: trade.amount, asset: short, name: buyer.displayName ?? fallbackName })
@@ -1017,7 +1041,9 @@ export function Trade() {
   )
   const priceItem = { label: t('trade.amounts.price'), value: `${formatUsdExact(trade.priceUsd)} / ${short}`, sub: t('trade.amounts.unitPrice') }
   const actionCardShown = !(escrowStatus === 'DISPUTED' && dispute) && !showDisputeForm
-  const paymentInstructions = (isBuyer || isSeller) && trade.offer ? (
+  // Finished (completed, cancelled, refunded or split): nothing left to pay, so no "Como pagar" or "Copiar dados".
+  const finished = trade.status === 'COMPLETED' || trade.status === 'CANCELLED' || TERMINAL_ESCROW_STATUSES.has(escrowStatus)
+  const paymentInstructions = (isBuyer || isSeller) && trade.offer && !finished ? (
     // paymentMethod/paymentDetails come from the originating Offer
     // (getTrade() includes it so a buyer mid-trade can still see them).
     // They are the seller's receiving details only when the seller
@@ -1026,7 +1052,7 @@ export function Trade() {
       embedded={actionCardShown && state.instructions === 'active'}
       viewer={isBuyer ? 'buyer' : 'seller'}
       visibility={state.instructions}
-      methodLabel={PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
+      methodLabel={methodLabel ?? PAYMENT_METHOD_LABELS[trade.offer.paymentMethod]}
       details={trade.offer.userId === trade.sellerId ? trade.offer.paymentDetails : null}
     />
   ) : null
@@ -1135,6 +1161,8 @@ export function Trade() {
       {/* The aside width is the viewer's, set with the divider (AsideResizer); 400 px by default. */}
       <div ref={aside.gridRef} style={aside.style} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_var(--trade-aside-w)] lg:grid-rows-[auto_auto_1fr] lg:items-start">
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-1 lg:row-start-1">
+          {/* CTO 29, demo: R0 is asked only once an escrow is open (one prompt per page load). */}
+          {isDemoMode() && escrow && <EscrowBackupPrompt />}
           {/* An open dispute is the current state: its panel below replaces the action card instead of repeating it. */}
           {escrowStatus === 'DISPUTED' && dispute ? null : actionCardShown ? (
             <CurrentActionCard
@@ -1145,6 +1173,8 @@ export function Trade() {
               disputeTriggerRef={disputeTriggerRef}
               // Any escrow (the trade's record or one just created here) hides it, whatever its status.
               onCancelTrade={canCancelTrade({ tradeStatus: trade.status, hasEscrow: !!trade.escrowId || !!escrow, isBuyer, isSeller }) ? () => setConfirmStep('cancelTrade') : undefined}
+              // The seller's exit with funds locked: a MULTISIG refund round, never offered while any round exists.
+              onRefund={isSeller && escrow?.type === 'MULTISIG' && escrowStatus === 'FUNDS_LOCKED' && pending.status === 'none' ? () => setConfirmStep('refund') : undefined}
             >
               {countdown}
               {fundingView && <FundingInstructionCard view={fundingView} />}
@@ -1209,8 +1239,20 @@ export function Trade() {
               partyLabel={partyLabel}
               onEvidenceNoteChange={setEvidenceNote}
               onSubmitEvidence={handleSubmitEvidence}
-              onContestAutoResolution={() => setConfirmStep('contest')}
-              onAppeal={() => setConfirmStep('appeal')}
+              onContestAutoResolution={() => {
+                setDisputeSummary([
+                  ...(dispute.autoResolutionRecommendation ? [{ label: t('trade.confirm.contest.suggestion'), value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
+                  ...(dispute.autoResolutionDeadline ? [{ label: t('trade.dispute.contestDeadline'), value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
+                ])
+                setConfirmStep('contest')
+              }}
+              onAppeal={() => {
+                setDisputeSummary([
+                  { label: t('trade.confirm.appeal.ruling'), value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : t('trade.confirm.appeal.rulingMissing') },
+                  { label: t('trade.confirm.appeal.round'), value: String(dispute.appealRound + 1) },
+                ])
+                setConfirmStep('appeal')
+              }}
               appealView={appealView}
               demo={isDemoMode()}
               notice={disputeNotice}
@@ -1248,7 +1290,7 @@ export function Trade() {
               onClick={() => setChatOpen((o) => !o)}
               aria-expanded={chatOpen}
               aria-controls="trade-chat"
-              className="mt-1 w-full lg:hidden"
+              className="mt-1 w-full h-auto min-h-10 whitespace-normal lg:hidden"
             >
               <MessageSquare className="size-icon-sm" aria-hidden="true" />
               {chatOpen ? t('trade.chat.toggleHide') : t('trade.chat.toggleOpen', { count: messages.length })}
@@ -1354,15 +1396,32 @@ export function Trade() {
         }}
       />
 
+      <ConfirmActionDialog
+        open={confirmStep === 'refund'}
+        onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
+        title={t('trade.confirm.refund.title')}
+        summary={[
+          { label: t('trade.confirm.release.amount'), value: `${qty(trade.amount)} ${short} — ${ASSET_LABELS[trade.asset]}` },
+          { label: t('trade.parties.buyer'), value: buyer.displayName ?? t('trade.confirm.nameMissing') },
+          { label: t('trade.confirm.currentState'), value: ESCROW_STATE_LABEL[escrowStatus] },
+        ]}
+        consequence={t('trade.confirm.refund.consequence')}
+        confirmLabel={t('trade.action.cancelAndRefund')}
+        cancelLabel={t('trade.confirm.cancelRound.back')}
+        tone="danger"
+        busy={acting}
+        onConfirm={async () => {
+          await handleStartRefund()
+          setConfirmStep(null)
+        }}
+      />
+
       {dispute && (
         <ConfirmActionDialog
           open={confirmStep === 'contest'}
           onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
           title={t('trade.confirm.contest.title')}
-          summary={[
-            ...(dispute.autoResolutionRecommendation ? [{ label: t('trade.confirm.contest.suggestion'), value: DISPUTE_RULING_LABEL[dispute.autoResolutionRecommendation] }] : []),
-            ...(dispute.autoResolutionDeadline ? [{ label: t('trade.dispute.contestDeadline'), value: formatDateTime(dispute.autoResolutionDeadline) }] : []),
-          ]}
+          summary={disputeSummary}
           consequence={t('trade.confirm.contest.consequence')}
           confirmLabel={t('trade.dispute.contest')}
           busy={acting}
@@ -1378,10 +1437,7 @@ export function Trade() {
           open={confirmStep === 'appeal'}
           onOpenChange={(open) => { if (!open) setConfirmStep(null) }}
           title={t('trade.confirm.appeal.title')}
-          summary={[
-            { label: t('trade.confirm.appeal.ruling'), value: dispute.ruling ? (DISPUTE_RULING_LABEL[dispute.ruling] ?? dispute.ruling) : t('trade.confirm.appeal.rulingMissing') },
-            { label: t('trade.confirm.appeal.round'), value: String(dispute.appealRound + 1) },
-          ]}
+          summary={disputeSummary}
           warnings={[t('trade.confirm.appeal.warnRefuse')]}
           consequence={t('trade.confirm.appeal.consequence')}
           confirmLabel={t('trade.dispute.appealAction')}

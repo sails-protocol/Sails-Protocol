@@ -67,8 +67,8 @@ export function MarketsDiscoveryCard({ className }: { className?: string }) {
         <h2 id="markets-discovery-title" className="text-sm font-medium text-brand-text">{t('markets.discovery.title')}</h2>
         <p className="mt-0.5 text-caption text-brand-text-secondary">{marketsValueLine()}</p>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Link to={MARKETS_ROUTES.explore} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11')}>{t('markets.action.explore')}</Link>
-          <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>{t('markets.action.create')}</Link>
+          <Link to={MARKETS_ROUTES.explore} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'touch:min-h-11 h-auto min-h-9 max-w-full whitespace-normal')}>{t('markets.action.explore')}</Link>
+          <Link to={MARKETS_ROUTES.create} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11 h-auto min-h-9 max-w-full whitespace-normal')}>{t('markets.action.create')}</Link>
         </div>
       </div>
       <IconButton label={t('common.close')} size="sm" onClick={() => { dismissDiscovery(Date.now()); setVisible(false) }}>

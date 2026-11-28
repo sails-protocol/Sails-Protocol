@@ -3,8 +3,9 @@
  * the person's own trades (openp2p.getTrades, GET /v1/openp2p/trades, paged up to MAX_TRADES): completed count,
  * per-asset volume, completion rate and disputes. Average time to release reads each completed trade's escrow events
  * (settlement.get, at most RELEASE_SAMPLE_CAP per period, 4 at a time); reputation over time has no source (no
- * reputation history) and stays "Em breve" (LOOSE_WIRES.personalStats). Demo: fictional records with the "Simulado"
- * badge (demo/dashboards.ts).
+ * reputation history) and stays "Em breve" (LOOSE_WIRES.personalStats). Demo: the same calls answered by the demo
+ * backend, so the figures agree with the Perfil header and "Seu caminho"; release times and the reputation line are
+ * fictional, with the "Simulado" badge.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Trade } from '@satsails/p2p-trading-sdk'
@@ -21,9 +22,8 @@ import { errorMessage } from '../../lib/errors'
 import { isDemoMode } from '../../lib/demoMarkers'
 import { ASSET_SHORT_LABELS } from '../../lib/labels'
 import { bucketSizeFor, bucketStarts, formatBucket, inRange, type DateRange } from '../../lib/periods'
-import { averageDuration, durationParts, mapLimited, periodFigures, releaseDurationMs, releaseSample, type TradeRecord } from '../../lib/tradeStats'
+import { averageDuration, durationParts, inFlightOnce, mapLimited, periodFigures, releaseDurationMs, releaseSample, type TradeRecord } from '../../lib/tradeStats'
 import { getLocale } from '../../lib/locale'
-import { demoPersonalStats, type DemoPersonalStats } from '../../demo/dashboards'
 import { t } from '../../i18n'
 import { chartCopy, countDelta, DASHBOARD_SECTION, DashboardHeader, DashboardPicker, usePeriod, useResolvedPeriod, VolumeChart, VolumeValue } from './DashboardParts'
 
@@ -31,7 +31,7 @@ import { chartCopy, countDelta, DASHBOARD_SECTION, DashboardHeader, DashboardPic
 export const MAX_TRADES = 2000
 const PAGE = 50 // the SDK documents a server clamp of 1-50
 
-function toRecord(tr: Trade): TradeRecord {
+export function toRecord(tr: Trade): TradeRecord {
   return {
     unit: (ASSET_SHORT_LABELS as Record<string, string>)[tr.asset] ?? tr.asset,
     amount: Number(tr.amount), totalUsd: Number(tr.totalUsd), status: tr.status,
@@ -41,30 +41,33 @@ function toRecord(tr: Trade): TradeRecord {
 
 type Load = { state: 'loading' } | { state: 'error'; message: string } | { state: 'ready'; trades: TradeRecord[]; total: number }
 
-/** Walks every page with hasMore, up to MAX_TRADES. */
-function useOwnTrades(enabled: boolean): [Load, () => void] {
+/** Walks every page with hasMore, up to MAX_TRADES; one walk per identity while it runs (shared by the Perfil sections). */
+const walkOwnTrades = inFlightOnce(async () => {
+  const all: Trade[] = []
+  let total = 0
+  for (let offset = 0; all.length < MAX_TRADES; offset += PAGE) {
+    const page = await sailsClient.openp2p.getTrades({ limit: PAGE, offset })
+    all.push(...page.trades)
+    total = page.total
+    if (!page.hasMore || page.trades.length === 0) break
+  }
+  return { trades: all.slice(0, MAX_TRADES).map(toRecord), total: Math.max(total, all.length) }
+})
+
+/** The signed-in person's trades (`identity` = their public key; nothing is read without one). */
+export function useOwnTrades(identity: string | null | undefined): [Load, () => void] {
   const [load, setLoad] = useState<Load>({ state: 'loading' })
   const [attempt, setAttempt] = useState(0)
   useEffect(() => {
-    if (!enabled) return
+    if (!identity) return
     let cancelled = false
     setLoad({ state: 'loading' })
-    ;(async () => {
-      const all: Trade[] = []
-      let total = 0
-      for (let offset = 0; all.length < MAX_TRADES; offset += PAGE) {
-        const page = await sailsClient.openp2p.getTrades({ limit: PAGE, offset })
-        all.push(...page.trades)
-        total = page.total
-        if (!page.hasMore || page.trades.length === 0) break
-      }
-      return { trades: all.slice(0, MAX_TRADES).map(toRecord), total: Math.max(total, all.length) }
-    })().then(
+    walkOwnTrades(identity).then(
       (r) => { if (!cancelled) setLoad({ state: 'ready', ...r }) },
       (err) => { if (!cancelled) setLoad({ state: 'error', message: errorMessage(err, t('stats.me.error')) }) },
     )
     return () => { cancelled = true }
-  }, [enabled, attempt])
+  }, [identity, attempt])
   return [load, useCallback(() => setAttempt((a) => a + 1), [])]
 }
 
@@ -101,8 +104,22 @@ function formatDuration(ms: number): string {
   return t('stats.kpi.durationHours', { hours: hours.toLocaleString(getLocale()), minutes: String(minutes).padStart(2, '0') })
 }
 
+type ScorePoint = { at: Date; score: number }
+
+/**
+ * Demo only: the reputation line from the demo trades, +2 per completed trade, anchored so it ends at the score the
+ * Perfil header shows (fictional history, "Simulado").
+ */
+function demoReputation(trades: readonly TradeRecord[], final: number): ScorePoint[] {
+  const done = trades.filter((tr) => tr.status === 'COMPLETED' && tr.completedAt).sort((a, b) => (a.completedAt as string).localeCompare(b.completedAt as string))
+  return done.map((tr, i) => ({ at: new Date(tr.completedAt as string), score: final - 2 * (done.length - 1 - i) }))
+}
+
+/** Demo only: a fictional, stable release time per completed trade (minutes). */
+const demoReleaseMinutes = (tr: TradeRecord) => 8 + (Math.round(tr.amount * 1000) + tr.createdAt.length * 7) % 30
+
 /** Score at the end of each bucket (carried forward), from the demo history. */
-function reputationValues(points: DemoPersonalStats['reputation'], range: DateRange, starts: Date[]) {
+function reputationValues(points: readonly ScorePoint[], range: DateRange, starts: Date[]) {
   const ends = starts.map((_, i) => (i + 1 < starts.length ? starts[i + 1] : new Date(range.to.getFullYear(), range.to.getMonth(), range.to.getDate() + 1)))
   return ends.map((end) => {
     let score = 0
@@ -116,13 +133,12 @@ const percent = (n: number) => new Intl.NumberFormat(getLocale(), { style: 'perc
 export function MyStatsSection({ user, className }: { user: User; className?: string }) {
   const demo = isDemoMode()
   const now = useMemo(() => new Date(), [])
-  const fixture = useMemo(() => (demo ? demoPersonalStats(now) : null), [demo, now])
-  const [load, retry] = useOwnTrades(!demo)
+  const [load, retry] = useOwnTrades(user.publicKey)
   const accountStart = useMemo(() => {
     const d = new Date(user.createdAt)
     return Number.isNaN(d.getTime()) ? now : d
   }, [user.createdAt, now])
-  const start = fixture?.start ?? accountStart
+  const start = accountStart
   const [period, setPeriod] = usePeriod('sails_dashboard_period_me')
   const resolved = useResolvedPeriod(period, start, now)
   const headingId = 'my-stats-title'
@@ -137,8 +153,9 @@ export function MyStatsSection({ user, className }: { user: User; className?: st
     return () => clearTimeout(timer)
   }, [hash])
 
-  const trades = fixture?.trades ?? (load.state === 'ready' ? load.trades : [])
-  const capped = !demo && load.state === 'ready' && load.total > load.trades.length
+  const trades = load.state === 'ready' ? load.trades : []
+  const fixture = useMemo(() => (demo ? { reputation: demoReputation(trades, user.reputationScore) } : null), [demo, trades, user.reputationScore])
+  const capped = load.state === 'ready' && load.total > load.trades.length
   const sample = useMemo(() => releaseSample(trades, resolved.range), [trades, resolved.range])
   const [releaseLoad, retryRelease] = useReleaseTime(sample.escrowIds, !demo && load.state === 'ready')
   const muted = (text: string) => <span className="text-body-sm font-normal text-brand-text-muted">{text}</span>
@@ -157,20 +174,20 @@ export function MyStatsSection({ user, className }: { user: User; className?: st
   }
 
   const body = () => {
-    if (!demo && load.state === 'loading') {
+    if (load.state === 'loading') {
       return (
         <div role="status" aria-label={t('stats.me.loading')} className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-3">
           {Array.from({ length: 6 }, (_, i) => <Skeleton key={i} className="h-14" />)}
         </div>
       )
     }
-    if (!demo && load.state === 'error') {
+    if (load.state === 'error') {
       return <StateBlock bare kind="error" title={t('stats.me.error')} description={load.message} action={<Button type="button" variant="secondary" size="sm" onClick={retry} className="touch:min-h-11">{t('trades.retry')}</Button>} />
     }
     const fig = periodFigures(trades, resolved.range)
     const prev = resolved.previous ? periodFigures(trades, resolved.previous) : null
-    const release = fixture?.releaseMinutes.filter((r) => inRange(r.at, resolved.range)) ?? []
-    const avgRelease = release.length ? Math.round(release.reduce((a, r) => a + r.minutes, 0) / release.length) : null
+    const release = demo ? trades.filter((tr) => tr.status === 'COMPLETED' && tr.completedAt && inRange(new Date(tr.completedAt), resolved.range)).map(demoReleaseMinutes) : []
+    const avgRelease = release.length ? Math.round(release.reduce((a, r) => a + r, 0) / release.length) : null
     return (
       <>
         {capped && <p className="mt-3 text-caption text-brand-text-secondary">{t('stats.me.capped', { count: load.trades.length })}</p>}
@@ -192,7 +209,7 @@ export function MyStatsSection({ user, className }: { user: User; className?: st
     )
   }
 
-  const ready = demo || load.state === 'ready'
+  const ready = load.state === 'ready'
   const size = bucketSizeFor(resolved.range)
   const starts = bucketStarts(resolved.range, size)
   const repValues = fixture ? reputationValues(fixture.reputation, resolved.range, starts) : []

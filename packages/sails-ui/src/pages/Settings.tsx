@@ -1,12 +1,14 @@
 import { useState } from 'react'
+import { toast } from '../components/ui/toast'
+import { SimulatedBadge } from '../components/ui/SimulatedBadge'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Activity, Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Link2, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Globe, LayoutGrid, MessageCircleQuestion, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
+  Globe, LayoutGrid, MessageCircleQuestion, Ticket, UsersRound, Wallet, ArrowLeft, Fingerprint, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
-import { shortKey, useDisconnect } from '../components/layout/AccountMenu'
+import { DisconnectDialog, shortKey } from '../components/layout/AccountMenu'
 import type { LayoutOutletContext } from '../components/layout/Layout'
 import { SettingsGroup, SettingsRow } from '../components/settings/SettingsRow'
 import { CopyButton } from '../components/ui/CopyButton'
@@ -30,10 +32,11 @@ import { useLocalePreference, type LocalePreference } from '../lib/locale'
 import { sectionFromSearch } from '../lib/settingsSection'
 import { NetworkRow, NetworkSettingsRows } from '../components/settings/NetworkSettings'
 import { SimulatedSettingRow } from '../components/settings/SimulatedSettings'
+import { PortableIdentityRows } from '../components/settings/PortableIdentityDemo'
 import { MARKETS_ROUTES } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
 import { MarketIcon } from '../components/markets/MarketIcon'
-import { useVisibleMarkets } from './markets/shared'
+import { DEFAULT_MARKET_KEY, readDefaultMarketChoice, useVisibleMarkets } from './markets/shared'
 import { ownMarkets } from '../lib/myMarkets'
 import { demoReceivedInvites, isDemoMode } from '../lib/demoMarkers'
 import { BASE_URL } from '../lib/sailsClient'
@@ -118,17 +121,27 @@ function PreferenceItem({ icon: Icon, children }: { icon: LucideIcon; children: 
 function DefaultMarketChoice() {
   const markets = ownMarkets(useVisibleMarkets())
   const soon = t('common.soon')
+  // Demo: every market of yours can be picked and the pick is saved in this browser; the Market ("/") then opens on it
+  // (MarketHome). Real mode: only Mercado aberto, the rest "Em breve".
+  const demo = isDemoMode()
+  const [picked, setPicked] = useState<string | null>(readDefaultMarketChoice)
+  const current = demo && markets.some((m) => m.id === picked) ? picked : markets.find((m) => m.relation === 'default')?.id
+  const pick = (id: string) => {
+    setPicked(id)
+    try { localStorage.setItem(DEFAULT_MARKET_KEY, id) } catch { /* kept for this view */ }
+    toast.info(t('settings.markets.defaultSaved'))
+  }
   return (
-    <RadioGroup legend={t('settings.markets.defaultLegend')} description={t('settings.markets.defaultHelp')} listClassName="grid gap-2">
+    <RadioGroup legend={demo ? <span className="inline-flex flex-wrap items-center gap-2">{t('settings.markets.defaultLegend')}<SimulatedBadge label={t('spaces.simulated')} /></span> : t('settings.markets.defaultLegend')} description={t('settings.markets.defaultHelp')} listClassName="grid gap-2">
       {markets.map((m) => {
-        const selectable = m.relation === 'default'
+        const selectable = demo || m.relation === 'default'
         return (
-          <RadioCard key={m.id} name="default-market" value={m.id} checked={selectable} disabled={!selectable} onChange={() => undefined} className="items-start">
+          <RadioCard key={m.id} name="default-market" value={m.id} checked={m.id === current} disabled={!selectable} onChange={() => pick(m.id)} className="items-start">
             <MarketIcon market={m} size="sm" />
             <span className="min-w-0">
               <span className="block break-words">{m.name}</span>
               <span className="flex flex-wrap items-center gap-1.5 text-caption font-normal text-brand-text-secondary">
-                {selectable ? t('markets.default.description') : <>{m.illustrative && <span>{t('markets.fictionalExample')}</span>}<Badge variant="outline" className={SOON_TAG}>{soon}</Badge></>}
+                {m.relation === 'default' ? t('markets.default.description') : selectable ? <span>{t('markets.fictionalExample')}</span> : <>{m.illustrative && <span>{t('markets.fictionalExample')}</span>}<Badge variant="outline" className={SOON_TAG}>{soon}</Badge></>}
               </span>
             </span>
           </RadioCard>
@@ -176,6 +189,8 @@ const sections = (): ReadonlyArray<{ id: string; label: string; icon: LucideIcon
   { id: 'idioma', label: t('settings.section.language'), icon: Languages },
   { id: 'notificacoes', label: t('settings.section.notifications'), icon: Bell },
   { id: 'seguranca', label: t('settings.section.security'), icon: Shield },
+  // CTO 29 portable identity (2026-11-23): demo flows; real mode shows the honest state.
+  { id: 'identidade', label: t('identity.section'), icon: Fingerprint },
   // Renamed "Rede e nós" (CTO final correction for plan 1.4); the id stays so ?section=no-sails keeps working.
   { id: 'no-sails', label: t('settings.section.network'), icon: Network },
   // Renamed "Mercados" (DECISIONS.md "Configurações → Mercados"); the id stays so ?section=comunidades keeps working.
@@ -203,7 +218,7 @@ export function Settings() {
   const { preference, setPreference } = useTheme()
   const [locale, setLocale] = useLocalePreference()
   const { user, loading: authLoading } = useAuth()
-  const disconnect = useDisconnect()
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false)
   const nodeStatus = useNodeConnection()
   const [avatarStyle, setAvatarStyle] = useAvatarStyle()
   const [navPosition, setNavPosition] = useNavPosition()
@@ -279,7 +294,8 @@ export function Settings() {
                   value={<span className="font-mono text-xs">{shortKey(user.publicKey)}</span>}
                   control={<CopyButton value={user.publicKey} ariaLabel={t('settings.wallet.copyKey')} className="min-h-9 touch:min-h-11 px-3" />}
                 />
-                <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={disconnect} />
+                <SettingsRow icon={LogOut} label={t('settings.wallet.disconnect')} onClick={() => setConfirmDisconnect(true)} />
+                <DisconnectDialog open={confirmDisconnect} onOpenChange={setConfirmDisconnect} />
               </>
             ) : (
               <SettingsRow
@@ -374,6 +390,10 @@ export function Settings() {
             <Planned id="keyBackupExport" />
             <Planned id="keyBackupImport" />
             <Planned id="sessionLock" />
+          </SettingsGroup>
+
+          <SettingsGroup {...panel('identidade')} title={t('identity.section')} icon={Fingerprint}>
+            <PortableIdentityRows />
           </SettingsGroup>
 
           {/* Preferences about markets, not the markets: those live in the Market area. The old "Comunidades" planned row

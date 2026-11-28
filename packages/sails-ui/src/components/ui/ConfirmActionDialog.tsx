@@ -5,7 +5,7 @@
  * Cancel so Enter never confirms by accident; Esc and the close control
  * cancel unless the action is already running.
  */
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Button } from './button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './dialog'
@@ -30,11 +30,6 @@ export function ConfirmActionDialog({
 }: ConfirmActionDialogProps) {
   const strings = useUiStrings()
   const cancelRef = useRef<HTMLButtonElement>(null)
-  // Controlled dialog without a Radix Trigger: remember the opener so focus can go back to it.
-  const openerRef = useRef<HTMLElement | null>(null)
-  useEffect(() => {
-    if (open) openerRef.current = document.activeElement as HTMLElement | null
-  }, [open])
 
   return (
     <Dialog open={open} onOpenChange={(next: boolean) => !busy && onOpenChange(next)}>
@@ -43,10 +38,6 @@ export function ConfirmActionDialog({
         onOpenAutoFocus={(e: Event) => {
           e.preventDefault()
           cancelRef.current?.focus()
-        }}
-        onCloseAutoFocus={(e: Event) => {
-          e.preventDefault()
-          openerRef.current?.focus()
         }}
       >
         <DialogHeader>

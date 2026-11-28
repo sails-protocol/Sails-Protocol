@@ -25,7 +25,7 @@ export function TrustLine({ items, className }: { items: TrustLineItem[]; classN
         const Icon = ICONS[item.kind]
         return (
           // Spacing lives on the items (not flex gap) so a caller's display class ("block") cannot remove it.
-          <span key={item.kind} className="inline-block whitespace-nowrap mr-3 last:mr-0">
+          <span key={item.kind} className="inline-block sm:whitespace-nowrap mr-3 last:mr-0">
             {i > 0 && <span className="sr-only">, </span>}
             <Icon aria-hidden="true" className={ICON_CLASS[item.kind] ?? BASE_ICON} />
             {item.srText ? <><span aria-hidden="true">{item.text}</span><span className="sr-only">{item.srText}</span></> : item.text}

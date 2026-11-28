@@ -5,6 +5,7 @@ import { X } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import { useUiStrings } from "./uiStrings"
+import { useOpenerFocus } from "./openerFocus"
 
 const Sheet = SheetPrimitive.Root
 
@@ -63,11 +64,14 @@ interface SheetContentProps
 const SheetContent = React.forwardRef<
   React.ElementRef<typeof SheetPrimitive.Content>,
   SheetContentProps
->(({ side = "right", className, children, hideDefaultClose, ...props }, ref) => (
+>(({ side = "right", className, children, hideDefaultClose, onOpenAutoFocus, onCloseAutoFocus, ...props }, ref) => {
+  const focus = useOpenerFocus({ onOpenAutoFocus, onCloseAutoFocus })
+  return (
   <SheetPortal>
     <SheetOverlay />
     <SheetPrimitive.Content
       ref={ref}
+      {...focus}
       className={cn(sheetVariants({ side }), className)}
       {...props}
     >
@@ -83,7 +87,8 @@ const SheetContent = React.forwardRef<
       )}
     </SheetPrimitive.Content>
   </SheetPortal>
-))
+  )
+})
 SheetContent.displayName = SheetPrimitive.Content.displayName
 
 /** The close control's name from the host's UiStrings (Layer A never imports the app dictionary). */
