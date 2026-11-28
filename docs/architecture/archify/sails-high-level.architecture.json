@@ -11,7 +11,7 @@
     },
     "views": [
       { "id": "main-path", "label": "Semantic material to execution", "focus": ["modules", "core", "runtime", "providers"], "note": "Follow how ruleset meaning is evaluated, committed, and executed without ever being redefined downstream." },
-      { "id": "kernel-authority", "label": "Frozen identity vs. future profile", "focus": ["kernel", "profile", "core"], "note": "The Kernel is frozen and demonstrated; the Canonical Semantic Profile is architecturally required but not yet specified." },
+      { "id": "kernel-authority", "label": "Frozen identity and published profile", "focus": ["kernel", "profile", "core"], "note": "The Kernel is frozen and demonstrated; Semantic Profile 1.0 is published. Independent second implementation and certification are not demonstrated." },
       { "id": "sdk-boundary", "label": "SDK read surface", "focus": ["runtime", "sdk_adapter", "integrator"], "note": "The SDK Adapter reads durable semantic records; it does not compute or infer them." }
     ]
   },
@@ -59,7 +59,7 @@
   "cards": [
     { "dot": "cyan", "title": "Semantic Authority", "items": [
       "Semantic Kernel (K1/K2/K3) is frozen and demonstrated across M0-M10",
-      "Canonical Semantic Profile is architecturally required but not yet specified — a disclosed residual, not a built layer",
+      "Canonical Semantic Profile 1.0 is published as conformance/profiles/sails-semantic-profile-1.0.json; publication is not certification or evidence of an independent second implementation",
       "Pure Core evaluates under the Kernel; it never redefines what a Module's ruleset means"
     ] },
     { "dot": "emerald", "title": "Meaning vs. Execution", "items": [
