@@ -5,6 +5,26 @@
 - Date: 2026-09-18
 - Scope: CapabilityGrant temporal semantics for asynchronous fund-movement operations
 
+## Implementation note (branch reconciliation)
+
+The Context below describes the pre-implementation baseline. The current
+`authorizePendingExecution()` in `capability-execution-authorization.ts`
+implements Gate B for asynchronous settlement when capability enforcement
+is enabled. It evaluates the original initiator (`pending.triggeredBy`),
+not the final signer, selects a non-revoked grant covering the required
+scope and checks expiry. Its transaction uses the same actor/capability
+advisory lock as `CapabilityGrantRepository.markRevoked()`. It persists
+an operation-bound authorization and reuses it only when the stored
+identity, scope and operation digest match. Later revocation does not
+retroactively invalidate that committed authorization.
+
+`submitTransactionSignature()` invokes the separate ADR-005 gate before
+Gate B and claims the escrow transition before provider finalization.
+These are separate steps, not a single cross-object atomic transaction.
+Gate B does not establish provider submission idempotency, enforcement
+of arbitrary constraint keys, or production homologation. The frozen
+ADR and its production-enforcement amendment remain unchanged.
+
 ## Context
 
 `CapabilityGrant` is the protocol's policy/eligibility permission: it answers what a Participant or Agent is allowed to invoke. RFC-005 defines the grant shape; RFC-013 makes grants persisted, revocable, scope-bounded, and optionally expiring.

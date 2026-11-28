@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client'
 import { demoRequested, installDemoBackend } from './demoBackend'
 import { DemoBanner } from './DemoBanner'
 import { DemoControls } from './DemoControls'
+import { SkipLink } from '../components/layout/SkipLink'
 
 export function installDemoIfRequested() {
   if (!demoRequested()) return
@@ -10,5 +11,5 @@ export function installDemoIfRequested() {
   // Own React root outside #root, so no product page or layout changes.
   const host = document.createElement('div')
   document.body.prepend(host)
-  ReactDOM.createRoot(host).render(<><DemoBanner /><DemoControls /></>)
+  ReactDOM.createRoot(host).render(<><SkipLink /><DemoBanner /><DemoControls /></>)
 }

@@ -67,9 +67,18 @@ mechanisms answer this — "non-custodial" alone is not a sufficient answer.
 
 ### 1.1 Non-Custodial Escrow
 
-Funds are locked in a smart contract or multisig *before* fiat is sent. No
-single party can access the funds alone — release requires bilateral or
-arbitrated action.
+Funds are locked in a smart contract or multisig *before* fiat is sent.
+
+**Normative requirement:** no single party may be able to access the funds alone; release requires bilateral or arbitrated action. This is a requirement of the protocol, not a property that every implementation demonstrates. What each rail demonstrates today:
+
+| Rail | Demonstrated property | Limits |
+| --- | --- | --- |
+| Bitcoin Gen-1 (`MULTISIG`, P2WSH 2-of-3) | Any spend needs 2 of 3 signatures; buyer and seller keys are client-held. | The arbiter key is derived on the node (`MULTISIG_SEED`), so it is under the node operator's control: the operator-held arbiter key plus either participant's key satisfies the script. The independent Signing Federation is not implemented (proposal only). |
+| `WDK_USDT_EVM` (server-seed reference) | None: a single server-held seed can unilaterally move escrowed funds. | Production-ineligible (RFC-019). The node refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false`, and `WDK_SEED_PHRASE` is non-empty. Production deployment eligibility is enforced separately. |
+| `LIGHTNING_HODL`, `SAFE_GUARD_EVM` | Testnet implementations of the 2-of-3 model. | Not production-eligible. `LIGHTNING_HODL` derives its arbiter key on the node; `SAFE_GUARD_EVM` is a candidate that is not production-activated (RFC-020). |
+| Bitcoin Gen-2 (Taproot / MuSig2) | None yet. | Candidate only: no settlement rail implements it and it is not homologated; only a MuSig2 primitive exists in the SDK custody module. |
+
+See Principles 1 and 2 in Section 2 and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`. (Corrected/Implemented 2026-11-27: this subsection previously stated the requirement without the per-rail status.)
 
 - **Multisig 2-of-3:** Buyer + Seller + Arbiter — real as of 2026-07-27
   (`multisig.provider.ts`). Buyer/seller each hold their own client-side
@@ -110,15 +119,24 @@ arbitrated action.
 Score tied to the Ed25519 keypair — not to a platform account. Built from
 completed trades, settlement speed, dispute history, and volume over time.
 
-- **Trade Score** — mutual ratings, 1-5
-- **Volume Score** — BTC-equivalent volume over time
-- **Dispute Rate** — inversely proportional; penalizes bad-faith disputes
+- **Trade ratings (1–5)** — informational feedback; `rate()` does not mutate `ReputationScore` (RFC-007).
+- **Volume and settlement outcomes** — historical signals; `recordOutcome()` is the documented score-mutating entrypoint, not proof that all BTC-equivalent volume is independently verified.
+- **Dispute history** — a risk signal, not automatic proof of bad faith or a guaranteed penalty.
 
 ### 1.3 Verifiable Identity
 
-Participants prove control of their keypair via digital signature. No
-email, no phone number required at the base level — optional verification
-levels unlock higher trust limits.
+Canonical participant registration requires Ed25519 proof of possession
+(Issue #302), not merely knowledge of a public key. The registration
+challenge uses a separate Redis namespace and signed-message domain from
+login, binds the submitted `displayName`, and is atomically consumed only
+after successful signature verification. `IdentityService.register()`
+rejects an existing public-key value and handles database uniqueness
+conflicts independently of challenge consumption. These are separate
+Redis and database steps, not one atomic registration transaction.
+Proof of possession establishes key control, not real-world identity,
+unique human identity, or protection against a compromised key. No email
+or phone number is required at the base level; the following verification
+tiers are policy concepts, not evidence of enforced higher trust limits.
 
 - **Level 0:** keypair only
 - **Level 1:** phone verified
@@ -126,30 +144,28 @@ levels unlock higher trust limits.
 
 ### 1.4 Trade Limits by Trust
 
-Higher-value trades unlock as reputation score increases. New or
-low-reputation peers can only trade small amounts until they build real
-history.
+The following tiers describe a **proposed trust-limit policy**, not verified
+protocol-wide enforcement. Applications and settlement providers must
+separately demonstrate actual limits, scoring inputs, and bypass resistance;
+reputation alone does not establish a safe trade size.
 
-| Reputation | Max trade size |
+| Illustrative reputation tier | Proposed maximum trade size |
 |---|---|
 | New peer (score 0-20) | 0.001 BTC |
 | Score 21-50 | 0.01 BTC |
 | Score 51-89 | 0.05 BTC |
-| Score 90+ (verified) | No protocol-imposed limit |
+| Score 90+ (verified) | No limit in this illustrative policy; not a production safety guarantee |
 
 ---
 
 ## 2. Six Security Principles
 
-1. **Non-Custodial by Design** — Sails never holds funds. No hot wallet,
-   cold wallet, or treasury exists anywhere in the architecture.
-2. **User Always Signs** — every action that moves funds requires the
-   user's own WDK signature. No server can initiate a transaction on a
-   user's behalf.
+1. **Non-Custodial by Design (normative)** — the protocol must not custody user funds. This is a design requirement, **not a blanket claim about every implementation**: the server-seed `WDK_USDT_EVM` reference provider has a treasury and can unilaterally move escrow funds; it is production-ineligible (RFC-019). Bitcoin Gen-1 uses P2WSH 2-of-3, but its arbiter key remains on the node server; independent Signing Federation is not implemented. See principle 2 below and `docs/architecture/SAILS_SIGNING_FEDERATION/README.md`.
+2. **Participant Authorization (normative)** — fund-moving actions must follow the selected rail's participant-signature and spending policy; a server must not possess unilateral escrow authority. This is **not** an implementation guarantee: the server-seed EVM reference violates it (RFC-019), and Bitcoin Gen-1 requires separate analysis of its 2-of-3 signer roles. See the gap and rail-specific boundaries below.
 
    **Real-implementation gap found 2026-07-19** (a CTO-directed fidelity
    audit comparing this principle against the actual code, not just its
-   design): the one real, tested `SettlementProvider` —
+   design): the server-seed EVM reference `SettlementProvider` —
    `WdkSettlementProvider` (`wdk-settlement.provider.ts`) — does not
    satisfy either principle 1 or 2 as written. It derives every escrow's
    signing key from **one server-held seed phrase**
@@ -160,8 +176,7 @@ history.
    `releaseFunds()` needs no user-supplied signature or credential at
    all; the server signs unilaterally. This is a genuine violation of
    `PROTOCOL_INVARIANTS.md`'s Constitutional Invariant 2 ("The Protocol
-   Never Custodies Assets") **in the one real settlement path this
-   codebase ships today** — not a documentation phrasing issue, a real
+   Never Custodies Assets") **in this server-seed EVM reference settlement path** — not a documentation phrasing issue, a real
    custody gap. It is explicitly disclosed at the code level (not
    hidden), is testnet-only, and **RFC-019**
    (`rfcs/RFC-019-settlement-custody-reference-vs-normative.md`) is the
@@ -172,8 +187,7 @@ history.
    Transaction Guard + ERC-4337 escrow with a KMS-backed co-signer,
    specified and tested but not deployed or wired into
    `WdkSettlementProvider`'s actual release path — see that RFC's
-   Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`
-   (the only other implementation) and the protocol's own design
+   Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`, the separately assessed Bitcoin Gen-1 rail, and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.
 3. **Escrow Isolation** — escrow logic is architecturally separate from the
@@ -193,7 +207,9 @@ history.
 
 Even without custody, disputes are inevitable in any real market. The
 protocol has a planned resolution layer — not custodial arbitration, but
-verifiable, evidence-based mechanisms.
+verifiable, evidence-based mechanisms. The separation of the Resolution Layer from a Signing Federation is planned/proposed, not implemented: in Gen-1 the arbiter key is held by the node server (see the Signing Federation README in `docs/architecture/SAILS_SIGNING_FEDERATION/`).
+
+Residual risks (arbiter unavailability, recovery, key compromise): see #237 and the Delivery A residuals in `docs/architecture/SAILS_SIGNING_FEDERATION/`; no guarantee is claimed.
 
 ### Scenario A: Payment sent, asset not released
 
@@ -205,9 +221,11 @@ bad faith.
 ### Scenario B: Asset locked, payment not received
 
 Seller provides no evidence of non-payment beyond the timeout. The
-escrow's protocol expiry deadline passes → escrow refunds the seller
-automatically. The buyer's suspicious non-payment pattern is logged to
-the reputation system.
+escrow's administrative expiry deadline passes → an enabled sweeper attempts
+the seller refund through the normal authorization path. This is not a
+guaranteed on-chain refund: the feature is disabled by default, and Bitcoin
+Gen-1 still needs the required signatures or dispute resolution. Any
+reputation consequence depends on the separately implemented event path.
 
 **Terminology note, Missão 11 Fase 9.1 §9 (2026-08-24):** "Timelock" in
 this document (and this codebase's `timelockHours`/`DEFAULT_TIMELOCK_HOURS`
@@ -225,7 +243,7 @@ cooperative buyer+seller signature pair — an expired timelock with no
 cooperative resolution can *only* be recovered via a dispute (arbiter
 co-signature), never unilaterally by the server. Retrofitting a real
 on-chain CLTV/CSV timelock into Gen-1 is explicitly out of scope for this
-phase (see RFC-024 for the documented Gen-2 target architecture where
+phase (see RFC-024, a candidate design space and not approved, for the Gen-2 target architecture where
 that changes); this note exists so no reader mistakes "timelock" here for
 cryptographic, on-chain enforcement.
 
@@ -251,8 +269,11 @@ per application (never a protocol-native role, per RFC-007 D4 and
 `PROTOCOL_SPECIFICATION.md` §1.9's own explicit reasoning: this
 deliberately avoids implying the protocol itself governs or controls
 arbitration outcomes) — reviews the evidence in the chat history. Their
-decision triggers the multisig 2-of-3 release, recorded as the `Dispute`
-primitive's `ruling`. **Corrected 2026-07-19 (consolidation audit):**
+decision is recorded as the `Dispute` primitive's `ruling` and may
+initiate a settlement request; the ruling alone is **not** a Bitcoin
+signature or authorization to spend. Gen-1 P2WSH still requires the
+applicable 2-of-3 signatures, and its node-held arbiter key is not an
+independent Signing Federation. **Corrected 2026-07-19 (consolidation audit):**
 this scenario previously described a permissionless "community volunteer
 holding a reputation bond, fee drawn from bonded collateral" model — an
 earlier vision that RFC-007 D4 replaced with the application-registered
@@ -289,16 +310,20 @@ correction.
 ### Resolution Principles
 
 - QVAC assists analysis locally and privately — no cloud dependency (future)
-- Multisig 2-of-3 prevents any unilateral fund release
-- Reputation penalties apply to bad-faith disputes
-- A Trusted Arbitrator's own reputation is the incentive for a fair
-  ruling — a bad ruling is visible and permanent, not just a lost fee
-- Protocol-expiry fallbacks handle no-response scenarios automatically —
-  **real since 2026-08-01** (`sweepExpiredEscrows()`, gated behind
-  `ESCROW_TIMELOCK_SWEEPER`; see Scenario B's own correction above and
-  `BACKLOG.md`'s "Escrow timelock proactive sweeper" row). An
-  administrative deadline, not a Bitcoin-native on-chain timelock — see
-  Scenario B for the full terminology note
+- Bitcoin Gen-1 P2WSH 2-of-3 prevents spending with a single key, but any two authorized signers can spend; the arbiter key is currently node-held. This is not an EVM guarantee or proof of independent federation.
+- Reputation penalties depend on the implemented outcome/event and appeal
+  paths; a disputed or allegedly bad-faith claim alone is not proof that a
+  penalty was applied.
+- A Trusted Arbitrator's reputation is a proposed accountability incentive,
+  not proof that every unfair ruling is detected, published, or penalized.
+  RFC-021's market/slashing implementation is opt-in and its RFC remains
+  Proposed; neither model establishes an independent signing quorum.
+- Protocol-expiry processing can attempt refunds when the opt-in
+  `ESCROW_TIMELOCK_SWEEPER` is enabled (`sweepExpiredEscrows()`, implemented
+  since 2026-08-01). It does not bypass rail-specific signing requirements
+  or guarantee recovery after signer unavailability. This is an
+  administrative deadline, not a Bitcoin-native on-chain timelock; see
+  Scenario B and `BACKLOG.md`'s "Escrow timelock proactive sweeper" row.
 - Dispute history is public on the reputation layer — repeat bad actors
   become visible to the whole network, not just one counterparty
 

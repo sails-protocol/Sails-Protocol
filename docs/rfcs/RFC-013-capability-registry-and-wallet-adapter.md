@@ -235,6 +235,21 @@ agent, is follow-up work, not claimed done here). `GET
 during implementation since a grant system with no revoke endpoint would
 be incomplete, not specified above but consistent with it.
 
+**Current registration boundary.** `capability.routes.ts` still binds
+both issuer and holder to the authenticated participant; this is
+self-declaration, not independently issued agent delegation. The registry
+now rejects names and scopes outside `CANONICAL_CAPABILITY_SCOPES`:
+`trade-coordination` (intent creation/discovery) and `settlement`
+(release/refund/split). The `agent-delegation` module mapping is not itself
+an accepted grant scope. Revocation requires the authenticated holder
+and is serialized against execution authorization (ADR-004). The registry
+checks scope and expiry; arbitrary JSON constraints such as `maxValue`
+are not financial limits enforced by this registry. A self-issued grant
+does not substitute for participant ownership, ruling authority or
+required settlement signatures. See ADR-004 and RFC-014 for enforcement
+and production boundaries; no multi-party delegation or production
+homologation is established by this registration path.
+
 **6. Reputation becomes addressable by `peerId`**, the portable identity
 this RFC's Motivation section corrects the record on:
 `reputation.service.ts` gains `getByPeerId(peerId: string)`, and

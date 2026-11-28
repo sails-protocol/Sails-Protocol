@@ -46,6 +46,8 @@ export interface EntryPolicy {
   kyc: KycMode
   thresholdUsd?: number
   providerUrl?: string
+  /** Name of the partner who runs the verification (UI proposal, CTO/PO 2026-11-23); shown only when present. */
+  providerName?: string
   social: readonly SocialLogin[]
 }
 

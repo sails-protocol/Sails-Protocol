@@ -24,8 +24,8 @@ export function Alert({ tone = 'info', title, children, action, live = false, ic
   title?: ReactNode
   children?: ReactNode
   action?: ReactNode
-  /** Announce when it appears (status, or alert for danger) instead of a static note. */
-  live?: boolean
+  /** Announce when it appears (status, or alert for danger) instead of a static note; 'assertive' forces role=alert (a failure that is not a danger tone). */
+  live?: boolean | 'assertive'
   icon?: LucideIcon
   /** `sm`: caption text, for notes inside forms and cards. */
   size?: 'sm' | 'md'
@@ -35,7 +35,7 @@ export function Alert({ tone = 'info', title, children, action, live = false, ic
   const Icon = icon ?? t.Icon
   return (
     <div
-      role={live ? (tone === 'danger' ? 'alert' : 'status') : 'note'}
+      role={live === 'assertive' || (live && tone === 'danger') ? 'alert' : live ? 'status' : 'note'}
       className={cn('flex gap-2 rounded-md px-3 py-2 text-brand-text', size === 'sm' ? 'text-caption' : 'text-body-sm', t.bg, className)}
     >
       <Icon aria-hidden="true" className={cn('size-icon-sm shrink-0', size === 'sm' ? 'mt-px' : 'mt-0.5', t.icon)} />

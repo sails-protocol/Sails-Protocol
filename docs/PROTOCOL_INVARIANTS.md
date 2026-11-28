@@ -122,6 +122,8 @@ guidance to invariant because it is the protocol's entire reason for
 existing over a custodial alternative — see `PHILOSOPHY.md`, "Why
 Coordination, Not Custody."
 
+> **Corrected/Implemented 2026-11-27 (normative statement, not a description of every implementation).** This invariant states the requirement. The reference implementation does not fully meet it: `WdkSettlementProvider` holds a server seed that can unilaterally move escrowed funds (see the note below), and on the Bitcoin Gen-1 MULTISIG rail the node derives and holds the arbiter key, one of three keys in a 2-of-3 script (that key alone cannot spend, but together with either participant's key it satisfies the script). The status of each rail is in `SECURITY_MODEL.md` section 1.1.
+
 > **⚠ Known violation, real code, 2026-07-19.** Per this document's own
 > §"How Invariants Are Enforced" below, a violation is not something to
 > quietly caveat — it means the violating system is not Sails Protocol.
@@ -262,25 +264,28 @@ and Structural Invariant 5 (an implementation that lets an Agent act
 without a delegating Participant's authority is not a partial
 implementation of Sails Protocol). Derived Operational Invariants:
 `INV-OP-1` (no escrow mutation without a verified party), `INV-OP-6`
-(every authenticated write requires a verified signature).
+(every authenticated write is attributed to a participant proven by a challenge-response login; see the clarification under INV-OP-6).
 
 **EVIDENCE.** `common/middleware/auth.ts`'s `requireAuth()`;
 `tests/escrowReleaseControls.test.ts`'s ownership/IDOR block (11 tests).
 
-> **Newly-recognized non-conformant instance — Mission M8.5, 2026-08-30.**
-> `dispute.service.ts`'s `resolveDispute()` accepts `releaseToAddress`/
-> `refundToAddress` from the **arbiter's own** request and, via
-> `escrow-lifecycle.ts`'s `resolvePayoutAddress()` ("an explicit address
-> always wins"), lets that value unconditionally override the
-> beneficiary's own registered `PayoutAddress` with no trace to the
-> beneficiary's own verified authorization — a coordinator/discretionary-
-> authority substituting its own assumption for a participant's, exactly
-> what this invariant's own rule text already forbids. This is not a new
-> rule; it is this already-frozen rule, correctly applied to a case not
-> previously checked against it. `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`
-> records the closing architecture (Economic Disposition Authority ≠
-> Destination Authority); remediation is not yet implemented — see that
-> document's own §16 for what remains before Mission M8-R.
+> **Historical non-conformant instance — Mission M8.5, 2026-08-30.**
+> Arbiter-supplied `releaseToAddress`/`refundToAddress` previously
+> overrode beneficiary destinations without beneficiary authorization.
+> The closing architecture distinguishes Economic Disposition Authority
+> from Destination Authority (`DESTINATION_AUTHORITY_ARCHITECTURE.md`).
+> **Implementation update (M8-R/M8-R2, 2026-09-11):** the current
+> `resolveDispute()` routing no longer forwards these legacy parameters
+> to either ruling execution branch. MULTISIG binds beneficiary
+> destinations in the durable authoritative Outcome via
+> `commitAuthoritativeDisputeRuling()`; the other four reference rails
+> resolve registered destinations at settlement time, not through the
+> same atomic Outcome snapshot. `resolvePayoutAddress()` still accepts
+> explicit values under a trusted-internal-caller contract; provenance
+> is enforced at call sites, not independently by that helper. This
+> correction addresses the historical arbiter override path, not a
+> universal proof of destination binding, provider security or formal
+> production homologation.
 
 ### INV-02. Propose, Don't Impersonate
 
@@ -651,11 +656,11 @@ checkable, outside the executor's own control.
 2026-08-29). No `EVIDENCE` section is claimed — unlike every invariant
 above, no current reference-implementation code satisfies this rule
 yet, and this document's own discipline (§"How Invariants Are
-Enforced" below) is to never claim evidence that isn't real. Missão
+Enforced" below) is to never claim evidence that isn't real. Mission
 12's conformance-impact findings identify exactly which current
 behaviors this invariant newly classifies as non-conformant.
 
-> **Corrigido/Implementado 2026-08-29 (Missão 13 Fase 2), MULTISIG
+> **Corrected/Implemented 2026-08-29 (Mission 13 Phase 2), MULTISIG
 > scope only.** The paragraph above is now partially stale: real
 > `EVIDENCE` exists for the MULTISIG rail's disputed-settlement path —
 > `src/modules/open-settlement/arbitration-authority.ts` and
@@ -670,6 +675,8 @@ behaviors this invariant newly classifies as non-conformant.
 > Discretion") is this invariant's rail-independent, Kernel-level
 > generalization — read that document for the identity-level statement
 > this invariant expresses at current-protocol-version granularity.
+
+> **Corrected/Implemented 2026-11-27 (cross-reference).** The earlier text of RFC-021 D8 that describes automatic application of uncontested QVAC recommendations is superseded by this correction (see the supersession note at the start of RFC-021 D8). A recommendation, an attributed identity or the absence of a contest never authorizes an economic transition on its own.
 
 ---
 
@@ -843,6 +850,8 @@ challenge-response verification (`CRYPTOGRAPHIC_MODEL.md` §2) — never
 from a bare claimed id. Originally the RT-002 fix for one route family;
 generalized and re-verified across the codebase in the same gap audit
 as INV-OP-1 (`TODO.md` §14). Enforced by `common/middleware/auth.ts`.
+
+> **Corrected/Implemented 2026-11-27 (clarification).** "Verified signature" in the title refers to the participant's initial proof of possession: an Ed25519 challenge-response at login (and a separate registration proof), after which the server issues an opaque bearer session token. Later calls carry that token and are not individually signed, so the one-time challenge provides no per-operation replay protection and no operation-level authorization; whoever holds a bearer token is treated as that participant until it expires. This invariant concerns attribution of the caller only. It is not Capability Authority (`INV-08`), it is not Economic Disposition Authority (`INV-12`: signed arbiter decisions and participant signatures on escrow rounds), and it does not make any economic effect idempotent.
 
 **Derives from:** `INV-01` (Participant-Bound Authority).
 
@@ -1068,8 +1077,8 @@ the negative (the private fields are ABSENT), not just the positive
 future column added to the underlying model leaking through
 unnoticed; asserting the exact key set does.
 
-> **Corrigido/Implementado 2026-08-25 (Missão 11 Fase 9.3.3).** This
-> note originally (Fase 9.3.2) flagged an open reconciliation question
+> **Corrected/Implemented 2026-08-25 (Mission 11 Phase 9.3.3).** This
+> note originally (Phase 9.3.2) flagged an open reconciliation question
 > and guessed a tentative "DP-10" label. The reconciliation is now
 > done — see "Canonical Hierarchy" near the top of this document.
 > **Derives from:** `INV-10` (Verifiability Is a Product Property),
@@ -1114,7 +1123,7 @@ recovery MUST fail closed (flag for manual review) rather than guess in
 either direction — a stuck-but-safe state is always preferable to a
 guessed, possibly-duplicate one.
 
-**How this is met today — MULTISIG only.** `escrow-settlement-reconciliation.service.ts`'s
+**Deterministic transaction reconstruction — MULTISIG.** `escrow-settlement-reconciliation.service.ts`'s
 `reconcilePendingSettlements()` finds every terminal-status escrow with
 a null `txReleaseId`. For MULTISIG (the only rail whose settlement
 transaction is fully deterministic and reconstructable from already-
@@ -1137,16 +1146,19 @@ is a genuine anomaly (structurally should be impossible, given a single
 2-of-3 script and this escrow's own already-collected signatures) —
 reconciliation fails closed and reports it, moving no funds.
 
-**Deliberately narrow.** No other rail in this codebase has an
-equivalent authoritative-truth primitive today. MOCK/WDK_USDT_EVM move
-funds via a direct, single-call path with no persisted, independently-
-reconstructable transaction to compare against; LIGHTNING_HODL/
-SAFE_GUARD_EVM are structurally signature-collection rails like
-MULTISIG but have never had this primitive built for them (out of
-scope for this phase — see `docs/TECHNICAL_DEBT_AUDIT.md`). For any
-escrow this mechanism cannot safely reconcile, it does exactly what
-this invariant requires: fails closed, flagged for manual review,
-moving no funds. See `tests/multisigProvider.test.ts`'s
+**Other rails — scoped restart convergence, not equivalent reconstruction.**
+`reconcileTxReleaseId()` now dispatches WDK_USDT_EVM to its durable
+transfer-attempt reconciliation (#251 RELEASE/REFUND, #250 SPLIT).
+The split requires independently confirmed evidence for both legs;
+partial confirmation does not authorize completion or resubmission.
+LIGHTNING_HODL and SAFE_GUARD_EVM use durable signature-finalization
+attempt evidence for RELEASE/REFUND (#240); SUBMITTED and
+SUBMISSION_UNKNOWN are not automatically converged, and external query
+and resubmission guarantees remain unproven. Unsupported or insufficiently
+corroborated cases require manual review. These paths do not establish
+production eligibility or universal recovery across rails.
+
+See `tests/multisigProvider.test.ts`'s
 `reconcilePendingSettlement()` suite (real signed PSBTs, real fetch-mocked
 network responses — the "expected txid" every test asserts against is
 independently computed, never asserted by fiat) and
@@ -1263,10 +1275,17 @@ What the implementation guarantees:
    signature-collection, C8, PASS 1). The database backstops it
    (`escrows_settlement_result_write_once_guard`): a direct `UPDATE`
    cannot change a populated `txReleaseId` or `releasedAt`.
-2. **External success is never reverted as a local failure.** Only a
-   failing provider call reverts the claimed status; once the provider
-   has returned, a failing local step leaves the escrow in its claimed
-   state and reconciliation converges it from durable facts.
+2. **External success or uncertain submission must not be treated as a local failure.**
+   A provider error alone is not evidence of non-submission. For the WDK
+   attempt-ledger path, `revertClaimUnlessPotentiallySent()`
+   (`escrow.service.ts`, #341 D7–D9) checks potentially sent attempts
+   for the current disposition under the escrow funding lock. If such
+   an attempt exists, or non-submission cannot be established, the
+   claim and its authorization are retained for reconciliation. Otherwise
+   the claim and applicable ruling rollback commit in the same transaction.
+   After provider success, a local failure retains the claim for recovery.
+   This is a scoped recovery control, not proof of universal rail recovery
+   or production eligibility.
 3. **Escrow is authoritative; Trade is a projection.** The Trade status
    is derived from the *persisted* Escrow state under the escrow lock,
    monotonically (a stale/reordered event cannot regress it), with

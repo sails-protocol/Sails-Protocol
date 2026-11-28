@@ -11,11 +11,12 @@ export interface Fact {
   icon?: LucideIcon
 }
 
-export function FactList({ title, facts, ordered = false, className }: { title: string; facts: readonly Fact[]; ordered?: boolean; className?: string }) {
+export function FactList({ title, facts, ordered = false, level = 3, className }: { title: string; facts: readonly Fact[]; ordered?: boolean; /** Heading level of the title in the page outline. */ level?: 2 | 3; className?: string }) {
   const List = ordered ? 'ol' : 'ul'
+  const Heading = level === 2 ? 'h2' : 'h3'
   return (
     <div className={className}>
-      <h3 className="text-sm font-medium text-brand-text">{title}</h3>
+      <Heading className="text-sm font-medium text-brand-text">{title}</Heading>
       <List className="mt-2 space-y-2">
         {facts.map((f, i) => (
           <li key={f.title} className="flex items-start gap-2">

@@ -28,6 +28,23 @@ both counterparties' clients already depend on via the HTTP API — for
 every trade the two reconnecting peers share, and emits
 `negotiation.reconciled` with what changed.
 
+## Current implementation boundary
+
+The reference reconciliation service reads Trade, Escrow and Message
+state from its available PostgreSQL database. Its message query returns
+at most 100 rows ordered by creation time ascending; the optional
+creation-time cursor is not a complete paginated replay protocol.
+This is local trade-state catch-up, not peer-to-peer replication of
+independent databases or a guarantee of complete message delivery.
+
+Portable signed offer revision selection and cancellation are separate
+from RFC-011. DHT topic announcements and generic broadcast primitives
+do not by themselves establish signed-offer propagation, offline
+revision/tombstone delivery, late-join anti-entropy, partition healing
+or stale-resurrection prevention after compaction. These remain separate
+evidence requirements under ADR-001 §26.1 and Issue #105. Do not infer
+shared-market convergence from the existence of local reconciliation.
+
 ## Motivation
 
 The audit's scenario, concretely: buyer marks payment sent (an HTTP call

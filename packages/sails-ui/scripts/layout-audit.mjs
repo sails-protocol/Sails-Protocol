@@ -32,7 +32,7 @@ const ROUTES = [
   '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/new?space=private',
   '/settings?section=wallet', '/settings?section=aparencia', '/settings?section=idioma',
   '/settings?section=notificacoes', '/settings?section=seguranca', '/settings?section=no-sails',
-  '/settings?section=comunidades', '/settings?section=ajuda',
+  '/settings?section=comunidades', '/settings?section=ajuda', '/settings/help/faq',
 ].filter((r) => !arg('--only', '') || arg('--only', '').split(',').some((o) => r.startsWith(o)))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

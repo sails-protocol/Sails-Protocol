@@ -12,6 +12,8 @@ This document is descriptive of a *design space*, not a specification. No
 timeline is implied. Generation-1 (`multisig.provider.ts`'s bare 2-of-3
 P2WSH `p2ms`) remains the only real, shipped Bitcoin settlement rail.
 
+See `docs/architecture/SAILS_SIGNING_FEDERATION/` (Delivery A: conditioned approval of the direction; not homologated; Gen-2 activation NO-GO).
+
 ## Why this exists
 
 Missão 11 Fase 7.3.2's own design-options analysis (Model D, "a
