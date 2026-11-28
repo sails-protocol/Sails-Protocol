@@ -44,6 +44,8 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'contestar', key: 'appeal', group: 'disputes' },
   { slug: 'reputacao', key: 'reputation', group: 'account' },
   { slug: 'senha', key: 'password', group: 'account' },
+  // CTO 29 (2026-11-23): the honest "lose everything" answer for the portable identity, which is in preparation.
+  { slug: 'perder-tudo', key: 'loseAll', group: 'account' },
   { slug: 'mercados', key: 'markets', group: 'markets' },
   { slug: 'kyc', key: 'kyc', group: 'markets' },
   { slug: 'merchant-how', key: 'merchantHow', group: 'merchant', links: ['merchant'] },
@@ -52,7 +54,7 @@ export const FAQ_ITEMS: readonly FaqItem[] = [
   { slug: 'merchant-space', key: 'merchantSpace', group: 'merchant', links: ['merchant', 'myMarkets'] },
 ]
 
-export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'corrigir-pagamento' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'mercados' | 'kyc' | 'merchant-how' | 'merchant-criteria' | 'merchant-perks' | 'merchant-space'
+export type FaqSlug = 'como-funciona' | 'estados' | 'escrow' | 'prazo' | 'marquei-pago' | 'terceiros' | 'corrigir-pagamento' | 'taxas' | 'disputa' | 'contestar' | 'reputacao' | 'senha' | 'perder-tudo' | 'mercados' | 'kyc' | 'merchant-how' | 'merchant-criteria' | 'merchant-perks' | 'merchant-space'
 
 export const faqAnchor = (slug: FaqSlug | string) => `faq-${slug}`
 export const faqPath = (slug: FaqSlug) => `${FAQ_ROUTE}#${faqAnchor(slug)}`

@@ -125,7 +125,8 @@ export function ChatWindow({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-2">
+      {/* Focusable and named: Safari keyboard users scroll the history with the arrow keys. */}
+      <div role="log" aria-label={t('trade.chat.title')} tabIndex={0} className="flex-1 overflow-y-auto p-4 flex flex-col gap-2 focus-visible:-outline-offset-2">
         {messages.length === 0 && (
           <p className="m-auto text-sm text-brand-text-secondary">{t('trade.chat.empty')}</p>
         )}

@@ -99,7 +99,7 @@ export function DashboardHeader({ id, title, lead, simulated, picker }: { id: st
           <h2 id={id} className="text-section-title">{title}</h2>
           {simulated && <SimulatedBadge label={t('spaces.simulated')} />}
         </div>
-        <p className="mt-1 text-body-sm text-brand-text-secondary">{lead}</p>
+        <p className="mt-1 max-w-[68ch] text-body-sm text-brand-text-secondary">{lead}</p>
       </div>
       {picker}
     </div>
@@ -129,7 +129,7 @@ export function VolumeChart({ trades, range, rangeText }: { trades: readonly Tra
   return (
     <div>
       <h3 className="text-subheading text-brand-text">{t('stats.chart.volumeTitle')}</h3>
-      <p className="mt-0.5 mb-3 text-caption text-brand-text-muted">{t('stats.chart.volumeNote')}</p>
+      <p className="mt-0.5 mb-3 max-w-[68ch] text-caption text-brand-text-muted">{t('stats.chart.volumeNote')}</p>
       <LineAreaChart
         labels={starts.map((d) => formatBucket(d, size, locale))}
         series={chartSeries}

@@ -23,7 +23,7 @@ export function FaqLink({ slug, className }: { slug: FaqSlug; className?: string
     <Link
       to={faqPath(slug)}
       aria-label={t('faq.contextLabel', { question: faqQuestion(slug) })}
-      className={cn('group p-3.5 -m-3.5 inline-flex items-center justify-center rounded-full', className)}
+      className={cn('group p-[14px] -m-[14px] inline-flex items-center justify-center rounded-full', className)}
     >
       <span aria-hidden="true" className="flex h-4 w-4 items-center justify-center rounded-full border border-brand-border text-xs font-normal leading-none text-brand-text-muted transition-colors group-hover:border-brand-link group-hover:text-brand-link">
         ?

@@ -99,7 +99,7 @@ function OfferTableRow({ offer, own }: { offer: Offer; own: boolean }) {
           aria-label={label}
           className={cn(
             own
-              ? 'inline-flex min-h-9 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
+              ? 'inline-flex min-h-9 touch:min-h-11 items-center text-xs font-medium text-brand-text-secondary hover:text-brand-text rounded-md'
               // The row action IS the viewer's side: tonal green "Comprar" / tonal red "Vender".
               : cn(buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal', size: 'sm' }), 'min-w-[5.5rem]'),
             'after:absolute after:inset-0 after:content-[""]'

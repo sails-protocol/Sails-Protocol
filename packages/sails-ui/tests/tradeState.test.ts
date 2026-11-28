@@ -196,3 +196,33 @@ describe('canCancelTrade (Principal 8f80d4b6: trade cancel only before any escro
     for (const tradeStatus of TRADE_STATUSES) expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...OTHER })).toBe(false)
   })
 })
+
+describe('seller refund round with funds locked ("Cancelar e devolver", MULTISIG)', () => {
+  const round = { requiredSigners: ['b'], signedBy: [] }
+  const refund = (role: typeof BUYER) => deriveTradeState(input('FUNDS_LOCKED', role, { signingRoundKind: 'refund', round, buyerId: 'b', sellerId: 's', escrowType: 'MULTISIG' }))
+
+  it('shows signatures then an upcoming "Devolvido" stage, waiting on the buyer, never the payment step', () => {
+    const s = refund(SELLER)
+    expect(s.steps.map((x) => x.id)).toEqual(['opened', 'escrow', 'deposit', 'locked', 'signatures', 'outcome'])
+    expect(stepIds(s, 'current')).toEqual(['signatures'])
+    expect(s.steps.find((x) => x.id === 'outcome')?.state).toBe('upcoming')
+    expect(s.steps.find((x) => x.id === 'signatures')?.actors).toEqual(['buyer'])
+  })
+
+  it('says only that the refund started (no "Devolvido" before REFUNDED), with no primary action', () => {
+    const seller = refund(SELLER).action
+    expect(seller.title).toBe('Devolução iniciada')
+    expect(seller.description).toMatch(/aguardando a assinatura do comprador/)
+    expect(seller.primary).toBeUndefined()
+    expect(refund(BUYER).action.description).toMatch(/depende da sua assinatura/)
+  })
+})
+
+describe('"Abrir disputa" once a dispute exists', () => {
+  it('is gone after a ruling, whatever the escrow outcome', () => {
+    const dispute = { status: 'RESOLVED' as const, arbiterId: 'a' }
+    for (const status of ['SPLIT', 'COMPLETED', 'REFUNDED'] as const) {
+      for (const r of ROLES) expect(deriveTradeState(input(status, r, { dispute })).action.canDispute).toBe(false)
+    }
+  })
+})

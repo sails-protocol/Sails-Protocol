@@ -108,7 +108,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, flow, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
+export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, flow, privateHostingSlot, brandingSlot, invitesSlot, recoverySlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
@@ -126,6 +126,8 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   brandingSlot?: ReactNode
   /** Participants and invites for a private market (planned item until invites exist). */
   invitesSlot?: ReactNode
+  /** "Quem pode recuperar este mercado" in Opções avançadas (caller-owned: demo choice or planned item). */
+  recoverySlot?: ReactNode
   createAvailable: boolean
   unavailableNote?: ReactNode
   participantsAvailable: boolean
@@ -229,6 +231,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
                   ))}
                 </div>
               </fieldset>
+              {recoverySlot}
               <div className="space-y-1 rounded-lg bg-brand-elevated p-3 text-caption text-brand-text-secondary">
                 <p>{copy.entry.responsibility}</p>
                 <p>{copy.entry.limits}</p>

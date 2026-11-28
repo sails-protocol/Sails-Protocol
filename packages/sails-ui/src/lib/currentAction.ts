@@ -26,7 +26,7 @@ export interface CurrentAction {
 // (MULTISIG_SIGNING_HOLD, unverified terms): never ask the seller to "Liberar" next to a blocked round.
 // `deadlinePassed`: FUNDS_LOCKED past escrow.expiresAt but the node has not recorded the expiry yet; never urge a payment then.
 export function deriveCurrentAction({ status, isBuyer, isSeller, releaseUnavailable = false, signingUnavailable = false, deadlinePassed = false }: { status: EscrowStatus; isBuyer: boolean; isSeller: boolean; releaseUnavailable?: boolean; signingUnavailable?: boolean; deadlinePassed?: boolean }): CurrentAction {
-  const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED'
+  const canDispute = (isBuyer || isSeller) && status !== 'COMPLETED' && status !== 'DISPUTED' && status !== 'REFUNDED' && status !== 'SPLIT'
   const party = isBuyer || isSeller
 
   const watching = () => t(party ? 'escrow.actor.waiting' : 'escrow.actor.following')

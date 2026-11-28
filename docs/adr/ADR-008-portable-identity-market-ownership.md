@@ -5,7 +5,7 @@
 ## Context
 Sails separates four roles:
 - **Pears** carries messages;
-- **Pubky** identifies the user and authorises devices;
+- **Pubky** identifies the user and authorizes devices;
 - the **Sails node and SDK** record and verify;
 - the **wallet** moves funds.
 
@@ -16,8 +16,8 @@ Today only the Sails participant key, the client escrow keys and the node exist 
 ### 1. Three separate mechanisms
 | Domain | Mechanism |
 | --- | --- |
-| Social data (contacts, groups, favourites) | **First release: kept on the device only.** Later, once a signer that delivers scoped encryption keys (the `e` action) has been verified on real devices: an encrypted record in `/priv/` under a key for one versioned file, never a directory or `/`. |
-| Market ownership | A **recovery authority** declared by the owner, which authorises a **new** participant key. The old key is never reused or stored off the device. |
+| Social data (contacts, groups, favorites) | **First release: kept on the device only.** Later, once a signer that delivers scoped encryption keys (the `e` action) has been verified on real devices: an encrypted record in `/priv/` under a key for one versioned file, never a directory or `/`. |
+| Market ownership | A **recovery authority** declared by the owner, which authorizes a **new** participant key. The old key is never reused or stored off the device. |
 | Funds and escrow | Client escrow keys go in an encrypted local backup, requested **only while an escrow is open**. They are isolated from the other two mechanisms. |
 
 ### 2. Market ownership record
@@ -46,7 +46,7 @@ Today only the Sails participant key, the client escrow keys and the node exist 
 - **The market's host decides.** The host records the recovery in an append-only log (no update or delete) and uses the clock of its database, not that of the application process. The recovery takes effect at **host receipt + d**, if no veto was received by the host before then. A time signed by the new key never counts, and a recovery that has taken effect is final.
 - **A veto** signed by the current key cancels the recovery permanently. It may reach the host by any channel, including relayed from the owner's homeserver.
 - **The owner's homeserver is a transparency mirror only.** It shows the pending recovery so that the owner and others notice. It is not a source of time or of "no veto": whoever controls the Pubky root can delete files there, and its timestamps are unsigned. A recovery present only on the homeserver never takes effect.
-- **A third-party SDK** checks the signatures and the binding itself. For timing and the absence of a veto it accepts the host's verdict for that host's market. It refuses and flags a recovery declared effective before its own first sighting + d, or one declared despite a veto it saw. For an ownership change that took effect less than d ago, the SDK shows a "recent ownership change" notice with the timeline instead of accepting it silently. Refusing means not recognising the new owner for privileged actions and flagging it, while the market keeps running on the host; different clients may therefore see different states, which is the expected signal of a dishonest host.
+- **A third-party SDK** checks the signatures and the binding itself. For timing and the absence of a veto it accepts the host's verdict for that host's market. It refuses and flags a recovery declared effective before its own first sighting + d, or one declared despite a veto it saw. For an ownership change that took effect less than d ago, the SDK shows a "recent ownership change" notice with the timeline instead of accepting it silently. Refusing means not recognizing the new owner for privileged actions and flagging it, while the market keeps running on the host; different clients may therefore see different states, which is the expected signal of a dishonest host.
 
 ### 5. User journey
 | Moment | Actions | Secrets to keep |

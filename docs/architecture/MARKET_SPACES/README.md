@@ -1,6 +1,6 @@
 # Market Spaces (CTO 31): mercados P2P independentes e personalizáveis
 
-> **Implementation status (English summary):** this document is a design direction and a UI demonstration. No market model, route or service exists in the reference implementation yet. Ownership and recovery are specified in [ADR-008](../../adr/ADR-008-portable-identity-market-ownership.md) and summarised in the last section. The rest of this file is still in Portuguese; a translation pass is planned.
+> **Implementation status (English summary):** this document is a design direction and a UI demonstration. No market model, route or service exists in the reference implementation yet. Ownership and recovery are specified in [ADR-008](../../adr/ADR-008-portable-identity-market-ownership.md) and summarized in the last section. The rest of this file is still in Portuguese; a translation pass is planned.
 
 > **Corrected/Implemented 2026-11-27 (portability wording):** where this document speaks of portable identity and portable reputation, read them as design objectives, not demonstrated properties. Reputation is computed and held per node today: access by several applications on the same node is not portability between independent operators, and that cross-operator portability has not been demonstrated.
 
@@ -64,15 +64,15 @@ A market is owned by an identity, not by the node that hosts it, the device that
 
 | Topic | Statement | Label |
 | --- | --- | --- |
-| Status today | No market model, route or service exists in the reference implementation. The UI shows a demonstration. | Implemented (demonstration only) |
+| Status today | No market model, route or service exists in the reference implementation. The UI shows a demonstration. | Demonstration only (not implemented) |
 | Creation and proof | The owner's Sails participant key signs a genesis record, and ownership is the chain of signed revisions from it. A row in a node database is a cache, never the source. | Approved (direction) |
 | Administration | Administrators act only within a scope and validity the owner signed. They cannot transfer the market or widen their powers. The node operator has no implicit power. | Approved (direction) |
 | Payment | Paying for activation does not make anyone the owner. | Approved (direction) |
-| Recovery authority | The owner names a recovery authority before any loss (default: the owner's own Pubky identity; k of n optional). It authorises a new key. The old key is never reused. | Approved (direction) |
+| Recovery authority | The owner names a recovery authority before any loss (default: the owner's own Pubky identity; k of n optional). It authorizes a new key. The old key is never reused. | Approved (direction) |
 | Waiting period | A recovery, a transfer or a change of the authority takes effect no earlier than 7 days later, and the current key can veto it. This is a minimum security period, not a promise of recovery within 7 days: if the host is unavailable or refuses, the recovery stays blocked. | Approved (direction) |
 | Who counts the period | The market host, with an append-only log. The owner's homeserver is a transparency mirror only. | Approved (direction) |
 | Validation by the SDK | The SDK verifies the signature chain and the recovery binding, and flags a recovery declared effective earlier than it saw. | Approved (direction) |
 | Social data | First release: contacts stay on the device. Recovery of contacts depends on a signer release that delivers scoped encryption keys, verified on real devices. | Unvalidated dependency |
 | Moving a market to another host | Export and import of the signed revisions. Until it exists, a host that refuses can block a recovery. | Unvalidated dependency |
 
-**Labels.** *Implemented* exists in code. *Approved (direction)* is accepted product direction that is **not implemented**. *Unvalidated dependency* depends on implementation or upstream support that has not been signed off.
+**Labels.** *Implemented* exists in code. *Approved (direction)* is accepted product direction that is **not implemented**. *Unvalidated dependency* depends on implementation or upstream support that has not been signed off. *Demonstration only* is shown in the UI and has no backend.
