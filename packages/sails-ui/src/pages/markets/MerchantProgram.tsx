@@ -160,7 +160,10 @@ function YourPath({ user, demo }: { user: User | null; demo: boolean }) {
           </li>
         ))}
       </ul>
-      <Link to={faqPath('merchant-how')} className={cn(LINK, 'mt-2')}>{m('path.faq')}</Link>
+      <div className="mt-2 flex flex-wrap gap-x-4">
+        <Link to="/profile#my-stats" className={LINK}>{t('stats.me.link')}</Link>
+        <Link to={faqPath('merchant-how')} className={LINK}>{m('path.faq')}</Link>
+      </div>
     </Card>
   )
 }

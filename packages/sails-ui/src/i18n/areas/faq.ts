@@ -3,7 +3,7 @@ import { defineArea } from '../define'
 /**
  * Perguntas frequentes (Configurações › Ajuda e Sobre › Perguntas frequentes; DECISIONS.md, CTO/PO 2026-11-23).
  * Keys: `faq.*`. The fee answer and the T4 Sails row are the only FAQ keys allowed to carry the reference fee
- * (tests/economyCopyGuard.test.ts). The fee is a global protocol policy, not set per node (CTO 38).
+ * (tests/economyCopyGuard.test.ts). Approved direction: the fee is a global protocol policy (CTO 38); today it is versioned locally per node.
  */
 export default defineArea(
   {
