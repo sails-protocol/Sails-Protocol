@@ -36,6 +36,8 @@ module.exports = {
   // never be scanned by Jest at all, the same "correct general exclusion"
   // reasoning as `dist/` above, not a workaround specific to today's
   // leftover worktrees.
+  // Keeps the explorer (and so every test) off the public network by default; see the file itself.
+  setupFiles: ['<rootDir>/tests/setup/closed-explorer.js'],
   modulePathIgnorePatterns: ['<rootDir>/dist/', '<rootDir>/.claude/worktrees/'],
   // @noble/curves v2.x (forced into packages/sails-sdk/node_modules by
   // @arkade-os/sdk's own transitive tree — verified via `npm ls

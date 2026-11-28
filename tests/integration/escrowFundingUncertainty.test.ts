@@ -47,7 +47,7 @@ describe('Escrow funding uncertainty — real Postgres (Missão 11 Fase 9.1)', (
     process.env.MOCK_ESCROW = 'false'
     process.env.MULTISIG_SEED = process.env.MULTISIG_SEED || 'funding-uncertainty-test-seed'
     process.env.TRUSTED_ARBITRATORS = process.env.TRUSTED_ARBITRATORS || 'funding-uncertainty-test-arbiter'
-    process.env.MULTISIG_EXPLORER_API_URL = process.env.MULTISIG_EXPLORER_API_URL || 'https://mempool.space/api'
+    process.env.MULTISIG_EXPLORER_API_URL = process.env.MULTISIG_EXPLORER_API_URL || 'http://127.0.0.1:1'
     process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS || '1'
 
     await pg.probe()
