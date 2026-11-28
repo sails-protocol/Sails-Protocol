@@ -122,8 +122,8 @@ uses, since local dev wants `pino-pretty`'s readable logs, a
 devDependency the production stage prunes). `app` waits for `migrate` to
 finish successfully before starting, so a schema always exists before
 the first request. `MOCK_ESCROW`/`MOCK_SETTLEMENT` stay `true` here —
-this is the safe, no-secrets onboarding path; see section 8 for the real
-AWS/`MULTISIG`-mainnet production path, which is deliberately separate.
+this is the safe, no-secrets onboarding path; see section 8 for the historical
+AWS/`MULTISIG`-mainnet plan (not an approved production path), which is deliberately separate.
 **Verified against a real, cold run before this was written**, not just
 reviewed — `docker compose down -v` first for a genuinely clean retry.
 
@@ -729,7 +729,7 @@ Operator handling:
 > - Where later sections of this file refer to "the AWS RDS instance of
 >   section 8", they describe that historical plan.
 
-**Scope, stated explicitly rather than assumed**: a real, live deployment
+**Scope of the historical plan, stated explicitly rather than assumed**: a real, live deployment
 — real domain, real Postgres, real `MULTISIG` custody on Bitcoin mainnet
 — funded by the project owner's own balance to validate the full flow in
 practice, not opened to the public. The plan is to have this working

@@ -5,7 +5,7 @@
 delta, discovered during Bounded Remediation F6's own review, 2026-09-07).
 **Type:** Production-safety investigation / external side-effect semantics.
 **Status:** Evidence only. No production code changed. No mechanism authorized
-or implemented. `WDK_USDT_EVM` remains `PRODUCTION-INELIGIBLE`
+or implemented. **Corrected/Implemented 2026-11-27 (temporal delimitation):** this status describes the original investigation of 2026-09-07. A bounded remediation was implemented afterwards (sections 22 and 22.1 of this document: the provider-local execution-truth layer), and the reconciler later gained restart convergence for this rail. The findings below are preserved as the dated record of what was demonstrated before that work. `WDK_USDT_EVM` remains `PRODUCTION-INELIGIBLE`
 (`docs/rfcs/RFC-019-settlement-custody-reference-vs-normative.md`,
 `docs/PROVIDER_SUBSTITUTION_INVARIANCE_EVIDENCE.md`) — that classification is
 unchanged by this document.

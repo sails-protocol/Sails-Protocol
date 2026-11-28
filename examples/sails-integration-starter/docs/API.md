@@ -64,10 +64,10 @@ verbs actually work.
 | `submitKey(escrowId, pubkeyHex)` | yes | client-held-keys providers only |
 | `lock(escrowId)` | yes | |
 | `markPaymentSent(escrowId)` | yes | |
-| `release(escrowId, toAddress)` | yes | |
+| `release(escrowId, toAddress?)` | yes | Direct release, for providers without client-held keys (`MOCK` locally, `WDK_USDT_EVM` on testnet). `toAddress` is ignored: the server uses the buyer's registered payout address. |
 | `dispute(escrowId, reason, evidence?)` | yes | needs `TRUSTED_ARBITRATORS` configured — see `FAQ.md` |
 | `refund(escrowId)` | yes | |
-| `initiateRelease`/`initiateRefund`/`submitTransactionSignature`/`getPendingTransaction` | yes/no | Phase 2 signature-collection flow, `MULTISIG` only |
+| `initiateRelease`/`initiateRefund`/`submitTransactionSignature`/`getPendingTransaction` | yes/no | Signature-collection flow for the client-held-key providers (`MULTISIG`, `SAFE_GUARD_EVM`); `LIGHTNING_HODL` is closed to new admissions |
 | `resolveDispute(disputeId, ruling, releaseToAddress?)` | yes | caller must be the dispute's assigned arbiter |
 
 ## `reputation` — `packages/sails-sdk/src/modules/reputation.ts`
@@ -76,7 +76,7 @@ verbs actually work.
 
 ## `peers` — `packages/sails-sdk/src/modules/peers.ts`
 
-`start(secretKeyBase64)`, `stop()`, `status()`, `joinTopic(topic)`,
+`start()` (no argument: the server generates its own ephemeral transport identity), `stop()`, `status()`, `joinTopic(topic)`,
 `joinTrade(tradeId)`, `broadcastOffer(input)` — the P2P transport layer;
 none of the examples in this starter use it directly.
 

@@ -83,6 +83,8 @@ convenient default that could be relaxed under commercial pressure.
 
 ## Why Reputation Is Portable
 
+> **Corrected/Implemented 2026-11-27:** this section states a design objective, not a current property. Today the score is computed and held by each node, and cross-operator portability is not demonstrated (`docs/CRYPTOGRAPHIC_MODEL.md`; `docs/SYSTEM_DESIGN.md` section 14.4).
+
 A reputation score that only exists inside one application is not really a
 signal of trustworthiness — it's a signal of how long someone has used
 that specific application. Sails Protocol's belief is that trust, once

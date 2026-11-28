@@ -235,7 +235,7 @@ interface SailsClient {
   // releaseAsset()/dispute() above is the path most applications
   // should use instead
   settlement: {
-    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session
+    create(input: { tradeId: string; type?: EscrowType; lockedAmount: string; asset: AssetType; network?: string; timelockHours?: number }): Promise<Escrow>   // requires an active session; selection order: an LN_BTC asset or type LIGHTNING_HODL is refused first (RAIL_CLOSED), even when MOCK_ESCROW is on. Then an omitted type becomes MOCK when MOCK_ESCROW is on (the default), otherwise the asset's canonical implementation (BTC: MULTISIG, USDT_ERC20: WDK_USDT_EVM). An explicit type does not override scope, compatibility or eligibility: for an asset with a canonical implementation it must match it or creation is refused (except an explicit MOCK, accepted outside production), and types that are not production-eligible are refused in production. An AssetType with no provider is refused (UNAVAILABLE) unless a registered type is given explicitly.
     get(escrowId: string): Promise<Escrow>   // requires an active session + trade party/assigned arbiter
     submitKey(escrowId: string, pubkeyHex: string, capabilityProfile?: string): Promise<{ escrow: Escrow; buyerKeySubmitted: boolean; sellerKeySubmitted: boolean }>   // requires an active session; capabilityProfile is enforced where the escrow type requires one
     lock(escrowId: string): Promise<Escrow>   // requires an active session
@@ -255,7 +255,7 @@ interface SailsClient {
     submitDisputeEvidence(disputeId: string, descriptor: { type: string; uri?: string; note?: string }, idempotencyKey?: string): Promise<Dispute>   // requires an active session + trade party; optional idempotencyKey makes retries safe
     contestAutoResolution(disputeId: string): Promise<Dispute>   // requires an active session + trade party — RFC-021 D8, rejects a proposed automated ruling
     parseSafeGuardBundle(unsignedPsbtBase64: string): SafeGuardBundle   // pure parsing helper, no network call — SAFE_GUARD_EVM only
-    // RFC-021 — two-person control for MULTISIG escrows. approveRelease() records the caller's approval; release() checks hasDualApproval() itself.
+    // RFC-021 — two-person control for escrow release. approveRelease() records the caller's approval. The control is optional and is not a universal requirement or specific to one escrow type: it applies only when the node enables REQUIRE_DUAL_APPROVAL_RELEASE (off by default) and the escrow is in PAYMENT_PENDING; in that case release and initiateRelease are refused until both counterparties have approved. Disputed releases follow the dispute flow instead.
     approveRelease(escrowId: string): Promise<{ approval: ReleaseApproval; readyToRelease: boolean }>   // requires an active session
     getReleaseApprovals(escrowId: string): Promise<ReleaseApprovalsResult>   // requires an active session + trade party/assigned arbiter
     // Arbiter registration/profile are exposed by client.arbitration, not by client.settlement.
@@ -265,7 +265,7 @@ interface SailsClient {
   // signing helpers, one per escrow type's wire format:
   generateEscrowKeypair(): EscrowKeypair   // raw secp256k1 keypair — MULTISIG/LIGHTNING_HODL/SAFE_GUARD_EVM all use this same key format
   signEscrowPsbt(psbtBase64: string, privateKey: Uint8Array): string   // MULTISIG
-  signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL
+  signEscrowArkTx(bundleJson: string, privateKey: Uint8Array): Promise<string>   // LIGHTNING_HODL (closed to new admissions for Day 0; see RAIL_CLOSED below)
   signEscrowSafeUserOp(unsignedPsbtBase64: string, privateKey: Uint8Array): string   // SAFE_GUARD_EVM — added 2026-08-03 (UI-audit gap: parseSafeGuardBundle() could read a bundle's userOpHash but nothing could sign it, so a disputed SAFE_GUARD_EVM trade was stuck forever)
 
   // Sails OpenP2P (alias: trades) — advanced/direct use. The facade's
@@ -356,7 +356,7 @@ interface TradeIntent {
   minReputationRating?: number
 }
 
-// All six SettlementProvider types registered in src/modules/open-settlement/escrow.service.ts's PROVIDERS map.
+// The six EscrowType values the SDK can represent. Five have a provider in the PROVIDERS map (escrow-providers.ts); LIQUID_COVENANT has none and is rejected at escrow creation. Representable does not mean operational: see GETTING_STARTED.md ("Settlement providers").
 // SAFE_GUARD_EVM (RFC-020) added 2026-07-28; previously absent here even though
 // the EscrowType enum already had it — corrected by the same 2026-07-19
 // consolidation audit that caught the WDK_USDT_EVM omission above.
@@ -555,13 +555,15 @@ callers never see raw `fetch`/`WebSocket` or write their own retry loop.
   `SailsRateLimitError` (`errors.ts`, `code: 'RATE_LIMIT_EXCEEDED'`,
   `statusCode: 429`); `catch` it specifically (`instanceof SailsRateLimitError`)
   to back off before your own retry.
-- **`RAIL_CLOSED` (409, Despacho 064).** LN_BTC and the LIGHTNING_HODL (Arkade) escrow are closed for Day 0 in every
+- **`RAIL_CLOSED` (409, the Day-0 rail closure decision; see Issue #147 and PR #759).** LN_BTC and the LIGHTNING_HODL (Arkade) escrow are closed for Day 0 in every
   environment. Creating an offer, a TradeIntent or a trade for LN_BTC, an escrow with asset LN_BTC, or an escrow with
   `type: 'LIGHTNING_HODL'` (any asset) throws a `SailsError` with `code: 'RAIL_CLOSED'`, `statusCode: 409` and the
   closed rail in `details` (`[{ asset }]` or `[{ escrowType }]`). Nothing is created. The types keep LN_BTC and
   LIGHTNING_HODL (existing data stays representable); only new admissions are refused.
 
 ## 5. Build Plan (roadmap-linked — see `ROADMAP.md` for exact timing)
+
+> **Corrected/Implemented 2026-11-27:** this build plan is historical positioning. Its month ranges and "still not started" remarks reflect when it was written and are not a status report; the current contract status is owned by `API_STABLE.md`, and rail status by `GETTING_STARTED.md` ("Settlement providers"). Lightning and OpenFinance items here are roadmap, not Day 0 capabilities.
 
 1. **Meses 1-3**: `@sails/protocol-spec` npm package published — just the
    types and interfaces above, zero implementation. **Still not started**

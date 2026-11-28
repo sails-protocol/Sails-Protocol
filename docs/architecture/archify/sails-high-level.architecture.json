@@ -20,7 +20,7 @@
       { "path": "docs/SEMANTIC_KERNEL.md", "line": 63, "end_line": 104, "label": "K1/K2/K3" },
       { "path": "docs/SEMANTIC_KERNEL.md", "line": 125, "end_line": 136, "label": "Kernel Equation" }
     ] },
-    { "id": "profile", "type": "security", "label": "Canonical Semantic Profile", "sublabel": "future conformance artifact", "tag": "RESIDUAL — future", "pos": [40, 195], "size": [190, 68], "sources": [
+    { "id": "profile", "type": "security", "label": "Canonical Semantic Profile", "sublabel": "conformance artifact (v1.0 published)", "tag": "PUBLISHED — no independent impl.", "pos": [40, 195], "size": [190, 68], "sources": [
       { "path": "docs/CORE_ARCHITECTURE.md", "line": 374, "end_line": 390, "label": "§18 Canonical Semantic Profile" }
     ] },
     { "id": "modules", "type": "backend", "label": "Domain Modules / Rulesets", "sublabel": "domain rules + Outcome meaning", "pos": [230, 50], "size": [180, 72], "sources": [
@@ -48,7 +48,7 @@
   ],
   "connections": [
     { "id": "kernel-governs-modules", "from": "kernel", "to": "modules", "label": "bounds validity", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelDy": 76 },
-    { "id": "kernel-requires-profile", "from": "kernel", "to": "profile", "label": "requires (future)", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
+    { "id": "kernel-requires-profile", "from": "kernel", "to": "profile", "label": "requires", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelDy": 24 },
     { "id": "modules-to-core", "from": "modules", "to": "core", "label": "ruleset + Outcome meaning", "variant": "emphasis", "labelDy": 76 },
     { "id": "core-to-runtime", "from": "core", "to": "runtime", "label": "Transition Record", "variant": "emphasis", "labelDy": 76 },
     { "id": "runtime-to-providers", "from": "runtime", "to": "providers", "label": "dispatch (post-commit only)", "variant": "emphasis", "labelDy": 76 },

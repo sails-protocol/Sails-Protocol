@@ -801,7 +801,8 @@ has at least that status by virtue of appearing here.
 | Negotiation/chat | Yes — real `openp2p.chat()` WebSocket | Yes | Yes | Not established | Current |
 | Trade creation | Yes — real `openp2p.trade()`/`getTrade()` | Yes | Yes | Not established | Current |
 | Settlement creation (BTC leg) | Yes — canonical-registry-backed `resolveEscrowType()` for `{BTC,BITCOIN_L1}` (PR #130) | Partial — creation itself succeeds; the wider settlement journey is blocked downstream at Funding (this same table) | Yes (automated tests + traced real code path) | Not established (testnet only, MULTISIG unaudited) | Current |
-| Settlement creation (LN_BTC/USDT_ERC20) | Yes, not canonical-registry-backed | Partial, same downstream block | Partial | Not established | Current |
+| Settlement creation (USDT_ERC20) | Yes, not canonical-registry-backed (testnet, server-custodial reference) | Partial, same downstream block | Partial | Not established | Current |
+| Settlement creation (LN_BTC) | No: refused for Day 0 in every environment (`RAIL_CLOSED`, `src/common/day0-closed-rails.ts`); split from the previous LN_BTC/USDT_ERC20 row on 2026-11-27 | No | N/A | N/A | Closed (Day 0) |
 | Settlement creation (every other legacy asset) | No — throws by design | No | N/A | N/A | Deferred |
 | **Funding (BTC MULTISIG)** | **Yes — `escrow.multisigAddr` is a real, backend-derived address** | **No — no UI renders it; a user cannot complete this step through the product** | **Missing** | **Not established** | **Current (the proven gap, `docs/BACKLOG.md` item 22)** |
 | **Signing** | **Yes — `useEscrowKey.ts` performs real client-side crypto and submission** | **Yes — the real signing act completes end-to-end, automatically** | **Missing — no evidence the (barely-existent) user-visible flow behaves as claimed; zero user-facing feedback** | **Not established** | **Current** |
@@ -1786,7 +1787,7 @@ strategic/grant/partnership context, not developer onboarding)
 
 *(Architectural breadth, not equal build status — Bitcoin/USDT are
 implemented and real-path validated, Lightning is real-path validated on
-testnet only, Liquid is designed only with zero implementation. See
+testnet only (via the Ark/Arkade rail, closed to new admissions for Day 0), Liquid is designed only with zero implementation. See
 README.md's "Rail readiness" section for the full per-rail disclosure.)*
 
 Read bottom-to-top for "what does this run on" (settlement assets → Tether
@@ -1890,11 +1891,11 @@ Sails Core requirement merely because Satsails is the first integrator.
 Satsails is the environment where Sails Protocol proves integration with,
 as each rail's own real status allows (see "Rail readiness," `README.md`):
 
-- Bitcoin on-chain (✅ Proven, `MULTISIG`)
+- Bitcoin on-chain (✅ Proven by one historical micro-value mainnet rehearsal, `MULTISIG`; not a production authorization)
 - Spark (📋 Future — not yet implemented; distinct BTC product capability, not the same as Lightning/Arkade — see 2026-09-10 note below)
 - Liquid (📋 Designed — zero implementation)
-- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below)
-- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL` — see 2026-09-10 note below)
+- Lightning (📋 Day-0 required — NOT IMPLEMENTED / NOT EVIDENCED as a distinct capability; corrected 2026-09-10, see note below) Corrected/Implemented 2026-11-27: roadmap without a date and outside Day 0 by decision; see the rail-closure note below.
+- Arkade (🏗️ Implemented, testnet-only, via `LIGHTNING_HODL`; closed to new admissions for Day 0 with `RAIL_CLOSED` in every environment — see 2026-09-10 note below)
 - WDK-backed stablecoin stacks (🏗️ Implemented, testnet, server-custodial reference — `WDK_USDT_EVM`)
 - Tether Gold / XAUT (📋 Future — not yet implemented; network is Ethereum, per 2026-09-10 Product Direction)
 - DePix (📋 Future — not yet implemented; targets both Liquid and Spark, per 2026-09-10 Product Direction — added to this list, was previously absent)
@@ -1935,6 +1936,8 @@ into each other — interoperating with Lightning would not make Ark,
 Spark, or RGB "a Lightning implementation." Full canonical matrix and
 worked examples:
 `docs/BACKLOG.md` Cold Sweep Loop 5, item 20.
+
+**Corrected/Implemented 2026-11-27 (supersedes the "Day-0 requirement is unchanged" sentence above).** A CTO decision of 2026-11-21 (recorded in #147) closed the Lightning question for Day 0: native Lightning, Spark/Lightning and Arkade are roadmap without a date and outside Day 0. None is enabled for economic negotiation on Day 0, the UI does not create or execute on those rails or present a Lightning escrow as available, and no Lightning implementation work is planned for Day 0; future investigation of Spark and Arkade escrow is tracked in #588 and #147. In line with that decision, `LN_BTC` and `LIGHTNING_HODL` (Arkade) are closed to new offers, intents, trades and escrows in every environment, with no flag to reopen (`src/common/day0-closed-rails.ts`, error `RAIL_CLOSED`). Existing escrows keep their dispatch, refund and recovery paths. Reopening is a code change that needs its own decision. The historical text above is kept unchanged.
 
 **A successful Satsails production integration proves the reference
 implementation and real integration viability. It does not by itself
@@ -2001,20 +2004,20 @@ OpenFinance remains genuinely unbuilt.
 
 Use this status legend everywhere — it is mandatory, not optional:
 
-- **✅ Proven** — implemented and functional in a reference implementation
+- **✅ Proven** — implemented and functional in a reference implementation, with the evidence named in its row. It is not a production homologation, not a conformance certification, and not a claim about third-party deployments
 - **🏗️ Specified** — interface/contract defined, implementation partial or stubbed
 - **📋 Aspirational** — on the roadmap, spec not yet written
 
 | Module | Status |
 |---|---|
-| Sails OpenP2P | ✅ Proven (Satsails Wallet) |
+| Sails OpenP2P | ✅ Proven in the reference implementation (Corrected/Implemented 2026-11-27: the Satsails Wallet is a separate product, and its operation is not by itself evidence of a production integration of Sails Protocol) |
 | Sails OpenIdentity | 🏗️ Specified — embedded inside OpenP2P today |
 | Sails OpenReputation | 🏗️ Specified — embedded inside OpenP2P today |
-| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody — see that file's own caveat) implemented |
+| Sails OpenSettlement | 🏗️ Specified — `SettlementProvider` interface + Mock provider + a real `WDK_USDT_EVM` provider (`@tetherto/wdk-wallet-evm`, testnet, single-seed custody, production-ineligible — see that file's own caveat) implemented |
 | Sails OpenLiquidity | 🏗️ Specified — `LiquidityProvider` interface + Internal order book implemented |
 | Sails OpenAgents | 🏗️ Specified — real capabilities: `QvacAgentProvider` (real `@qvac/sdk` local LLM inference, live-verified) plus `BuyerAgent`/`SellerAgent` (two local agents simulating Satsails Wallet instances, autonomously generating a real `TradeIntentPayload`/offer via QVAC). **Corrected 2026-08-09** — RFC-007 D7's Social Engineering Agent is real as of RFC-017 (`social-engineering-agent.ts`, 2 of 3 patterns detected, off by default); this row was stale. `POST /v1/agents/*` (2026-08-09) exposes `generateTradeIntent`/`generateOfferIntent`/`assessIntentRisk` over HTTP for the first time. Genuinely remaining: the `unexpected_flow_deviation` social-engineering pattern (needs real trade-state-machine awareness) and the `learn()` step |
 | Sails OpenFinance | 📋 Aspirational |
-| Sails SDK (MVP release: Sails P2P Trading SDK) | ✅ Proven — **Corrected 2026-08-24** (previously read "Aspirational — interface fully specified, zero implementation"; stale). `packages/sails-sdk/src/index.ts` is a real, ~220-line barrel export — `SailsClient` plus 10+ real modules (identity, reputation, liquidity, openp2p, settlement, proof, agents, peers, capabilities, arbitration, payout addresses), real PSBT-verification cryptography (`wallet-verification.ts`), and real EVM/Bitcoin custody primitives — verified directly against the file, not assumed from an older status |
+| Sails SDK (MVP release: Sails P2P Trading SDK) | ✅ Proven as published code (Corrected/Implemented 2026-11-27: the package is published, but publication is not a homologation of the runtime it talks to) — **Corrected 2026-08-24** (previously read "Aspirational — interface fully specified, zero implementation"; stale). `packages/sails-sdk/src/index.ts` is a real, ~220-line barrel export — `SailsClient` plus 10+ real modules (identity, reputation, liquidity, openp2p, settlement, proof, agents, peers, capabilities, arbitration, payout addresses), real PSBT-verification cryptography (`wallet-verification.ts`), and real EVM/Bitcoin custody primitives — verified directly against the file, not assumed from an older status |
 
 ### What actually exists in the codebase right now
 

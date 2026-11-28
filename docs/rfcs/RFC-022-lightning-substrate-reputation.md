@@ -230,7 +230,7 @@ Relationship to RFC-021, stated precisely: RFC-021 D4's
 `cumulativeFeesObserved` (audio 06 of the same design line) is the
 shipped, narrow form of this cost-to-fabricate principle — protocol fees
 as a worst-case floor, with its acknowledged limitations (slow growth,
-audio 07; zero at bootstrap while `protocolFeeRate` is 0). This D4
+audio 07; zero at bootstrap while no fee is economically active; Corrected/Implemented 2026-11-27: the `protocolFeeRate` setting named here was retired and fees are now a `FeePolicyVersion`, versioned locally on each node today). This D4
 generalizes the floor from fees to matured settled volume, indexed by
 size — and where RFC-021 D7 registered cold-start as a requirement for
 *external* trust anchors (a vouch, a signed introduction), the ladder is
@@ -295,7 +295,7 @@ that carries judgment is deliberately thin:
   key, bound once by cross-signature (each key signs the other, committed
   into the first receipt) — the same identity↔settlement binding pattern
   D2 already requires per-trade.
-- **Portability (anti-lock-in):** reputation binds to the user-held
+- **Portability (anti-lock-in), proposed objective (Corrected/Implemented 2026-11-27: not implemented or demonstrated; the current score is node-local, and `peerId` is a transport key, not the portability mechanism):** reputation binds to the user-held
   identity key, never to a wallet account — a user carries their full
   matured history into any wallet that speaks this protocol. The
   mechanism is **delegation, never key export**: the identity key signs

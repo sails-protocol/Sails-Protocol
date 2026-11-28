@@ -144,7 +144,7 @@ pins for this reason, not because their content is less grounded.
 - **Canonical Semantic Profile** — architecturally required, not yet
   specified (`CORE_ARCHITECTURE.md` §18); represented in the
   high-level diagram as an explicitly tagged residual, not a built
-  layer.
+  layer. **Corrected/Implemented 2026-11-27:** a first profile, `sails-semantic-profile@1.0`, is now published (`conformance/profiles/sails-semantic-profile-1.0.json`). That does not demonstrate an independent second implementation or a certification.
 - **Workflow Terminal ≠ Mathematical Irreversibility** and
   **Historical Completion ≠ Current Settlement Satisfaction** — both
   real, disclosed architectural debt (`TECHNICAL_DEBT_AUDIT.md` #40,

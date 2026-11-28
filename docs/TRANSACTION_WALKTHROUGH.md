@@ -34,7 +34,7 @@ custody defensibility — RFC-014's capability check and RFC-015's
 two-person control — are **off by default** and so do not appear in the
 demo script's own run. Section 3 below walks through the trade again
 with both turned on, concretely, since that combination is what a
-production deployment handling real value should actually run.
+production deployment handling real value should actually run on an eligible rail (the WDK rail used in this walkthrough is production-ineligible, RFC-019, and these controls do not change that).
 
 ## Cast
 
@@ -139,6 +139,8 @@ halting here would be the demo script deciding, not the Policy Engine.
 `settlement-orchestrator.ts`'s `executeSettlement()` is the single real
 entrypoint for everything from here on, in order:
 
+> **Status of the rail used in this walkthrough.** `WDK_USDT_EVM` is a server-custodial reference implementation (one server-held seed), testnet only and production-ineligible (RFC-019). Setting `MOCK_ESCROW=false` and funding the seed does not make it eligible for production. The status of every settlement provider is in `GETTING_STARTED.md` ("Settlement providers").
+
 1. `escrowService.createEscrow()` + `lockFunds()` — a real, signed WDK
    transfer (`@tetherto/wdk-wallet-evm`) moving the seller's collateral
    from the treasury account to a per-trade escrow sub-account, when
@@ -193,10 +195,12 @@ the real `Dispute` row rather than assumed from the fund movement alone.
 
 ## 3. The same trade, with both custody controls turned on
 
+> **This walkthrough uses `WDK_USDT_EVM`, which is production-ineligible (RFC-019).** The node refuses to boot when `NODE_ENV=production`, `MOCK_ESCROW=false` and `WDK_SEED_PHRASE` is non-empty. The two controls described below are what a deployment on an eligible rail should enable. They do not make the WDK rail eligible, and nothing in this walkthrough is a production instruction for WDK.
+
 `ENFORCE_CAPABILITIES=true` and `REQUIRE_DUAL_APPROVAL_RELEASE=true`
 are both off by default (Sections above) precisely so the happy-path demo
 above keeps working unmodified. A production deployment handling real
-value should turn both on — here is exactly what changes, concretely,
+value should turn both on, on an eligible rail (the WDK rail used here stays production-ineligible) — here is exactly what changes, concretely,
 for the trade above.
 
 **Before the buyer's Intent is even accepted:** `intentEngine.create()`

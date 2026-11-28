@@ -345,9 +345,9 @@ per-transaction, at signature-verification time, against whatever key a
 "is this the SAME key as your Economic Identity's `publicKey`?" A
 participant's Economic Identity (`User.publicKey`) can, in principle, be
 associated with signing authority delegated to a *different* key entirely
-for a given escrow (this is exactly what `SAFE_GUARD_EVM`/`RFC-020`'s KMS
-co-signer model already does — the escrow's signing key is not the
-participant's own identity key). The binding is: Economic Identity says
+for a given escrow (this is the model `SAFE_GUARD_EVM`/`RFC-020`'s KMS
+co-signer is designed around — the escrow's signing key is not the
+participant's own identity key. Corrected/Implemented 2026-11-27: that provider is specified and tested but not deployed or exercised against a live key service, so this describes the design, not an operating separation of keys). The binding is: Economic Identity says
 WHO is trading (backed by the durable `User.id` record it's attached to);
 a `WalletAdapter`/`CustodyProvider` signature proves WHOSE FUNDS moved for
 this specific transaction — the protocol verifies the signature against
