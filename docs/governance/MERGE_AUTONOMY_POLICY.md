@@ -1,6 +1,8 @@
 # Merge Autonomy Policy (Despacho 058)
 
-Status: **PROPOSED** until the Adoption checklist (§9) is complete. Until then, Despacho 057, every earlier HOLD and `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md` stay binding.
+Status: **In force since 2026-11-21** (CTO Despacho 064); formalized on GitHub on 2026-11-28 (CTO Despacho 065, [PR #751 comment 7231746187](https://github.com/sails-protocol/Sails-Protocol/pull/751#issuecomment-7231746187)). Tier 3 and 4 keep the CTO authorization; every earlier HOLD not expressly revoked stays binding (express reconciliation in PR #751 comment 7231746187).
+
+_Status updated 2026-11-28 (Despacho 065). Historical text kept: "Status: **PROPOSED** until the Adoption checklist (§9) is complete. Until then, Despacho 057, every earlier HOLD and `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md` stay binding."_
 
 Origin: CTO 28 orders of 2026-11-21 (risk tiers; complement; decisions registered in issue #147, comment 7063780839). This policy does not change any invariant, any branch protection, or any security gate. It only says **who may authorize a merge, by risk**.
 
@@ -67,13 +69,15 @@ The EPM stops and escalates on: divergence between Principal and GK, new risk, d
 The CTO receives consolidated executive reports (proven progress, real blockers, risks, pending decisions in the CTO's competence) instead of one authorization request per PR in Tier 1 and 2. Proven progress is always kept apart from formal homologation (Day 0 criteria are homologated only by the CTO).
 
 ## 9. Adoption checklist (the delegation is NOT active before all items are done)
-- [ ] Policy merged in this repository through the normal PR flow, with GK review and Principal technical review.
-- [ ] Owner's written approval, given directly by the owner and never relayed by another session, that the owner-reserved, SHA-specific merge authorization of the solo-maintainer procedure is delegated to the EPM for Tier 1 and 2 under this policy.
-- [ ] `docs/ENGINEERING_GOVERNANCE.md` §7 and the solo-maintainer step 4 reconciled by the dated amendments of §11 (original text kept, Tier 3 and 4 preserved; owner approval: PR #751 comments 7064405778 and 7064419354).
-- [ ] GitHub controls read back and compatible (see §10), with before/after evidence.
-- [ ] PR template updated with the Tier fields.
-- [ ] EPM procedure and checklist updated.
-- [ ] Entry into force announced by the CTO, with the HOLDs and earlier despachos reconciled expressly.
+
+_Checked 2026-11-28 against `main` `75d14a7b` (Despacho 065); evidence in [PR #751 comment 7231746187](https://github.com/sails-protocol/Sails-Protocol/pull/751#issuecomment-7231746187)._
+- [x] Policy merged in this repository through the normal PR flow, with GK review and Principal technical review. (Merge `979bb78b`, head `7f545162`; Principal comments 7064518677 and 7064558027; GK documentary GO on `7f545162` issued 2026-11-21, recorded outside the PR, provenance stated in PR #751 comment 7231746187.)
+- [x] Owner's written approval, given directly by the owner and never relayed by another session, that the owner-reserved, SHA-specific merge authorization of the solo-maintainer procedure is delegated to the EPM for Tier 1 and 2 under this policy. (PR #751 comment 7068572048, `alan-schramm`.)
+- [x] `docs/ENGINEERING_GOVERNANCE.md` §7 and the solo-maintainer step 4 reconciled by the dated amendments of §11 (original text kept, Tier 3 and 4 preserved; owner approval: PR #751 comments 7064405778 and 7064419354).
+- [x] GitHub controls read back and compatible (see §10), with before/after evidence. (Read back again 2026-11-28T01:28Z: identical.)
+- [x] PR template updated with the Tier fields.
+- [x] EPM procedure and checklist updated.
+- [x] Entry into force announced by the CTO, with the HOLDs and earlier despachos reconciled expressly. (Despacho 064, 2026-11-21; express reconciliation in Despacho 065, 2026-11-28, PR #751 comment 7231746187.)
 
 ## 10. GitHub controls (read back 2026-11-21)
 - `main` protection: required checks `Analyze (javascript-typescript)`, `build`, `test`; `strict` true; `enforce_admins` true; force pushes and deletions blocked; required approving reviews 0 (the temporary solo-maintainer exception, unchanged); no rulesets.
@@ -86,7 +90,7 @@ This policy **conflicts** with two binding texts and therefore amends them, expr
 - `docs/ENGINEERING_GOVERNANCE.md` §7 says AI sessions do not acquire merge authority and every merge needs the owner's written, SHA-specific authorization.
 - `docs/governance/SOLO_MAINTAINER_TRANSITION_PROPOSAL.md`, step 4, says AI agents cannot approve or authorize a merge.
 
-Amendment (dated 2026-11-21, owner approval recorded in this PR and acknowledged in CTO Despacho 059): for **Tier 1 and Tier 2 only**, the owner delegates the merge authorization to the EPM, under all gates of §3 and the stops of §7 of this policy. The Principal and the GK keep the technical review; Tier 3 and 4 keep the owner/CTO authorization. The delegation is revocable by the owner at any time. Both documents carry a pointer to this amendment (added in this PR). Until the CTO declares the policy in force, the original text of both documents applies unchanged.
+Amendment (dated 2026-11-21, owner approval recorded in this PR and acknowledged in CTO Despacho 059): for **Tier 1 and Tier 2 only**, the owner delegates the merge authorization to the EPM, under all gates of §3 and the stops of §7 of this policy. The Principal and the GK keep the technical review; Tier 3 and 4 keep the owner/CTO authorization. The delegation is revocable by the owner at any time. Both documents carry a pointer to this amendment (added in this PR). Until the CTO declares the policy in force, the original text of both documents applies unchanged. **In force since 2026-11-21** (CTO Despacho 064); formalized on GitHub on 2026-11-28 (CTO Despacho 065, [PR #751 comment 7231746187](https://github.com/sails-protocol/Sails-Protocol/pull/751#issuecomment-7231746187)).
 
 Other relations:
 - `docs/ENGINEERING_GOVERNANCE.md` §4 (consequence classes) says *how* to build by consequence; this policy says *who may merge*. Financial-authority work is Tier 3 or 4.

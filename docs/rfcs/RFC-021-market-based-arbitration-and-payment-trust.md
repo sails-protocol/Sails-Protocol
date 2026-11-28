@@ -124,7 +124,7 @@ going forward must preserve this framing.
 > derived from `MULTISIG_SEED`). The "attestor, not fund mover" framing must not be read as describing the script.
 > **Not claimed by this note:** that the arbiter is independent (proof of possession of a key does not prove exclusive control; a server-held
 > `MULTISIG_SEED` is not independent custody), nor any liveness or appeal-reassignment guarantee for the current MULTISIG script. No code, ADR or
-> policy is changed.
+> policy is changed. See #237, #619 and the README of `docs/architecture/SAILS_SIGNING_FEDERATION/`.
 
 ### D2 — Permissionless arbiter registration
 
@@ -457,6 +457,10 @@ and `tests/routes.test.ts`.
 
 ### D8 — QVAC-assisted automated first-pass resolution (arbiters as a fallback, not the default)
 
+> **Corrected/Implemented 2026-11-27 (supersession note).** Parts of this section were superseded on 2026-08-29 (Mission 13 Phase 2). The text below is kept unchanged as the 2026-08-02 historical record; where it says that an uncontested recommendation is applied automatically, or that the sweep exercises the assigned arbiter's slot with that arbiter's identity as `triggeredBy`, it no longer describes the implementation and is not a protocol rule.
+>
+> Current behavior: QVAC is advisory only and its recommendation never executes a settlement; the sweep moves no funds. When the contest window expires without a contest, `sweepExpiredAutoResolutions()` (`dispute.service.ts`) returns the dispute to `EVIDENCE_SUBMITTED` and keeps the recommendation as context; the assigned arbiter must then produce a decision, and `resolveDispute()` requires an independently verified signature from that arbiter's own identity key (`arbitration-authority.ts`; `PROTOCOL_INVARIANTS.md`, INV-12, Attributed Authority Integrity, and the Corrected/Implemented note under it). Economic authority is never inferred from a recommendation, from an assigned or attributed identity, or from the absence of a contest. See also `SEMANTIC_KERNEL.md` section 6 (K2, Attributed Discretion), ADR-004 (capability authority at execution) and ADR-005 (ruling generation and economic disposition authority). Automated execution under a scoped, signed delegation from the human arbiter would be a separate decision; nothing in this section approves it.
+
 Synthesized from a second design session (project owner + dev partners,
 2026-08-02), building directly on D1's "attestor, not mover" framing
 rather than introducing a new authority model: *"os árbitros só são
@@ -495,6 +499,8 @@ it. Three things must all be true before anything is even proposed:
 3. Confidence is at or above `qvacAutoResolutionConfidenceThreshold`
    (config, default `0.85`) — a real, tunable number, not a fixed
    assumption.
+
+> Historical text (2026-08-02), superseded on 2026-08-29: the next three paragraphs, which describe automatic application of an uncontested recommendation, are kept for the record. See the supersession note at the start of this section.
 
 Even then, the recommendation is only *proposed* (`DisputeStatus.AUTO_PROPOSED`),
 with a visible confidence score and reasoning, and a contest window
@@ -554,6 +560,8 @@ exact behavior (every dispute goes straight to its assigned human
 arbiter) until explicitly turned on. 48 new tests across
 `tests/qvacDisputeEvidence.test.ts`, `tests/disputeFlow.test.ts`,
 `tests/qvacAutoResolutionHandler.test.ts`, and `tests/routes.test.ts`.
+
+> Update (2026-08-29): the sweep named above now executes nothing; see the supersession note at the start of this section.
 
 ### D9 — SPLIT ruling: a real settlement action for §1.9's third option (2026-08-02)
 
@@ -762,7 +770,7 @@ Bitcoin's own well-known theoretical attacks have.
    bounded: both parties would need to actively cooperate against their
    own dispute (unlike an ordinary dispute, where the two parties are
    adversarial by definition) — a narrower, higher-coordination-cost
-   attack than ordinary reputation fabrication, but not impossible.
+   attack than ordinary reputation fabrication, but not impossible. (Updated 2026-08-29: because QVAC is advisory only, a clear-match recommendation no longer replaces the assigned arbiter's signed decision; this risk now concerns what the arbiter is shown.)
 7. **D7 vouching, worst case**: an established account with real
    reputation could spend it deliberately, vouching for a sockpuppet it
    controls and accepting the `VOUCH_BURN_PENALTY` hit as a cost of
@@ -903,7 +911,7 @@ overwritten.
    `payment-account.service.ts`'s pre-signing check, the
    `settlement.escrow.released`/`refunded` burn reaction, new route
    `POST /v1/reputation/vouch`.
-6. ✅ D8's QVAC-assisted automated first-pass resolution (2026-08-02) —
+6. ✅ D8's QVAC-assisted automated first-pass resolution (2026-08-02; advisory only since 2026-08-29) —
    `assessDisputeEvidence()`, `submitEvidence()`/`proposeAutoResolution()`/
    `contestAutoResolution()`/`sweepExpiredAutoResolutions()`, the
    config-gated event reaction, two new routes, the sweeper interval.

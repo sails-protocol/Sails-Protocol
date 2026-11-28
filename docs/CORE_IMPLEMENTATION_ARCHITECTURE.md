@@ -308,7 +308,7 @@ Provider. The old Record remains historically unchanged forever; a new
 Transition establishes a new binding for the still-unexecuted Outcome
 going forward — no retroactive mutation.
 
-**Corrigido/Implementado 2026-08-30 (Mission M8.5 — Destination
+**Architecture clarification, 2026-08-30 (Mission M8.5 — Destination
 Authority & Provenance).** §15/§16 above fix *when* a destination
 binding is fixed and *how* it may change, but neither states *whose*
 authorization fixes it in the first place — a real gap M8 found live in
@@ -320,6 +320,22 @@ never the discretionary authority's, the Runtime's, or the
 settlement-key holder's — verified via the same generalized Attribution
 primitive M5 already built (`packages/sails-core/src/attribution.ts`),
 requiring no Kernel or Core change. See that document in full.
+
+**Implementation boundary (M8-R/M8-R2).** Sections 15–16 state the
+normative contract, not universal rail conformance. In the MULTISIG
+arbitrated path, `commitAuthoritativeDisputeRuling()` reads registered
+beneficiary destinations inside the transaction that claims the ruling
+and inserts the authoritative Outcome record. The binding reflects the
+values read by that transaction; READ COMMITTED alone does not establish
+that every concurrent profile update is serialized at Outcome commit
+or that multiple beneficiary reads share one database snapshot.
+`PayoutAddressService` registration updates the standing address, not
+an existing Outcome binding. Other reference rails resolve registered
+destinations at settlement time rather than using this same atomic
+Outcome snapshot. The prospective correction Transition described above
+is a normative requirement; the registration upsert is not evidence of
+its implementation. No universal rotation, recovery or production
+homologation guarantee follows.
 
 ---
 
