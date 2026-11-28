@@ -63,7 +63,7 @@ export const DEMO_MARKET_FIXTURES: readonly DemoMarketFixture[] = [
   },
   {
     // Administered by the demo user: its page shows the admin's member list (public keys only).
-    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Comunidade fictícia, com aprovação, que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 4, adminIdentity: key('a7d3'), createdAt: '2024-09-02T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: true, state: 'PUBLISHED' },
+    market: { id: 'demo-market-meu', name: 'Meu Mercado Exemplo', description: 'Comunidade fictícia, com aprovação, que você administra nesta demonstração', category: 'GENERAL', profile: 'P2P', visibility: 'PUBLIC', participantsCount: 12, adminIdentity: key('a7d3'), createdAt: '2024-09-02T12:00:00Z', entryPolicy: { kyc: 'none', social: ['GITHUB'] }, listed: true, state: 'PUBLISHED' },
     preset: 'comunidade', entry: 'approval', activity30d: 6,
   },
 ]
@@ -83,7 +83,8 @@ export const DEMO_MY_MARKETS: readonly MyMarketEntry[] = [
 ]
 
 /** Fictional members of the market the demo user administers (the admin sees public keys only, GK 2026-11-22). */
-export const DEMO_MEMBER_KEYS: readonly string[] = [key('a7d3'), key('5be90dfe1d'), key('c41d9e73a2'), key('b50ee0e9')]
+// 12 members: under MIN_AGGREGATE_COUNT the space dashboard would hide its breakdown (lib/tradeStats.ts).
+export const DEMO_MEMBER_KEYS: readonly string[] = [key('a7d3'), key('5be90dfe1d'), key('c41d9e73a2'), key('b50ee0e9'), key('e1f20a33'), key('9b8c7d6e'), key('12ab34cd'), key('f00dcafe'), key('7a6b5c4d'), key('3e2d1c0b'), key('beadfeed'), key('0ddba11')]
 
 /** Fictional join requests on the market the demo user administers ("Pedidos"). */
 export const DEMO_JOIN_REQUEST_KEYS: readonly string[] = [key('6c0ffee1'), key('d00dfeed')]

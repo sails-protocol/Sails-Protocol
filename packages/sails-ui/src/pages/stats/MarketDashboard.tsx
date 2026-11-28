@@ -2,6 +2,7 @@
  * "Painel do espaço" (PO 2026-11-23), owner only: aggregates of THIS market. Never per-member volume, member names or
  * a ranking of members; members are counts. Demo: fictional records (demo/dashboards.ts) with the "Simulado" badge.
  * Real mode: "Em breve" (LOOSE_WIRES.marketDashboard): trades carry no marketId and no aggregate endpoint exists.
+ * Small numbers (aggregatesHidden): the breakdown, chart and top assets hide behind one privacy message.
  */
 import { useMemo } from 'react'
 import { StatTile } from '../../components/charts/StatTile'
@@ -9,7 +10,7 @@ import { BarList } from '../../components/charts/BarList'
 import { WirePlanned } from '../markets/shared'
 import { isDemoMode } from '../../lib/demoMarkers'
 import { inRange } from '../../lib/periods'
-import { orderUnits, periodFigures } from '../../lib/tradeStats'
+import { aggregatesHidden, MIN_AGGREGATE_COUNT, orderUnits, periodFigures } from '../../lib/tradeStats'
 import { formatUsd } from '../../lib/format'
 import { getLocale } from '../../lib/locale'
 import { demoMarketDashboard } from '../../demo/dashboards'
@@ -55,6 +56,7 @@ export function MarketDashboard({ marketId, activity30d, participants, activeOff
   const top = orderUnits(fig.usdByUnit.keys())
     .map((u) => ({ key: u, label: u, value: fig.usdByUnit.get(u) ?? 0, valueText: formatUsd(fig.usdByUnit.get(u) ?? 0), slot: slots.get(u) }))
     .sort((a, b) => b.value - a.value)
+  const hidden = aggregatesHidden({ completed: fig.completed, members: participants })
   const tradesByUnit = new Map<string, number>()
   for (const tr of trades) if (tr.status === 'COMPLETED' && tr.completedAt && inRange(new Date(tr.completedAt), resolved.range)) tradesByUnit.set(tr.unit, (tradesByUnit.get(tr.unit) ?? 0) + 1)
 
@@ -68,6 +70,15 @@ export function MarketDashboard({ marketId, activity30d, participants, activeOff
           simulated
           picker={<DashboardPicker period={period} setPeriod={setPeriod} resolved={resolved} start={start} now={now} />}
         />
+        {hidden && <p role="status" className="mt-3 text-body-sm text-brand-text-secondary">{t('stats.space.privacyHidden')}</p>}
+        {hidden ? (
+          // Only counts that single nobody out; the offers count is the market page's own public listing.
+          <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
+            <StatTile label={t('stats.kpi.completed')} value={fig.completed < MIN_AGGREGATE_COUNT ? t('stats.space.fewerThan', { count: MIN_AGGREGATE_COUNT }) : fig.completed} />
+            <StatTile label={t('stats.space.activeOffers')} value={activeOffers ?? '—'} help={t('stats.space.now')} />
+            <StatTile label={t('stats.space.members')} value={participants ?? <SoonValue />} />
+          </dl>
+        ) : (
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-5 md:grid-cols-3">
           <StatTile label={t('stats.kpi.completed')} value={fig.completed} delta={prev ? countDelta(fig.completed, prev.completed) : undefined} />
           <StatTile label={t('stats.kpi.volume')} value={<VolumeValue amounts={fig.amountByUnit} />} />
@@ -76,15 +87,21 @@ export function MarketDashboard({ marketId, activity30d, participants, activeOff
           <StatTile label={t('stats.kpi.completionRate')} value={fig.completionRate === null ? <span className="text-body-sm font-normal text-brand-text-muted">{t('stats.kpi.noRate')}</span> : percent(fig.completionRate)} help={t('stats.kpi.completionRateHelp')} />
           <StatTile label={t('stats.space.openDisputes')} value={openDisputes} help={t('stats.space.now')} />
         </dl>
+        )}
       </div>
-      <div className={DASHBOARD_SECTION}>
-        <VolumeChart trades={trades} range={resolved.range} rangeText={resolved.rangeText} />
-      </div>
-      <div className={DASHBOARD_SECTION}>
-        <h3 className="text-subheading text-brand-text">{t('stats.space.topAssets')}</h3>
-        <p className="mt-0.5 mb-3 text-caption text-brand-text-muted">{t('stats.space.topAssetsNote')}</p>
-        {top.length === 0 ? <EmptyPeriod /> : <BarList label={t('stats.space.topAssets')} items={top.map((i) => ({ ...i, meta: t('stats.kpi.tradesCount', { count: tradesByUnit.get(i.key) ?? 0 }) }))} />}
-      </div>
+      {!hidden && (
+        <>
+          <div className={DASHBOARD_SECTION}>
+            <VolumeChart trades={trades} range={resolved.range} rangeText={resolved.rangeText} />
+          </div>
+          <div className={DASHBOARD_SECTION}>
+            <h3 className="text-subheading text-brand-text">{t('stats.space.topAssets')}</h3>
+            <p className="mt-0.5 mb-3 text-caption text-brand-text-muted">{t('stats.space.topAssetsNote')}</p>
+            {top.length === 0 ? <EmptyPeriod /> : <BarList label={t('stats.space.topAssets')} items={top.map((i) => ({ ...i, meta: t('stats.kpi.tradesCount', { count: tradesByUnit.get(i.key) ?? 0 }) }))} />}
+            {top.length > 0 && <p className="mt-2 text-caption text-brand-text-muted">{t('stats.chart.usdSource')}</p>}
+          </div>
+        </>
+      )}
     </section>
   )
 }
