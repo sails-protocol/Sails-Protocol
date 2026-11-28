@@ -57,6 +57,19 @@ dependencies remain part of the adversarial surface and must be evaluated
 under the security audit; the point is to assess the authority they can
 actually exercise rather than infer custody from code location alone.
 
+## 0.1 Scope note: security guarantees are rail- and implementation-specific
+
+This document describes both architectural security goals and reference-implementation controls. A statement about one settlement rail must not be generalized to every rail, nor treated as evidence of production deployment. In particular:
+
+- The Bitcoin multisig/PSBT flow described below and the WDK USDT EVM reference path have different signing and custody boundaries (classification in §0). Application-level two-party approval (RFC-015) is **not** on-chain multisig or independently held signing keys.
+- RFC-015 describes a feature-flagged application-layer maker-checker gate for ordinary release; its original documented default is disabled. The current deployed flag state and effectiveness require environment-specific evidence. Arbitrated release follows a distinct authority path.
+- ADR-005 is an accepted/frozen requirement for generation-bound economic disposition authority, not by itself proof that every runtime path satisfies it. A draft PR, passing isolated tests, or a green CI check must not be presented as merged, integrated, or production-homologated protection.
+- ADR-003 (rail-scoped arbitration policy) carries the file status "Proposed for CTO Gate" (2026-09-18), while the CTO gate recorded in issue #207 states "IMPLEMENTED / FROZEN" for its first implementation (PR #214, merge `deb4537`). Both records exist and this note changes neither. It does not show that per-rail arbitration is enabled in any production environment; production eligibility per rail is a separate evidence question (issue #220).
+- RFC-022 (arbiterless, decentralized reputation on a Lightning substrate) is a **Draft** open for discussion: it is neither accepted nor implemented, and `docs/rfcs/00-INDEX.md` records its acceptance decision as pending. The reputation mechanisms described in this document are those of the reference implementation's OpenReputation module. Do not read this document as describing the RFC-022 model as an available feature.
+- Where a provider side effect has an uncertain outcome, **UNKNOWN is not FAILED**. Retry and recovery claims must be checked against durable authorization and idempotency evidence; do not imply that uncertainty permits a fresh economic decision.
+
+This scope note clarifies how to read existing claims; it does not change any ADR, rail design, feature flag, or deployment status. For normative requirements consult accepted ADRs and protocol invariants; for actual coverage consult the current integrated implementation and Gatekeeper evidence.
+
 ---
 
 ## 1. Trust Without a Trusted Third Party
@@ -190,10 +203,7 @@ reputation alone does not establish a safe trade size.
    Threat Matrix (§6) for the full risk breakdown. The `MOCK` `SettlementProvider`, the separately assessed Bitcoin Gen-1 rail, and the protocol's own design
    (multisig 2-of-3, per §1.1 above) are unaffected — this is specific
    to `WDK_USDT_EVM`'s current implementation, not a design flaw.
-3. **Escrow Isolation** — escrow logic is architecturally separate from the
-   application layer (see the layer-violation fix documented in
-   `ARCHITECTURE.md`). Compromising reference-implementation infrastructure
-   does not expose escrowed funds.
+3. **Escrow Isolation** — Escrow logic is architecturally separated from the application layer (see `ARCHITECTURE.md`). This separation is a software-design boundary, not a universal cryptographic guarantee that compromise of reference-implementation infrastructure cannot expose escrowed funds. Actual protection depends on each settlement rail's implemented custody and signing model, effective key control, and independently verified evidence. In particular, compromise of the `WDK_USDT_EVM` reference path's signing seed or its controlling infrastructure (classification in §0) can expose escrowed funds. Do not infer production eligibility from this principle.
 4. **Distributed transport does not imply distributed economic truth** — HyperDHT/Secretstream provide distributed/E2E transport properties, but current economic state is still materially node-local in the Reference Implementation. Day-0 multi-operator/shared-market resilience is an explicit open completion gate under ADR-001 / #105. Do not claim "no single server holds critical state" until that evidence exists.
 5. **AI-Assisted Fraud Detection (future)** — QVAC will monitor patterns
    locally: new accounts with high volume, repeated PIX keys across
