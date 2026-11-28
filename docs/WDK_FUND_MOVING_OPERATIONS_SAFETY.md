@@ -8,8 +8,8 @@ registered against `lockFunds()`'s DEMONSTRATED retry-safety gap
 that self-initiate a real external transfer via
 `WalletAccountEvm.transfer()`.
 
-**Type:** Production-safety investigation. **Implementation: NOT
-AUTHORIZED.** This document does not claim any of these three methods has
+**Type:** Production-safety investigation. **Corrected/Implemented 2026-11-27 (temporal delimitation):** the "not authorized" status below describes the original investigation; a bounded remediation was implemented afterwards (sections 15 and 15.1), and the findings are preserved as the dated record of what was demonstrated before it. **Implementation: NOT
+AUTHORIZED** (original status). This document does not claim any of these three methods has
 been proven to have a demonstrated defect merely because #56 found one for
 `lockFunds()` — each is investigated independently, and verdicts differ by
 method where the evidence differs.

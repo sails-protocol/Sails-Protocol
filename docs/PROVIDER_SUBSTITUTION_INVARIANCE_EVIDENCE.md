@@ -407,8 +407,7 @@ opening caution).
   undetected today.
 - Arbitrary mechanism substitution — no two mechanisms are
   interchangeable for the same disposition in production configuration.
-- Production provider interchangeability — every real provider is
-  testnet-only or explicitly production-ineligible (RFC-019).
+- Production provider interchangeability — no real provider is production-authorized, and the status differs per provider (Corrected/Implemented 2026-11-27): `MULTISIG` is the only one with a supported mainnet configuration and has one disclosed micro-value mainnet rehearsal, but is not decided or homologated for production; `LIGHTNING_HODL` and `SAFE_GUARD_EVM` are testnet only; `WDK_USDT_EVM` and `MOCK` are production-ineligible (RFC-019).
 - Operational failover, censorship resistance, or operator independence.
 - Interoperability.
 - Recovery/Reconciliation Conformance (Class D substitution) — separate,

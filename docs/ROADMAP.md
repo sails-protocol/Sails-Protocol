@@ -23,7 +23,7 @@
 
 ## Status Legend (used throughout this document and every other doc in this handoff)
 
-- **✅ Proven** — implemented and functional in a reference implementation
+- **✅ Proven** — implemented and functional in a reference implementation, with the evidence named in its row. Implementation, validation and production homologation are three different states: this label covers only implementation with the named evidence, and is not a production homologation or a conformance certification
 - **🏗️ Specified** — interface/contract defined, implementation partial or stubbed
 - **📋 Aspirational** — on the roadmap, spec not yet written
 

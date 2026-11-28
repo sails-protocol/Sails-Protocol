@@ -105,12 +105,12 @@ Status vocabulary used exactly as specified: CANONICAL, PRESENT_BUT_DISPERSED, I
 | Execute | Code-only, `escrow-lifecycle.ts:522-527` names itself the single choke point | IMPLICIT |
 | Recommend → Execute barrier | RFC-016 + inline INV-12 rationale | CANONICAL |
 | Arbitrate vs. platform admin | **No platform-admin role/bypass found anywhere** — arbiters are permissionless-registered participants | IMPLICIT — absence itself is the finding, undocumented as a stated design decision anywhere outside RFC-021's general framing |
-| Change destination | `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` | CANONICAL, with disclosed residual gap (F-06) |
+| Change destination | `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md` | CANONICAL, with disclosed residual gap (F-06) (**Corrected/Implemented 2026-11-28:** F-06 is superseded; per `docs/BUSINESS_RULES_DISCOVERY.md`, section "Prior Frozen Findings Superseded By New Evidence", there is no live residual gap on the disputed non-MULTISIG rails; see the note after section 16 of `docs/DESTINATION_AUTHORITY_ARCHITECTURE.md`) |
 | Revoke (CapabilityGrant) | Code-only | IMPLICIT, real |
 | Revoke (session) | **ABSENT** — zero matches for session revocation anywhere | ABSENT (F-08A) |
 | Rotate (identity key) | **ABSENT**, explicitly disclosed as out of scope in `DESTINATION_AUTHORITY_ARCHITECTURE.md:302-307` ("OpenIdentity territory, not addressed here") | ABSENT, disclosed |
 | Renew authorization | **ABSENT** as a distinct concept — only expiry, no `renew()` | ABSENT |
-| Collapse check | One confirmed instance: the disclosed residual gap (F-06) where an arbiter's ruling request still carries destination authority for non-MULTISIG escrow types | CONTRADICTORY in that one narrow, already-disclosed scope only |
+| Collapse check | One confirmed instance: the disclosed residual gap (F-06) where an arbiter's ruling request still carries destination authority for non-MULTISIG escrow types | CONTRADICTORY in that one narrow, already-disclosed scope only (**Corrected/Implemented 2026-11-28:** superseded; the F-06 scope no longer applies, see the note on the row above) |
 
 ### Pillar E — Policy / Eligibility / Risk
 

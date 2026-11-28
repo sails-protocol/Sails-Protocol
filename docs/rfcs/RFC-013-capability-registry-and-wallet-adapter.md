@@ -34,6 +34,8 @@ already built in this codebase (`pear.service.ts`, `qvac-agent.provider.ts`)
 — two significant misattributions were found and corrected; see
 Motivation.
 
+> **Corrected/Implemented 2026-11-27 (supersession note, historical text preserved):** the "portable identity via peerId" framing below is superseded. `PearNode.start()` takes no caller key and generates an ephemeral transport keypair per session, so `User.peerId` is a transport identity, not a portable economic identity, and its link to the participant is mediated by the node, not a cryptographic binding (`docs/CRYPTOGRAPHIC_MODEL.md`). The `GET /v1/reputation/peer/:peerId` lookup remains a lookup key into node-local data.
+
 ## Motivation
 
 The proposal is a good-faith architecture document with real, buildable

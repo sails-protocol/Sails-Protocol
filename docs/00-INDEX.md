@@ -76,6 +76,7 @@ Use this path for software boundaries, implementation structure and visual archi
 - [`CRYPTOGRAPHIC_MODEL.md`](CRYPTOGRAPHIC_MODEL.md) — identity, signatures, encryption and hash-chain mechanics.
 - [`architecture/`](architecture/) — canonical visual representations. Diagrams represent architecture; they do not define it.
 - [`whitepapers/SAILS_TECHNICAL_PAPER.md`](whitepapers/SAILS_TECHNICAL_PAPER.md) — technical explanatory companion for the architecture.
+- [`architecture/UNIVERSAL_SETTLEMENT_ARCHITECTURE_STUDY_01.md`](architecture/UNIVERSAL_SETTLEMENT_ARCHITECTURE_STUDY_01.md) — non-normative companion study (Study 01): candidate settlement constructions only; RFC-024 remains a candidate; no decision.
 
 If a visual diagram conflicts with a governing architecture document, the document governs.
 

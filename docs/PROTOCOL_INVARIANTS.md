@@ -489,8 +489,11 @@ a separate architectural evolution.
 
 **EVIDENCE.** `checkFundMovementCapability()` (`escrow-lifecycle.ts`);
 `config/index.ts`'s production boot guard (`FATAL: NODE_ENV=production
-requires ENFORCE_CAPABILITIES=true`); `tests/configProductionGates.test.ts`;
-`tests/fundMovementCapabilityCoverage.test.ts`;
+requires ENFORCE_CAPABILITIES=true`; production boots only when
+`ENFORCE_CAPABILITIES` is exactly `true`, and an earlier version of this
+guard used a different message); `tests/configProductionGates.test.ts`;
+`tests/fundMovementCapabilityCoverage.test.ts` (10 scenarios, both the
+enforced and explicitly-unenforced paths);
 `tests/capabilityCanonicalOnboarding.test.ts`;
 `tests/integration/capabilityAuthorityEnforced.test.ts` (real Postgres +
 Redis, enforcement on).
@@ -499,12 +502,6 @@ Redis, enforcement on).
 move funds) at a different granularity — INV-01 asks "are you a real,
 verified party to this trade," INV-08 asks "does your role additionally
 carry an explicit capability grant for this specific action."
-
-**EVIDENCE.** `checkFundMovementCapability()` (`escrow-lifecycle.ts`);
-`config/index.ts`'s production boot guard (`FATAL: NODE_ENV=production
-but ENFORCE_CAPABILITIES is not set`); `tests/
-fundMovementCapabilityCoverage.test.ts` (10 scenarios, both the
-enforced and explicitly-unenforced paths).
 
 ### INV-09. Native Rail Semantics Must Be Preserved
 
@@ -659,6 +656,8 @@ yet, and this document's own discipline (§"How Invariants Are
 Enforced" below) is to never claim evidence that isn't real. Mission
 12's conformance-impact findings identify exactly which current
 behaviors this invariant newly classifies as non-conformant.
+
+> **Corrected/Implemented 2026-11-27 (historical status):** the STATUS paragraph above records the state at the original constitutional delta of 2026-08-29, when no evidence existed. It is preserved as a dated record and is not the current status. The correction below registers the later evidence for the MULTISIG scope and its limits, and the note after it keeps QVAC advisory-only. Neither establishes universal conformance, and neither creates a new obligation.
 
 > **Corrected/Implemented 2026-08-29 (Mission 13 Phase 2), MULTISIG
 > scope only.** The paragraph above is now partially stale: real

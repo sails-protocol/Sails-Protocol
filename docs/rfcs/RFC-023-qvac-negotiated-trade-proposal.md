@@ -126,7 +126,7 @@ touching `createTrade()` itself, explicitly out of scope here.
 **4. Approval is the existing, unmodified path.** The UI's "Aprovar" action
 on a returned proposal calls the same `sailsClient.openp2p.trade(offerId,
 amount)` → `POST /v1/openp2p/trades` → `trade.service.ts createTrade()`
-flow already in production for a manually-selected offer
+flow already in production for a manually-selected offer (Corrected/Implemented 2026-11-27: "in production" here means the existing, unmodified code path, not evidence of a production deployment, and it does not establish that this RFC's proposal route is available in a production environment)
 (`OfferDetail.tsx`). Nothing in `open-settlement` is touched by this RFC.
 
 ## Reference Implementation

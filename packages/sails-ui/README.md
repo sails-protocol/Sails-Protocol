@@ -376,8 +376,8 @@ before building anything:
   `docs/ARCHITECTURE.md` calls it "each PearNode's real identity
   keypair" outright) — used both to sign/authenticate
   (`common/middleware/auth.ts`) and to run the Hyperswarm/HyperDHT P2P
-  node (`pear.routes.ts`'s `POST /v1/peers/start` takes the same secret
-  key straight from the identity flow). `Profile.tsx` now labels it
+  node.
+  **Corrected/Implemented 2026-11-27 (supersedes the "same key" statement above, which was true until 2026-08-09):** `POST /v1/peers/start` takes no key. The node generates its own ephemeral transport keypair per session (`PearNode.start()`), which is separate from the participant's identity key (`docs/CRYPTOGRAPHIC_MODEL.md`). The label described next reflects the earlier model: `Profile.tsx` labelled it
   "Sua chave de identidade (Pears / P2P)" with an `InfoTooltip`
   explaining both roles in one sentence and naming Keet directly, so the
   connection to what the user already saw there is explicit.

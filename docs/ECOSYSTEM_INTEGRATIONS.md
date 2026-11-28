@@ -115,7 +115,7 @@ integrations below exist in code" refers specifically to the
 proposes for each network — it is not a claim that no Bitcoin-L2-adjacent
 settlement code exists anywhere in this repository. `LIGHTNING_HODL`
 (`src/modules/open-settlement/lightning-hodl.provider.ts`) is a real,
-testnet-evidenced escrow provider settling via the Ark/Arkade protocol —
+testnet-evidenced escrow provider settling via the Ark/Arkade protocol (closed to new admissions for Day 0) —
 a materially different design (VTXO-based multi-party escrow) from the
 Hold-Invoice/submarine-swap coordination pattern the Lightning row below
 describes. Spark's row is not merely "conditional" scope — Spark is
@@ -205,8 +205,8 @@ own finality and adapter correctness.
 
 **DeFi credit / MEV.** Two separate, smaller claims worth keeping
 distinct rather than merged into one "DeFi story":
-- Portable reputation (`PROTOCOL_SPECIFICATION.md` §1's Reputation
-  primitive) is a plausible input to a lending protocol's own risk model,
+- Reputation (`PROTOCOL_SPECIFICATION.md` §1's Reputation
+  primitive; node-local today, portability is an objective) could be a plausible input to a lending protocol's own risk model,
   the same way a credit bureau score is external to a bank's decision —
   Sails would supply a signal, never a lending decision or a guarantee.
 - Off-chain negotiation is not visible to a public mempool, which is a
@@ -234,8 +234,8 @@ to a non-trading domain instead of P2P currency exchange.
 - **RWA** (tokenized real-world assets): compliance-gated `Intent`
   matching plus fiat-proof-synchronized settlement, structurally identical
   to the PIX↔asset flow `PROTOCOL_SPECIFICATION.md` §4 already specifies.
-- **Gig/freelance work**: `Reputation` portable across platforms instead
-  of reset per-platform, escrow-backed settlement on deliverable
+- **Gig/freelance work**: `Reputation` that could carry across platforms (an objective; node-local today) instead
+  of resetting per platform, escrow-backed settlement on deliverable
   acceptance instead of a platform-run payout queue.
 - **Agent economy**: `OpenAgents` (🏗️ Specified, `PROJECT_CONTEXT.md` §4)
   extended so autonomous agents — not just human-operated wallets — are
@@ -293,7 +293,7 @@ dispute-resolution mechanics — see that document for how Sails' own
 | Shape | Standalone desktop application | Centralized web service, non-custodial escrow | Protocol + SDK, integrated into any wallet |
 | Escrow | 2-of-2 multisig + security deposits | 2-of-3 multisig (platform holds 3rd key) | Pluggable `SettlementProvider` (`PROTOCOL_SPECIFICATION.md` §4B) — the Reference Wallet's own provider is disclosed as single-seed custody today, `RFC-019-settlement-custody-reference-vs-normative.md` |
 | Dispute resolution | DAO-elected mediators/arbitrators | Platform support team, using the 3rd key | Delegated to whichever integrator/community configures it — `SECURITY_MODEL.md`'s Dispute Assistant provides evidence, not automatic rulings |
-| Reputation | Local to the Bisq account | Local to the Hodl Hodl account | Portable across any wallet integrating `@satsails/p2p-trading-sdk` (`PROTOCOL_SPECIFICATION.md` §1's Reputation primitive) |
+| Reputation | Local to the Bisq account | Local to the Hodl Hodl account | Shared by any wallet on the same node integrating `@satsails/p2p-trading-sdk` (`PROTOCOL_SPECIFICATION.md` §1's Reputation primitive); cross-operator portability is an objective, not demonstrated |
 
 **The honest caveat this table must carry:** "delegated to whichever
 integrator configures it" is not automatically an advantage — it also

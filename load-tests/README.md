@@ -192,7 +192,7 @@ k6 run --quiet load-tests/scenarios/smoke-test.js
 echo "k6 exited with status $?"
 ```
 
-A real CI environment needs the same three prerequisites listed above
+The command above is a recommended gate, not a statement that a k6 job is configured as a required check: which checks are required on the main branch is set in branch protection, not by this file. A real CI environment needs the same three prerequisites listed above
 (Postgres+Redis up, server running with rate limits raised) — this
 suite doesn't spin those up itself, matching `load-tests/artillery/`'s own existing
 convention of treating that as the runner's job, not the test's.
