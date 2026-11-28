@@ -1,7 +1,7 @@
 /**
  * Layer A: the icon of a market or of a portal action (DECISIONS.md "Modelo mundo aberto": icons are mandatory).
  * Mercado Sails = Globe, always on the brand accent (PO 2026-11-28, an explicit exception to "orange = primary
- * action / you are here"; accent on its /10 tint: 4.1-4.5:1 light, 4.5-5.9:1 dark), a public market with its own brand = Store,
+ * action / you are here"; accent on its /10 tint; measured 3.8-4.5:1 light, 4.2-5.5:1 dark, 3:1 needed), a public market with its own brand = Store,
  * a private market = UsersRound (a group of admitted people; deliberately no lock, no security claim). A market's brand
  * image, when it exists, replaces the generic icon. Tokens only.
  */
