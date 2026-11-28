@@ -376,6 +376,8 @@ question (§14) before being built:
 3. The optional explicit-override path (§7) remains available future
    work, not required to close the concrete M8 finding.
 
+> **Corrected/Implemented 2026-11-27 (temporal reconciliation):** the list above is the remaining work as recorded when this note was written (2026-08-30). Since then the cooperative release path (`/release` and `/initiate-release`) resolves the beneficiary's registered payout address and ignores a caller-supplied destination, as noted in `docs/M8_DISPATCH_GATE_FINDINGS.md` (note after section 6). The legacy dispute ruling path for the non-MULTISIG rails still passes the arbiter's destination, a disclosed residual. This note does not declare any engineering obligation closed.
+
 ## 17. Explicit Non-Goals of This Document
 
 Does not claim: that any code has been changed by this document (none

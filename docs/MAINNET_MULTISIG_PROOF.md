@@ -164,8 +164,7 @@ to 0).
   human-reviewed before any signature.
 - Real buyer and real seller client-side signatures, produced with
   private keys that never left the client side.
-- Real server-side combine/finalize (server never held a signing key,
-  only combined two independently-produced signatures).
+- Real server-side combine/finalize. In this cooperative rehearsal the server held no participant signing key and only combined the two independently produced participant signatures; the arbiter key remains derived on the server, as stated elsewhere in this document.
 - A real mainnet broadcast, with a confirmed release transaction.
 - Both the funding and the release are independently, externally
   verifiable by anyone via public block explorers — this proof does not
