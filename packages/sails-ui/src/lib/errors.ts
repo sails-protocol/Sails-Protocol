@@ -20,10 +20,32 @@
  * dragging React/DOM/Vite-only syntax into the test process. Nothing
  * about the class's behavior or its public import path from
  * `context/AuthContext` changed — see that file's own re-export.
+ *
+ * 2026-11-21 (UX-028): now imports `i18n` for its copy. That module is plain data plus
+ * `lib/locale.ts` (no Vite-only syntax), so the Jest-safety reasoning above still holds.
  */
+import { t, type MessageKey } from '../i18n'
+
 export class WrongPassphraseError extends Error {
-  constructor(message = 'Senha incorreta.') {
+  constructor(message = t('auth.errors.wrongPassphrase')) {
     super(message)
     this.name = 'WrongPassphraseError'
   }
+}
+
+// SDK 409 codes from trade admission (PR #651), matched by `code` string so
+// this leaf module stays import-free (SailsError carries `code`).
+const SDK_ERROR_MESSAGES: Record<string, MessageKey> = {
+  INTENT_BOUND: 'shell.errors.intentBound',
+  AMBIGUOUS_INTENT: 'shell.errors.ambiguousIntent',
+  IDEMPOTENCY_OUTCOME_UNKNOWN: 'shell.errors.idempotencyUnknown',
+  // 403 from settlement.create when ESCROW_CREATE_SELLER_ONLY is enforced (CTO D7): the buyer never creates the escrow.
+  ESCROW_CREATE_SELLER_ONLY: 'shell.errors.escrowCreateSellerOnly',
+}
+
+/** User-facing message for a caught error: known SDK codes first, then the error's own message, then `fallback`. */
+export function errorMessage(err: unknown, fallback: string): string {
+  const code = (err as { code?: unknown } | null)?.code
+  if (typeof code === 'string' && SDK_ERROR_MESSAGES[code]) return t(SDK_ERROR_MESSAGES[code])
+  return err instanceof Error && err.message ? err.message : fallback
 }

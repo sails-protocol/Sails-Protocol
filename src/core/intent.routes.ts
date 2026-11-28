@@ -22,6 +22,7 @@ import { NotFoundError, ForbiddenError, ValidationError } from '../common/errors
 import { docsOnlySchema } from '../common/openapi'
 import type { IntentType, IntentStatus, TradeIntentPayload } from '../common/types/intent'
 import type { AssetType } from '../common/types'
+import { assertRailOpen } from '../common/day0-closed-rails'
 
 // Fase 1 Red Team finding: asset/currency/fiatMethod were open
 // z.string(), letting adversarial free text ride all the way into
@@ -52,7 +53,8 @@ const tradeIntentPayloadSchema = z.object({
   // they'd be silently dropped before ever reaching intent-engine.ts's
   // own bounds check, for every caller of this route (including
   // @satsails/p2p-trading-sdk's createIntent()).
-  minReputationRating: z.number().optional(),
+  minReputationScore: z.number().optional(), // UX-048; bounds and the alias rule are checked in intent-handler.ts
+  minReputationRating: z.number().optional(), // deprecated alias of minReputationScore
   // RFC-023 — same "must be listed explicitly or zod silently strips it"
   // reasoning as minReputationRating above. Decimal strings (RFC-009),
   // not z.number(), same convention as maxValue/minValue.
@@ -104,6 +106,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
     },
   }, async (request, reply) => {
     const body = createIntentSchema.parse(request.body)
+    assertRailOpen({ asset: body.payload.asset }) // Despacho 064: no LN_BTC intent is born
     const participantId = (request as AuthenticatedRequest).participantId
     const intent = await intentEngine.create<TradeIntentPayload>(
       body.type as IntentType,
@@ -189,7 +192,7 @@ export async function intentRoutes(app: FastifyInstance): Promise<void> {
 
     const { match, counterProposal } = await liquidityRouter.proposeForIntent(
       payload.asset as AssetType, payload.side, amount,
-      { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating }
+      { priceMin: payload.minPriceUsd, priceMax: payload.maxPriceUsd, minReputation: payload.minReputationRating, minReputationScore: payload.minReputationScore }
     )
 
     // COORDINATED's only forward transition is DISCOVERING

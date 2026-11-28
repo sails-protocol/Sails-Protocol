@@ -57,6 +57,8 @@ async function databaseNow(tx: Prisma.TransactionClient): Promise<Date> {
 async function loadFeePolicy(id: string): Promise<FeePolicyV1> {
   const v = await prisma.feePolicyVersion.findUnique({ where: { id } })
   if (!v) throw new CommitmentPairRefused('E25_FEE_POLICY_DIGEST_MISMATCH', { field: 'feePolicyVersionId' })
+  // A trade commits only to a policy in force: never a draft, never a retired one.
+  if (v.status !== 'PUBLISHED') throw new CommitmentPairRefused('E25_FEE_POLICY_DIGEST_MISMATCH', { field: 'feePolicyVersionId.status' })
   const rate = v.protocolFeeRate.toFixed(8).replace(/\.?0+$/, '')
   return { protocolFeeRate: rate, payerModel: v.payerModel, economicBasis: v.economicBasis, requiredConfirmations: v.requiredConfirmations as number, smallTradeRule: v.smallTradeRule }
 }
@@ -195,6 +197,10 @@ export class CommitmentPairService {
         return view(updated)
       })
     } catch (err) {
+      // M-1b: the COMMITTED transition reserves Offer capacity in the database; its refusals (SQLSTATE E2501-E2505, message prefix
+      // E25_OFFER_*) become the same 409 refusals as every other E25 code, never a raw 500.
+      const capacity = /E25_OFFER_(?:NOT_RESOLVED|CAPACITY_NOT_CONFIGURED|CAPACITY_BLOCKED|CAPACITY_EXCEEDED|CAPACITY_ANCHOR_RESERVED)/.exec(JSON.stringify(err, Object.getOwnPropertyNames(err ?? {})))
+      if (capacity) throw new CommitmentPairRefused(capacity[0])
       if (!isUniqueConstraintError(err)) throw err
       const again = await this.replay(op, i.participantId, i.idempotencyKey, requestHash)
       if (again) return again

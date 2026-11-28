@@ -20,7 +20,8 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from '@bitcoinerlab/secp256k1'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
+import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis } from './identityTestHelpers'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
@@ -118,12 +119,13 @@ describe('M9-R — C4 recovery: authorized dispatch that never persisted (real P
   })
 
   async function makeUndispatchedDisputedEscrow(suffix: string, ruling: 'RELEASE' | 'REFUND' | 'SPLIT', buyerBps: number | null = null) {
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)

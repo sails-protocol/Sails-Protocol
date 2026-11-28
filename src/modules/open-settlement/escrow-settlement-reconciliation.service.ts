@@ -349,6 +349,7 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
         buyerPubkey, sellerPubkey, arbiterPubkey,
         txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
         status: escrow.status,
+        triggeredBy: pending.rulingArbiterId ?? pending.triggeredBy,
       }
 
       // Ask chain truth before deciding whether this is merely convergence
@@ -375,7 +376,8 @@ async function reconcileUnclaimedFullySignedPending(report: ReconciliationReport
             await authorizePendingExecution(pending)
             await claimEscrowTransition(escrow.id, escrow.status, targetStatus)
             claimedBeforeBroadcast = true
-          }
+          },
+          !!pending.disputeId
         )
       } catch (err) {
         if (isLostEscrowClaim(err)) {
@@ -525,11 +527,19 @@ async function reconcileTxReleaseId(escrow: NonNullable<Awaited<ReturnType<typeo
     buyerPubkey, sellerPubkey, arbiterPubkey,
     txLockId: escrow.txLockId, txLockVout: escrow.txLockVout,
     status: escrow.status,
+    triggeredBy: pending.rulingArbiterId ?? pending.triggeredBy,
   }
 
   let result: Awaited<ReturnType<typeof multisigProvider.reconcilePendingSettlement>>
   try {
-    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[])
+    // A ruling round is re-signed by the arbiter only when its durable ADR-005 authorization exists: the live path wrote
+    // it before the claim this escrow already holds. Without it, nothing is signed.
+    result = await multisigProvider.reconcilePendingSettlement(input, pending.unsignedPsbtBase64, signedList as string[],
+      pending.disputeId ? async () => {
+        const authorized = await prisma.economicDispositionAuthorization.findUnique({ where: { pendingOperationId: pending.id }, select: { id: true } })
+        if (!authorized) throw new EscrowError(`Ruling round ${pending.id} has no committed disposition authorization; the arbiter does not sign`)
+      } : undefined,
+      !!pending.disputeId)
   } catch (err) {
     // Issue #299 (CTO D3) - no automatic convergence from here: the node rejected the round's transaction (still
     // UNKNOWN - another node may have it) or the round cannot be built. Structured manual review (code, txid, round),
@@ -622,11 +632,11 @@ async function reconcileWdkTerminalTransfer(escrow: NonNullable<Awaited<ReturnTy
 
   // The expected destination is independently re-derived, never trusted blindly from the attempt row
   // itself (Case D) - REFUND always pays the treasury account (index 0), fully deterministic. RELEASE
-  // pays the buyer's own registered PayoutAddress in the ordinary cooperative case; an arbitrated
-  // release may instead carry an arbiter-supplied explicit destination that this reconciler has no
-  // durable way to re-derive (a disclosed, pre-existing residual - see escrow-lifecycle.ts's own
-  // resolvePayoutAddress() "AUTHORITY BOUNDARY" comment) - such a mismatch is surfaced as manual
-  // review rather than either silently trusted or treated as proven corruption.
+  // pays the buyer's registered PayoutAddress, on the cooperative path and, since M8-R2 (dispute.service.ts
+  // applyRuling()), on the disputed path too: an arbiter-supplied destination is no longer accepted. This
+  // reconciler resolves that address at recovery time, so if the buyer rotated their PayoutAddress after the
+  // release was executed the receipt check reports a mismatch; that is surfaced as manual review rather than
+  // either silently trusted or treated as proven corruption.
   let expectedDestination: string
   try {
     expectedDestination = operationType === 'REFUND'
@@ -708,8 +718,9 @@ async function reconcileWdkSplitTransfer(escrow: NonNullable<Awaited<ReturnType<
   let sellerDestination: string
   try {
     // Same "explicit trusted-internal-caller only" resolution the live splitFunds() call itself uses
-    // for the cooperative (non-arbitrated) case - see reconcileWdkTerminalTransfer()'s own comment on
-    // this same disclosed, pre-existing residual for an arbitrated destination override.
+    // for the cooperative case and, since M8-R2, for a disputed split as well (an arbiter-supplied destination
+    // is no longer accepted). As in reconcileWdkTerminalTransfer(), the addresses are resolved at recovery time,
+    // so a later rotation of either PayoutAddress surfaces as a mismatch and goes to manual review.
     buyerDestination = await resolvePayoutAddress(undefined, trade.buyerId, escrow.asset)
     sellerDestination = await resolvePayoutAddress(undefined, trade.sellerId, escrow.asset)
   } catch (err) {

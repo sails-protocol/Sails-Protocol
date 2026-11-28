@@ -86,7 +86,8 @@ const mockCapabilityGrantTransaction = jest.fn(async (fn: (tx: unknown) => Promi
     // Issue #294 - TradeRepository.transitionManually() runs in one transaction: it checks the
     // trade's escrow (none by default here), CAS-updates the Trade status, then re-reads the row
     // (real Prisma's updateMany returns no row) - which is what mockTradeUpdate models below.
-    escrow: { findUnique: async () => null },
+    // F4 A1: createEscrow() inserts inside the transaction that takes the pair lock first.
+    escrow: { findUnique: async () => null, create: (...args: unknown[]) => mockEscrowCreate(...args) },
     trade: {
       updateMany: async () => ({ count: 1 }),
       findUnique: (...args: unknown[]) => mockTradeUpdate(...args),
@@ -145,6 +146,13 @@ const mockPaymentAccountCreate = jest.fn()
 const mockPaymentAccountUpdate = jest.fn()
 // Missão 11 Fase 9.3.4 — payout-address privacy-boundary route tests.
 const mockPayoutAddressFindUnique = jest.fn()
+
+// F4 A1: createEscrow() takes the pair lock; here the pair is always ready (A1 itself: tests/escrowCreateCommitmentPair.test.ts).
+// Its stored terms must equal the escrow request (ESCROW_TERMS_MISMATCH otherwise): the creating tests set them via mockLockPair.
+const mockLockPair = jest.fn(async () => ({ row: { id: 'pair-1', rail: 'MOCK', trade: { asset: 'BTC', amount: '0.01' } }, readiness: { ok: true }, t: new Date() }))
+jest.mock('../src/modules/open-p2p/commitment-pair.service', () => ({
+  lockPairForEffect: (...args: unknown[]) => (mockLockPair as any)(...args),
+}))
 
 jest.mock('../src/common/database', () => ({
   prisma: {
@@ -1416,7 +1424,8 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('creates an escrow for an authenticated caller', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1', asset: 'BTC', amount: '0.01' })
+      mockLockPair.mockResolvedValueOnce({ row: { id: 'pair-1', rail: 'MOCK', trade: { asset: 'BTC', amount: '0.01' } }, readiness: { ok: true }, t: new Date() })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'MOCK', lockedAmount: '0.01', asset: 'BTC', // Decimal fields — same .toString() note as above
@@ -1479,7 +1488,8 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
     // USDT_ERC20 pairing is now correctly rejected (new test below).
     it('accepts SAFE_GUARD_EVM as a real, schema-recognized escrow type for an asset with no canonical scope mapping (RFC-020)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, tradeIntentId: 'anchor-1', asset: 'STACKS', amount: '1.5' })
+      mockLockPair.mockResolvedValueOnce({ row: { id: 'pair-1', rail: 'SAFE_GUARD_EVM', trade: { asset: 'STACKS', amount: '1.5' } }, readiness: { ok: true }, t: new Date() })
       mockEscrowCreate.mockResolvedValueOnce({
         id: 'escrow-safe-guard-1', tradeId: 'trade-1', status: 'CREATED',
         type: 'SAFE_GUARD_EVM', lockedAmount: '1.5', asset: 'STACKS',
@@ -1498,7 +1508,7 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
 
     it('rejects SAFE_GUARD_EVM for USDT_ERC20 — not the canonical {USDT,ETHEREUM} implementation (Mission 4 correction, previously silently accepted)', async () => {
       const token = await authedSession('buyer-1')
-      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null })
+      mockTradeFindUnique.mockResolvedValueOnce({ id: 'trade-1', buyerId: 'buyer-1', sellerId: 'seller-1', escrowId: null, asset: 'USDT_ERC20', amount: '1.5' })
 
       const res = await app.inject({
         method: 'POST',
@@ -1785,6 +1795,20 @@ describe('Route restoration — HTTP round-trips through the real routes', () =>
       expect(body.data.signed).toBe(true)
       expect(body.data).not.toHaveProperty('signedBy')
       expect(body.data).not.toHaveProperty('ownerId')
+    })
+
+    it('refuses the account owner signing their own payment account (403), and writes nothing', async () => {
+      const token = await authedSession('buyer-1')
+      mockPaymentAccountFindUnique.mockResolvedValueOnce({ accountHash: 'hash-1', ownerId: 'buyer-1', signed: false, firstUsedAt: new Date('2026-01-01'), completedTrades: 0, chargebacks: 0 })
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/v1/settlement/payment-accounts/hash-1/sign',
+        headers: { authorization: `Bearer ${token}` },
+      })
+
+      expect(res.statusCode).toBe(403)
+      expect(mockPaymentAccountUpdate).not.toHaveBeenCalled()
     })
 
     // Missão 11 Fase 9.3.4 — CTO-mandated INV-OP-10 existing-surface

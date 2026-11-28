@@ -21,6 +21,8 @@
  * reliably rather than silently producing garbage, which is what lets
  * callers distinguish "wrong passphrase" from "corrupt/legacy data" below.
  */
+import { t } from '../i18n'
+
 const PBKDF2_ITERATIONS = 210_000
 const SALT_STORAGE_KEY = 'sails_ui_kdf_salt'
 
@@ -49,7 +51,7 @@ function getOrCreateSalt(): Uint8Array {
   try {
     localStorage.setItem(SALT_STORAGE_KEY, bytesToHex(salt))
   } catch {
-    throw new Error('Não foi possível salvar dados neste navegador (modo privado ou armazenamento cheio) — tente em uma janela normal ou libere espaço.')
+    throw new Error(t('auth.errors.saveDataFailed'))
   }
   return salt
 }

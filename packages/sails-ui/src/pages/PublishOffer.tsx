@@ -20,11 +20,9 @@
  *    `AMOUNT_PRESETS` comment already flags this same gap). Selectable
  *    in the UI for fidelity to the reference screenshot, but disabled
  *    with an explanatory tooltip — publishing always sends a fixed price.
- * 2. `priceUsd` itself, when the user prices in a non-USD currency —
- *    derived from `lib/currency.ts`'s `ILLUSTRATIVE_FX_TO_USD`, the same
- *    "illustrative, not a live rate" honesty boundary `AMOUNT_PRESETS`
- *    already uses, since `CreateOfferInput.priceUsd` is mandatory on the
- *    real backend regardless of which fiat the user prices in.
+ * 2. Non-USD publication is blocked (CTO 118): no validated FX or
+ *    multi-fiat contract exists. The entered USD decimal is submitted
+ *    unchanged, never calculated from an illustrative rate.
  *
  * `handlePublish()` calls the real `sailsClient.liquidity.publish()`
  * (`POST /v1/liquidity/offers`) directly (corrected 2026-08-04 — this
@@ -38,26 +36,38 @@
  * old mock filter, which ignored side entirely.
  */
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router'
-import { toast } from 'sonner'
+import { Link, useNavigate, useSearchParams } from 'react-router'
+import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
 import { CurrencyPicker } from '../components/marketplace/CurrencyPicker'
 import { InfoTooltip } from '../components/ui/InfoTooltip'
 import { Button } from '../components/ui/button'
+import { SEGMENT_TRACK, segmentItemClass } from '../components/ui/SegmentedControl'
+import { cn } from '../lib/utils'
+import { Page, PageHeader } from '../components/layout/PageHeader'
+import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { Card } from '../components/ui/card'
 import { Input } from '../components/ui/input'
 import { Textarea } from '../components/ui/textarea'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../components/ui/select'
-import { ArrowLeft } from 'lucide-react'
+import { Combobox } from '../components/ui/combobox'
+import { PaymentMethods } from '../components/ui/PaymentMethods'
+import { ArrowLeft, Check } from 'lucide-react'
+import { SideArrow } from '../components/ui/StatusBadges'
 import { fetchOffers } from '../lib/realOffers'
-import { ASSETS, PAYMENT_METHODS, COUNTRIES } from '../data/mock'
-import { ILLUSTRATIVE_FX_TO_USD, formatByCurrency } from '../lib/currency'
+import { ASSETS, PAYMENT_METHODS, COUNTRIES, countryLabel } from '../data/mock'
+import { formatByCurrency } from '../lib/currency'
+import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
+import { isDemoMode } from '../lib/demoMarkers'
+import { MAX_PAYMENT_METHODS, isFuturePaymentMethod } from '../lib/paymentMethods'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
+import { t } from '../i18n'
 
-const STEPS = ['Definir tipo e preço', 'Definir valor e método', 'Definir condições']
+// A function, not a constant: the labels follow the interface language.
+const steps = () => [t('publish.step.typePrice'), t('publish.step.amountMethod'), t('publish.step.conditions')]
 
 const NETWORK_BY_ASSET: Partial<Record<AssetType, string>> = {
   BTC: 'bitcoin', LN_BTC: 'lightning', LIQUID_BTC: 'liquid',
@@ -70,14 +80,22 @@ export function PublishOffer() {
   const [step, setStep] = useState(1)
 
   // Step 1
-  const [side, setSide] = useState<TradeSide>('SELL')
+  // Optional starting side from a link (e.g. "Criar negociação a partir desta conversa"); the person can change it.
+  const [searchParams] = useSearchParams()
+  // Only an in-app markets path is a valid way back (never an external URL).
+  const backTo = /^\/markets\/[\w%-]+(\?[\w=&%.-]*)?$/.test(searchParams.get('back') ?? '') ? searchParams.get('back')! : null
+  // Context from a market conversation, as plain text (escaped by React), short.
+  const context = (searchParams.get('ctx') ?? '').slice(0, 140)
+  const [side, setSide] = useState<TradeSide>(() => (searchParams.get('side') === 'BUY' ? 'BUY' : 'SELL'))
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
   // `liquidity.publish()` call, which has no `DEPIX` (see types.ts's own
-  // comment). `ASSETS` (not `ASSETS_FILTERABLE`) already keeps it out of
-  // the picker's options; this keeps it out of the type too.
-  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>('Todos')
-  const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('BRL')
+  // comment). The picker offers only `available` catalog pairs (plus the
+  // dev test rail), all enum values; this keeps the rest out of the type too.
+  // Optional prefill from a market conversation ("Propor negociação"): only known values are taken; all editable.
+  const qAsset = searchParams.get('asset')
+  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>(() => ((ASSETS as readonly string[]).includes(qAsset ?? '') ? (qAsset as (typeof ASSETS)[number]) : 'Todos'))
+  const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('USD')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
   const [price, setPrice] = useState('')
 
@@ -92,7 +110,18 @@ export function PublishOffer() {
   // `PAYMENT_METHODS` (the real list, already what the <select>'s
   // options use below) rather than hand-listing every UI-only value to
   // exclude — stays correct automatically if that list ever grows again.
-  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>('PIX')
+  const qMethod = searchParams.get('method')
+  const [paymentMethod, setPaymentMethod] = useState<(typeof PAYMENT_METHODS)[number]>(() => ((PAYMENT_METHODS as readonly string[]).includes(qMethod ?? '') ? (qMethod as (typeof PAYMENT_METHODS)[number]) : 'PIX'))
+  // Dev demo only: up to MAX_PAYMENT_METHODS methods, stored by the demo backend. The real publish()
+  // takes ONE paymentMethod (multi-method contract: issue #735), so real mode keeps the single Select.
+  const [demo] = useState(isDemoMode)
+  const [demoMethods, setDemoMethods] = useState<(typeof PAYMENT_METHODS)[number][]>(['PIX'])
+  const method = demo ? demoMethods[0] : paymentMethod
+  const methodsAtLimit = demoMethods.length >= MAX_PAYMENT_METHODS
+  const toggleDemoMethod = (m: (typeof PAYMENT_METHODS)[number]) => {
+    if (demoMethods.includes(m)) setDemoMethods(demoMethods.filter((x) => x !== m))
+    else if (!methodsAtLimit) setDemoMethods([...demoMethods, m])
+  }
   const [paymentDetails, setPaymentDetails] = useState('')
 
   // Step 3
@@ -119,7 +148,7 @@ export function PublishOffer() {
   const offerIdempotencyKeyRef = useRef<string>(crypto.randomUUID())
   useEffect(() => {
     offerIdempotencyKeyRef.current = crypto.randomUUID()
-  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod])
+  }, [asset, side, price, currency, minAmount, maxAmount, paymentMethod, demoMethods])
 
   useEffect(() => {
     if (asset === 'Todos' || currency === 'Todas') {
@@ -144,16 +173,17 @@ export function PublishOffer() {
     return () => { cancelled = true }
   }, [asset, side, currency])
 
-  const step1Valid = asset !== 'Todos' && currency !== 'Todas' && Number(price) > 0
-  const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && paymentDetails.trim().length > 0
+  const priceUsd = publicationPriceUsd(price, currency)
+  const step1Valid = asset !== 'Todos' && priceType === 'FIXED' && priceUsd !== null
+  const step2Valid = Number(minAmount) > 0 && Number(maxAmount) > Number(minAmount) && method !== undefined && paymentDetails.trim().length > 0
 
   const goNext = () => {
     if (step === 1 && !step1Valid) {
-      toast.error('Selecione o ativo, a moeda e informe um preço válido')
+      toast.error(t('publish.error.step1'))
       return
     }
     if (step === 2 && !step2Valid) {
-      toast.error('Informe limites válidos e os detalhes do pagamento')
+      toast.error(t(method === undefined ? 'publish.error.noMethod' : 'publish.error.step2'))
       return
     }
     setStep((s) => Math.min(s + 1, 3))
@@ -162,25 +192,13 @@ export function PublishOffer() {
   const [publishing, setPublishing] = useState(false)
 
   const handlePublish = async () => {
-    if (!user || asset === 'Todos' || currency === 'Todas') return
-
-    const priceFiat = Number(price)
-    // Real CreateOfferInput.priceUsd is mandatory regardless of which
-    // fiat the offer is priced in — see this file's own doc comment for
-    // why this conversion is illustrative, not live.
-    //
-    // Bug fixed here (found by e2e/flows/*.spec.ts using small BRL test
-    // prices): this used to round to 2 decimals with `.toFixed(2)`
-    // *before* the `.toFixed(8)` decimal-string conversion below — any
-    // BRL price whose USD equivalent was under half a cent silently
-    // became priceUsd="0.00000000", a real, live, non-obvious offer
-    // with a free price. Kept at full precision here; `.toFixed(8)`
-    // below is the only rounding step now, matching the column's real
-    // Decimal(24,8) precision (RFC-009).
-    const priceUsd = currency === 'USD' ? priceFiat : priceFiat * ILLUSTRATIVE_FX_TO_USD[currency]
-
-    if (priceUsd <= 0) {
-      toast.error('O preço convertido para USD ficou zerado — informe um preço mais alto')
+    if (!user || asset === 'Todos') return
+    if (priceUsd === null || priceType !== 'FIXED') {
+      toast.error(t('publish.error.fixedUsdOnly'))
+      return
+    }
+    if (!step2Valid || method === undefined) {
+      toast.error(t('publish.error.step2'))
       return
     }
 
@@ -193,130 +211,148 @@ export function PublishOffer() {
       await sailsClient.liquidity.publish({
         asset,
         side,
-        priceUsd: priceUsd.toFixed(8),
-        priceBrl: currency === 'BRL' ? priceFiat.toFixed(8) : undefined,
+        priceUsd,
         minAmount: minAmount,
         maxAmount: maxAmount,
-        paymentMethod,
+        paymentMethod: method,
+        // Demo backend only; never part of a real request (the SDK input has no such field).
+        ...(demo ? { demoPaymentMethods: demoMethods } : {}),
         paymentDetails: paymentDetails.trim(),
         network: NETWORK_BY_ASSET[asset],
         description: description.trim() || undefined,
         idempotencyKey: offerIdempotencyKeyRef.current,
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
-      toast.success('Anúncio publicado!')
-      navigate('/profile')
+      toast.success(t('publish.published'))
+      navigate(TRADES_ROUTES.offers)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Falha ao publicar anúncio')
+      toast.error(err instanceof Error ? err.message : t('publish.failed'))
     } finally {
       setPublishing(false)
     }
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => (step === 1 ? navigate('/profile') : setStep((s) => s - 1))} className="p-2 -m-2 text-brand-text-secondary hover:text-brand-text">
-          <ArrowLeft className="h-5 w-5" />
-        </button>
-        <h1 className="text-lg font-display font-bold text-brand-text">Publicar Anúncio</h1>
-      </div>
+    <Page width="form">
+      <PageHeader
+        back={
+          <Link to={backTo ?? TRADES_ROUTES.offers} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {backTo ? t('spaces.chat.backToConversation') : t('trades.offers.title')}
+          </Link>
+        }
+        title={t('trades.offers.publish')}
+      />
 
-      <div className="flex items-center mb-8">
-        {STEPS.map((label, i) => {
-          const n = i + 1
-          const active = n <= step
-          return (
-            <div key={label} className="flex items-center flex-1 last:flex-none">
-              <div className="flex flex-col items-center gap-1.5">
-                <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${active ? 'bg-brand-orange text-white' : 'bg-brand-elevated text-brand-text-muted'}`}>
-                  {n}
-                </div>
-                <span className={`text-[10px] text-center max-w-[70px] ${active ? 'text-brand-text font-medium' : 'text-brand-text-muted'}`}>{label}</span>
-              </div>
-              {n < STEPS.length && <div className={`flex-1 h-px mx-2 mb-4 ${step > n ? 'bg-brand-orange-accent' : 'bg-brand-border'}`} />}
-            </div>
-          )
-        })}
-      </div>
-
-      <Card className="p-5">
+      {context && (
+        <div className="mb-3 rounded-lg bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">
+          <p className="font-medium">{context}</p>
+          <p className="text-caption text-brand-text-secondary">{side === 'SELL' ? t('spaces.propose.sellReason') : t('spaces.propose.buyReason')}</p>
+        </div>
+      )}
+      <Card>
+        {/* One-line stepper in the card header. */}
+        <ol aria-label={t('publish.stepsLabel')} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-3 border-b border-brand-border-subtle">
+          {steps().map((label, i, all) => {
+            const n = i + 1
+            const current = n === step
+            const done = n < step
+            return (
+              <li key={label} aria-current={current ? 'step' : undefined} className="flex items-center gap-2 text-body-sm">
+                {/* Done = brand blue + check (as the trade rail); current = orange, "você está aqui". */}
+                <span className={cn('w-5 h-5 rounded-full flex items-center justify-center text-xs font-medium shrink-0', done ? 'bg-brand-checked text-brand-on-checked' : current ? 'bg-primary text-primary-foreground' : 'bg-brand-elevated text-brand-text-muted')}>
+                  {done ? <Check className="size-icon-xs" aria-hidden="true" /> : n}
+                </span>
+                <span className={current ? 'text-brand-text font-medium' : 'text-brand-text-muted'}>{label}{done && <span className="sr-only">, {t('publish.stepDone')}</span>}</span>
+                {n < all.length && <span aria-hidden="true" className="w-6 h-px bg-brand-border-subtle" />}
+              </li>
+            )
+          })}
+        </ol>
+      <div className="p-5">
         {step === 1 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">Eu quero</label>
-              <div role="group" aria-labelledby="publish-side-label" className="flex gap-1 bg-brand-elevated rounded-lg p-1">
+              <label className="text-xs text-brand-text-muted mb-1.5 block" id="publish-side-label">{t('publish.side')}</label>
+              <div role="group" aria-labelledby="publish-side-label" className={cn('flex gap-1', SEGMENT_TRACK)}>
                 {(['SELL', 'BUY'] as TradeSide[]).map((s) => (
                   <button
                     key={s}
                     onClick={() => setSide(s)}
                     aria-pressed={side === s}
-                    className={`flex-1 rounded-md py-2 text-sm transition-colors ${side === s ? 'bg-brand-surface shadow-sm font-medium text-brand-text' : 'text-brand-text-secondary'}`}
+                    className={cn('flex-1 h-8 touch:h-11 inline-flex items-center justify-center gap-1', segmentItemClass(side === s, s))}
                   >
-                    {s === 'SELL' ? 'Vender' : 'Comprar'}
+                    <SideArrow side={s} />
+                    {t(s === 'SELL' ? 'publish.sell' : 'publish.buy')}
                   </button>
                 ))}
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* In a form, the pickers look like the other fields (bordered, field background), not like toolbar chips. */}
+            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Ativo</label>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('trades.offers.col.asset')}</label>
                 <AssetPicker
-                  assets={ASSETS}
+                  allLabel={t('publish.selectAsset')}
+                  hideAllOption
                   value={asset}
                   onChange={(a) => setAsset(a as (typeof ASSETS)[number] | 'Todos')}
                 />
               </div>
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">com moeda fiduciária</label>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fiat')}</label>
                 <CurrencyPicker value={currency} onChange={setCurrency} />
+                <p className="text-xs text-brand-text-muted mt-1.5" role="status">
+                  {currency === 'USD'
+                    ? t('publish.usdNote')
+                    : t('publish.otherCurrencyNote')}
+                </p>
               </div>
             </div>
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 flex items-center gap-1">
-                Tipo de Preço
-                <InfoTooltip text="Flutuante (atrelado a uma cotação de mercado ao vivo) ainda não é suportado — não existe integração com uma fonte de câmbio em tempo real no backend hoje. Publicar sempre envia um preço fixo." />
+                {t('publish.priceType')}
+                <InfoTooltip text={t('publish.priceTypeHelp')} />
               </label>
               <Select value={priceType} onValueChange={(v) => setPriceType(v as 'FIXED' | 'FLOATING')}>
-                <SelectTrigger aria-label="Tipo de Preço" className="w-full">
+                <SelectTrigger aria-label={t('publish.priceType')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="FIXED">Fixo</SelectItem>
-                  <SelectItem value="FLOATING">Flutuante (em breve)</SelectItem>
+                  <SelectItem value="FIXED">{t('publish.fixed')}</SelectItem>
+                  <SelectItem value="FLOATING" disabled>{t('publish.floatingSoon')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             {priceType === 'FIXED' ? (
               <div>
-                <label className="text-xs text-brand-text-muted mb-1.5 block">Preço fixo</label>
-                <div className="flex items-center input-field !p-0">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label="Diminuir preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">−</button>
+                <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fixedPrice')}</label>
+                <div className="flex items-center input-field field-focus-within !p-0 h-9 touch:h-11">
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
                     type="number"
-                    aria-label="Preço fixo"
-                    className="flex-1 bg-transparent text-center text-lg font-bold outline-none text-brand-text"
+                    aria-label={t('publish.fixedPrice')}
+                    className="flex-1 min-w-0 bg-transparent text-center text-field font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label="Aumentar preço" className="px-4 py-3 text-brand-text-secondary hover:text-brand-text">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
                 </div>
                 {loadingSuggestedRange && (
-                  <p className="text-xs text-brand-text-muted mt-1.5">Buscando faixa de preço...</p>
+                  <p className="text-xs text-brand-text-muted mt-1.5">{t('publish.loadingRange')}</p>
                 )}
                 {!loadingSuggestedRange && suggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">
-                    Faixa de preço sugerida: {formatByCurrency(suggestedRange.min, currency as FiatCurrency)} – {formatByCurrency(suggestedRange.max, currency as FiatCurrency)}
+                    {t('publish.suggestedRange', { min: formatByCurrency(suggestedRange.min, currency as FiatCurrency), max: formatByCurrency(suggestedRange.max, currency as FiatCurrency) })}
                   </p>
                 )}
               </div>
             ) : (
-              <div className="bg-brand-elevated border border-brand-border rounded-lg p-3 text-xs text-brand-text-muted">
-                Preço flutuante ainda não suportado neste protótipo — selecione "Fixo" para continuar.
+              <div className="bg-brand-elevated rounded-md p-3 text-xs text-brand-text-secondary">
+                {t('publish.floatingUnsupported')}
               </div>
             )}
           </div>
@@ -327,40 +363,70 @@ export function PublishOffer() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">
-                  Quantidade mínima
+                  {t('publish.minAmount')}
                   <Input value={minAmount} onChange={(e) => setMinAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
                 </label>
               </div>
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">
-                  Quantidade máxima
+                  {t('publish.maxAmount')}
                   <Input value={maxAmount} onChange={(e) => setMaxAmount(e.target.value)} type="number" className="w-full mt-1.5" placeholder="0.00" />
                 </label>
               </div>
             </div>
 
+            {demo ? (
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Método de pagamento</label>
+              <span className="text-xs text-brand-text-muted mb-1.5 block" aria-hidden="true">{t('publish.methods')}</span>
+              <Combobox
+                multiple
+                label={t('publish.methods')}
+                valueText={`${t('publish.methodsOf', { count: demoMethods.length, max: MAX_PAYMENT_METHODS })}${demoMethods.length ? `, ${demoMethods.map((m) => PAYMENT_METHOD_LABELS[m]).join(', ')}` : ''}`}
+                options={PAYMENT_METHODS.map((m) => isFuturePaymentMethod(m)
+                  ? { value: m, label: `${PAYMENT_METHOD_LABELS[m]} · ${t('common.soon')}`, disabled: true }
+                  : { value: m, label: PAYMENT_METHOD_LABELS[m], disabled: methodsAtLimit && !demoMethods.includes(m) })}
+                selected={demoMethods}
+                onSelect={toggleDemoMethod}
+                triggerClassName="w-full"
+                contentClassName="w-[var(--radix-popover-trigger-width)]"
+                trigger={<span className="truncate">{demoMethods.length === 0 ? t('publish.selectMethods') : demoMethods.length === 1 ? PAYMENT_METHOD_LABELS[demoMethods[0]] : t('publish.methodCount', { count: demoMethods.length })}</span>}
+                searchPlaceholder={t('publish.searchMethod')}
+                emptyText={() => t('publish.noMethodFound')}
+                footer={methodsAtLimit ? () => (
+                  <p className="px-3 py-2 text-xs text-brand-text-secondary">{t('publish.limitReachedHint', { max: MAX_PAYMENT_METHODS })}</p>
+                ) : undefined}
+              />
+              {demoMethods.length > 1 && <PaymentMethods labels={demoMethods.map((m) => PAYMENT_METHOD_LABELS[m])} className="mt-2" />}
+              <p role="status" className="text-xs text-brand-text-muted mt-1.5">
+                <span className="tabular-nums">{t('publish.methodsOf', { count: demoMethods.length, max: MAX_PAYMENT_METHODS })}</span>
+                {demoMethods.length === 0 ? ` · ${t('publish.chooseOneMethod')}` : methodsAtLimit ? ` · ${t('publish.limitReached', { max: MAX_PAYMENT_METHODS })}` : ''}
+              </p>
+              <p className="text-xs text-brand-text-muted mt-1">{t('publish.demoNote')}</p>
+            </div>
+            ) : (
+            <div>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.method')}</label>
               <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as (typeof PAYMENT_METHODS)[number])}>
-                <SelectTrigger aria-label="Método de pagamento" className="w-full">
+                <SelectTrigger aria-label={t('publish.method')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {PAYMENT_METHODS.map((m) => (
-                    <SelectItem key={m} value={m}>{PAYMENT_METHOD_LABELS[m]}</SelectItem>
+                    <SelectItem key={m} value={m} disabled={isFuturePaymentMethod(m)}>{PAYMENT_METHOD_LABELS[m]}{isFuturePaymentMethod(m) ? ` · ${t('common.soon')}` : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
+            )}
 
             <div>
               <label className="text-xs text-brand-text-muted mb-1.5 block">
-                Detalhes do pagamento
+                {t('publish.paymentDetails')}
                 <Input
                   value={paymentDetails}
                   onChange={(e) => setPaymentDetails(e.target.value)}
                   className="w-full mt-1.5"
-                  placeholder={paymentMethod === 'PIX' ? 'Sua chave PIX' : 'Dados para o comprador enviar o pagamento'}
+                  placeholder={t(method === 'PIX' ? 'publish.pixPlaceholder' : 'publish.detailsPlaceholder')}
                 />
               </label>
             </div>
@@ -370,49 +436,51 @@ export function PublishOffer() {
         {step === 3 && (
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">País/Região</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.country')}</label>
               <Select value={country} onValueChange={setCountry}>
-                <SelectTrigger aria-label="País/Região" className="w-full">
+                <SelectTrigger aria-label={t('publish.country')} className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {COUNTRIES.map((c) => (
-                    <SelectItem key={c.code} value={c.code}>{c.label}</SelectItem>
+                    <SelectItem key={c.code} value={c.code}>{countryLabel(c.code)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
             <div>
-              <label className="text-xs text-brand-text-muted mb-1.5 block">Descrição (opcional)</label>
+              <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.description')}</label>
               <Textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 className="w-full"
                 rows={3}
-                placeholder="Instruções extras para a contraparte..."
+                placeholder={t('publish.descriptionPlaceholder')}
               />
             </div>
           </div>
         )}
-      </Card>
+      </div>
 
-      <div className="mt-6 flex gap-2">
-        {step > 1 && (
-          <Button variant="outline" onClick={() => setStep((s) => s - 1)} className="flex-1 py-3">
-            Voltar
+      {/* Actions in the card footer: back on the left, the one primary on the right. */}
+      <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-brand-border-subtle">
+        {step > 1 ? (
+          <Button variant="ghost" onClick={() => setStep((s) => s - 1)} className="min-h-10 touch:min-h-11">
+            {t('trades.back')}
           </Button>
-        )}
+        ) : <span />}
         {step < 3 ? (
-          <Button onClick={goNext} className="flex-1 py-3">
-            Próximo
+          <Button onClick={goNext} disabled={step === 1 ? !step1Valid : !step2Valid} className="min-h-10 touch:min-h-11 px-6">
+            {t('publish.next')}
           </Button>
         ) : (
-          <Button onClick={handlePublish} disabled={publishing} className="flex-1 py-3">
-            {publishing ? 'Publicando...' : 'Publicar'}
+          <Button onClick={handlePublish} loading={publishing} disabled={!step1Valid || !step2Valid} className="min-h-10 touch:min-h-11 px-6">
+            {publishing ? t('publish.publishing') : t('trades.offers.publish')}
           </Button>
         )}
       </div>
-    </div>
+      </Card>
+    </Page>
   )
 }

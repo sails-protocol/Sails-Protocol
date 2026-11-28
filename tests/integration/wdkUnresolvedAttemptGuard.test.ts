@@ -42,6 +42,7 @@ import { tmpdir } from 'os'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { legacyEscrowRow } from './helpers/legacyEscrowSeed'
 
 const ARBITER = 'k6-test-arbiter'
 type Ruling = 'RELEASE' | 'REFUND' | 'SPLIT'
@@ -119,7 +120,7 @@ describe('D7 - an unreconciled WDK attempt blocks rollback and every other opera
     await prisma.payoutAddress.create({ data: { participantId: seller.id, asset: 'USDT_ERC20', address: `seller-payout-${seller.id}` } })
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'USDT_ERC20', side: 'SELL', priceUsd: '1', minAmount: '5', maxAmount: '5', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '5' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'WDK_USDT_EVM', status: 'DISPUTED', lockedAmount: '5', asset: 'USDT_ERC20' } })
+    const escrow = await legacyEscrowRow(prisma, { tradeId: trade.id, type: 'WDK_USDT_EVM', lockedAmount: '5', asset: 'USDT_ERC20', columns: { status: 'DISPUTED' } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     const dispute = await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'd7', status: 'OPENED', arbiterId: ARBITER } })
     return { escrowId: escrow.id, tradeId: trade.id, buyerId: buyer.id, sellerId: seller.id, dispute, buyerPayout: `buyer-payout-${buyer.id}`, sellerPayout: `seller-payout-${seller.id}` }

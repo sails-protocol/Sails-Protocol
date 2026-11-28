@@ -96,15 +96,19 @@ export async function buildCooperative(
   deps: { prisma: any; escrowService: any; identityService: any; liquidityRouter: any; tradeService: any; payoutAddressService: any },
   chain: Chain,
   label: string,
-  kind: 'release' | 'refund' = 'release'
+  kind: 'release' | 'refund' | 'none' = 'release' // 'none': funded, both payout addresses set, no round
 ) {
-  const { registerTestParticipant } = require('./identityTestHelpers')
+  const { registerTestParticipantWithKey } = require('./identityTestHelpers')
+  const { createCommitmentFixture, acceptedEnvelopeFor } = require('./helpers/committedPairFixture')
   const { MULTISIG_CAPABILITY_PROFILE_V1 } = require('@satsails/p2p-schemas')
   const { prisma, escrowService, identityService, liquidityRouter, tradeService, payoutAddressService } = deps
-  const seller = await registerTestParticipant(identityService, 'Seller')
-  const buyer = await registerTestParticipant(identityService, 'Buyer')
+  const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+  const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
   const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-  const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+  const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+  // F4 deny-by-default: a MULTISIG escrow needs the COMMITTED pair of its trade, signed by the real seller (maker) and buyer (taker).
+  const fx = await createCommitmentFixture(prisma, { asset: 'BTC', rail: 'MULTISIG', amount: '0.00100000', maker: seller, taker: buyer })
+  await fx.commitExistingTrade(trade.id)
   const created = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
   await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: created.id } })
   await escrowService.submitParticipantKey(created.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -118,11 +122,14 @@ export async function buildCooperative(
     await escrowService.markPaymentSent(created.id, buyer.id)
     await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', testnetAddress(`${label}-buyer`))
     await escrowService.initiateRelease(created.id, undefined, seller.id)
-  } else {
+  } else if (kind === 'refund') {
     await payoutAddressService.setPayoutAddress(seller.id, 'BTC', testnetAddress(`${label}-seller`))
     await escrowService.initiateRefund(created.id, seller.id)
+  } else {
+    await payoutAddressService.setPayoutAddress(buyer.id, 'BTC', testnetAddress(`${label}-buyer`))
+    await payoutAddressService.setPayoutAddress(seller.id, 'BTC', testnetAddress(`${label}-seller`))
   }
-  const round = await prisma.escrowPendingTransaction.findUniqueOrThrow({ where: { escrowId: created.id } })
+  const round = await prisma.escrowPendingTransaction.findUnique({ where: { escrowId: created.id } })
   const escrow = await prisma.escrow.findUniqueOrThrow({ where: { id: created.id } })
   return { escrow, trade, buyer, seller, round, funding } as {
     escrow: { id: string; status: string; txLockId: string | null }; trade: { id: string }; buyer: { id: string }; seller: { id: string }

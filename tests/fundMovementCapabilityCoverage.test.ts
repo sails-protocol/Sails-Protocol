@@ -239,7 +239,7 @@ describe('Fund-movement capability coverage — release/refund/split (Missão 06
 
   it('8. initiateSplit without capability — DENY (this is the exact drift the audit found: initiateRelease had the check, initiateSplit silently never did)', async () => {
     mockEscrowFindUnique.mockResolvedValue(escrowRow({ type: 'MULTISIG', status: 'DISPUTED' }))
-    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID })
+    mockDisputeFindFirst.mockResolvedValue({ id: 'dispute-1', tradeId: TRADE_ID, arbiterId: ARBITER_ID, status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 5000 })
     await expect(escrowService.initiateSplit(ESCROW_ID, 'addr-buyer', 'addr-seller', 5000, ARBITER_ID)).rejects.toThrow(
       `${ARBITER_ID} has no active 'settlement' capability grant covering 'settlement.escrow.split'`
     )

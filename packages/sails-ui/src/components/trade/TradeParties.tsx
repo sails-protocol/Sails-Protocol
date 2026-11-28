@@ -1,27 +1,56 @@
+import type { ReactNode } from 'react'
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { FavoriteButton } from '../ui/FavoriteButton'
 import { VouchButton } from '../ui/VouchButton'
-import { positiveFeedbackPct } from '../../lib/reputation'
+import { REPUTATION_EXPLANATION, trustItems } from '../../lib/reputation'
+import { TrustLine } from '../ui/TrustLine'
+import { ExplanationPopover } from '../ui/ExplanationPopover'
 import { Card } from '../ui/card'
+import { Divider } from '../ui/divider'
+import { t } from '../../i18n'
 
 // counterpartyOnline (2026-08-02): real presence for whichever of
 // buyer/seller ISN'T currentUserId, sourced from Trade.tsx's chat
 // WebSocketChannel USER_ONLINE/USER_OFFLINE frames — see UserAvatar.tsx's
 // own comment on the `online` prop for why this can't extend to both
 // rows (there's no real presence source for "yourself" here either).
+//
+// Trade workspace (L3): for a trade party this is the counterparty block —
+// the other party first, with the same trust line as the Market and the
+// offer (reputation, trades, disputes; no derived percentage or badge), the
+// host's chat entry, then the viewer's own row. A non-party sees both rows
+// with presence unknown (the channel only reports a party's counterparty).
 export function TradeParties({
-  buyer, seller, currentUserId, counterpartyOnline,
+  buyer, seller, currentUserId, counterpartyOnline, children,
 }: {
   buyer: User
   seller: User
   currentUserId?: string
   counterpartyOnline?: boolean | null
+  /** Host slot under the counterparty (the chat entry). */
+  children?: ReactNode
 }) {
+  const viewerIsBuyer = buyer.id === currentUserId
+  const viewerIsSeller = seller.id === currentUserId
+  if (!viewerIsBuyer && !viewerIsSeller) {
+    return (
+      <Card aria-label={t('trade.parties.label')} className="px-4 py-1.5 divide-y divide-brand-border-subtle">
+        <PartyRow user={buyer} role={t('trade.parties.buyer')} isYou={false} online={null} />
+        <PartyRow user={seller} role={t('trade.parties.seller')} isYou={false} online={null} />
+        {children && <div className="py-2.5">{children}</div>}
+      </Card>
+    )
+  }
+  const other = viewerIsBuyer ? seller : buyer
+  const you = viewerIsBuyer ? buyer : seller
   return (
-    <Card className="p-4 mt-3 divide-y divide-brand-border">
-      <PartyRow user={buyer} role="Comprador" isYou={buyer.id === currentUserId} online={buyer.id === currentUserId ? undefined : counterpartyOnline} />
-      <PartyRow user={seller} role="Vendedor" isYou={seller.id === currentUserId} online={seller.id === currentUserId ? undefined : counterpartyOnline} />
+    <Card aria-labelledby="trade-counterparty-title" className="px-4 py-3">
+      <h2 id="trade-counterparty-title" className="text-xs font-medium text-brand-text-secondary">{t('trade.parties.counterparty')}</h2>
+      <PartyRow user={other} role={t(viewerIsBuyer ? 'trade.parties.seller' : 'trade.parties.buyer')} isYou={false} online={counterpartyOnline} />
+      {children}
+      <Divider className="mt-2" />
+      <PartyRow user={you} role={t(viewerIsBuyer ? 'trade.parties.buyer' : 'trade.parties.seller')} isYou />
     </Card>
   )
 }
@@ -29,20 +58,25 @@ export function TradeParties({
 function PartyRow({ user, role, isYou, online }: { user: User; role: string; isYou: boolean; online?: boolean | null }) {
   return (
     <div className="flex items-center gap-3 py-2.5">
-      <UserAvatar user={user} size="sm" showPresence online={online} />
-      <div className="text-sm">
-        <span className="font-medium text-brand-text">{user.displayName}</span>
-        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-accent rounded px-1.5 py-0.5">Você</span>}
-        <div className="text-xs text-brand-text-muted">{positiveFeedbackPct(user)}% positivo</div>
+      <UserAvatar user={user} size="sm" showPresence={!isYou} online={online} />
+      <div className="text-sm min-w-0">
+        <span className="font-medium text-brand-text [overflow-wrap:anywhere]">{user.displayName}</span>
+        {isYou && <span className="ml-1.5 text-xs bg-brand-orange-accent/10 text-brand-orange-hover dark:text-brand-orange-accent rounded-sm px-1.5 py-0.5">{t('trade.parties.you')}</span>}
+        <span className="ml-1.5 text-xs text-brand-text-secondary">· {role}</span>
+        {/* Same trust line as the Market rows: server counters only, no derived percentage. */}
+        {/* Inline (not flex) so the info button wraps with the text on narrow phones. */}
+        <div className="text-xs text-brand-text-muted">
+          <TrustLine items={trustItems(user)} />
+          <ExplanationPopover explanation={REPUTATION_EXPLANATION} label={REPUTATION_EXPLANATION.title} className="ml-1.5 align-middle" />
+        </div>
       </div>
-      <span className="ml-auto text-xs text-brand-text-muted">{role}</span>
       {/* Only the other party — real `user.id` here comes from a real
           `identity.get()` call (Trade.tsx's own `toParticipantUser`),
           so favoriting yourself would be a meaningless no-op the
           feature isn't meant to support. Same reasoning for VouchButton
           (RFC-021 D7) — the server rejects self-vouch anyway. */}
       {!isYou && (
-        <div className="flex items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <VouchButton voucheeId={user.id} />
           <FavoriteButton userId={user.id} />
         </div>

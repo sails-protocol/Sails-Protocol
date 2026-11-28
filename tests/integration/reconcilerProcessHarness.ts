@@ -277,6 +277,13 @@ export async function expectCrossProcessAccounting(prisma: PrismaClient, results
   const inDb = Object.fromEntries(claims.map((c) => [c.projectionKey, c._count._all]))
   const applied: Record<string, number> = {}
   for (const r of results) for (const [k, v] of Object.entries(r.stats?.applied ?? {})) applied[k] = (applied[k] ?? 0) + v
+  // Evidence only (never changes an assertion): on a mismatch the log carries the direction, the counts, each worker's own bookkeeping and any sign of a double apply.
+  const diff = Object.keys({ ...inDb, ...applied }).filter((k) => k !== 'transition.claimed' && k !== 'transition.dispute-provenance' && (applied[k] ?? 0) !== (inDb[k] ?? 0))
+  if (diff.length > 0) {
+    const perKey = diff.map((k) => ({ key: k, applied: applied[k] ?? 0, inDb: inDb[k] ?? 0, direction: (applied[k] ?? 0) < (inDb[k] ?? 0) ? 'applied<inDb (a claim without an applied count: test bookkeeping or a lost counter, not a double apply)' : 'applied>inDb (an effect counted more than once: possible double apply)' }))
+    const workers = results.map((r) => ({ label: r.label, code: r.code, signal: r.signal, killed: r.killed, statsPresent: r.stats !== null, applied: r.stats?.applied ?? null, txTimeouts: r.txTimeouts }))
+    process.stdout.write(`[evidence] ${JSON.stringify({ label: 'cross-process accounting MISMATCH', seededTransitions: transitionIds.length, perKey, workers, claimsInDb: inDb })}\n`)
+  }
   for (const key of Object.keys(inDb)) if (key !== 'transition.claimed' && key !== 'transition.dispute-provenance') expect({ key, applied: applied[key] ?? 0 }).toEqual({ key, applied: inDb[key] })
   return applied
 }

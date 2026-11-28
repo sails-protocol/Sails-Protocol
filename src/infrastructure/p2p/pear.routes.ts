@@ -24,6 +24,7 @@ import { fallbackTransportProvider } from './transport-provider'
 import { requireAuth } from '../../common/middleware/auth'
 import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import { docsOnlySchema } from '../../common/openapi'
+import { assertRailOpen } from '../../common/day0-closed-rails'
 
 const joinTopicSchema = z.object({
   topic: z.enum(['marketplace', 'btc', 'lnBtc', 'liquidBtc', 'usdtErc20', 'usdtLiquid']),
@@ -103,6 +104,7 @@ export async function peerRoutes(app: FastifyInstance): Promise<void> {
     ...docsOnlySchema({ tags: ['peers'], body: broadcastOfferSchema }),
   }, async (request, reply) => {
     const body = broadcastOfferSchema.parse(request.body)
+    assertRailOpen({ asset: body.asset }) // Despacho 064: LN_BTC offers are not announced
     const participantId = (request as AuthenticatedRequest).participantId
     const node = pearNodeRegistry.get(participantId)
     if (!node) {

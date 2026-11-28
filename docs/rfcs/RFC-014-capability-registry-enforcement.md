@@ -17,6 +17,25 @@ closed before external technical review (Tether); this is the second
 (after RFC-014's sibling infrastructure work, `docker-compose.yml` +
 `DEPLOYMENT.md`).
 
+## Current enforcement boundary (Issue #303)
+
+The original activation policy below is historical. The ADR-004
+amendment of 2026-09-21 supersedes it for production: `src/config/index.ts`
+refuses to boot a production process unless `ENFORCE_CAPABILITIES` is
+exactly `true`. Development, test and reference environments may still
+run with enforcement disabled. This boot requirement is necessary, not
+sufficient, for production eligibility.
+
+The current canonical registry recognizes trade-coordination creation
+and discovery scopes and settlement release/refund/split scopes. ADR-004
+adds operation-bound execution authorization for asynchronous settlement;
+ADR-005 separately governs disputed ruling authority. The public grant
+registration path remains self-issued, not independent third-party
+approval, and does not establish per-trade or monetary limits. Neither
+the boot guard nor a valid grant proves complete endpoint coverage,
+provider safety or formal production homologation. See RFC-013 and the
+ADR-004 production amendment for the current authority boundaries.
+
 ## Motivation
 
 A working, tested permission system with zero real callers is not a

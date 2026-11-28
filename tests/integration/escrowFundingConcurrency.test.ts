@@ -35,7 +35,8 @@ import * as bitcoin from 'bitcoinjs-lib'
 import * as ecc from 'tiny-secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
+import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis, preserveTestRedis } from './identityTestHelpers'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 bitcoin.initEccLib(ecc)
@@ -119,6 +120,7 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   afterAll(async () => {
     if (dbAvailable) {
       await prisma.$disconnect()
+      await (global as any).__prisma?.$disconnect() // #748: the client the last restart created
       await closeTestRedis()
     }
   })
@@ -135,12 +137,13 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
   }
 
   async function makeLockedMultisigEscrow(suffix: string) {
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({
       userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER',
     })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
     await escrowService.submitParticipantKey(escrow.id, seller.id, SELLER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -240,7 +243,8 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // this escrow's script (ARBITER_ID, matching TRUSTED_ARBITRATORS
       // set at the top of this file), and isSellerOrAssignedArbiter()
       // requires a real Dispute row naming that same arbiter.
-      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID } })
+      // The split round executes a recorded SPLIT ruling (DISPUTE_RULING_REQUIRED).
+      await prisma.dispute.create({ data: { tradeId, escrowId, openedBy: buyerId, reason: 'test fixture', arbiterId: ARBITER_ID, status: 'RESOLVED', ruling: 'SPLIT', authorityBuyerBps: 5000 } })
 
       const reorgWrite = simulateEvidenceWriteUnderLock(escrowId, 'REORGED_INVALIDATED', 80)
       await tick(15)
@@ -267,6 +271,10 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // reality and, between them, write REORGED_INVALIDATED exactly once.
       process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '2'
       preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
+      await (global as any).__prisma?.$disconnect()
+      // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+      // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+      ;(global as any).__prisma = undefined
       jest.resetModules()
       ;({ sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep'))
       global.fetch = jest.fn(async (url: string) => {
@@ -287,6 +295,10 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
 
       process.env.MULTISIG_FUNDING_REQUIRED_CONFIRMATIONS = '1'
       preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
+      await (global as any).__prisma?.$disconnect()
+      // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+      // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+      ;(global as any).__prisma = undefined
       jest.resetModules()
       ;({ sweepMultisigFundingReorgs } = require('../../src/modules/open-settlement/multisig-funding-reorg-sweep'))
     })
@@ -375,6 +387,10 @@ describe('Escrow funding-evidence concurrency — real Postgres (Missão 11 Fase
       // Simulated restart: fresh require() of the repository module reads
       // the SAME rows back from Postgres — durable, not in-process state.
       preserveTestRedis() // keep ONE Redis client across resetModules() so afterAll can close it
+      await (global as any).__prisma?.$disconnect()
+      // #748: database/index.ts reuses global.__prisma across jest.resetModules(); without clearing it the restarted modules
+      // pair a NEW @prisma/client (their Prisma.sql fragments) with the OLD client, and nested fragments are sent as values.
+      ;(global as any).__prisma = undefined
       jest.resetModules()
       const freshRepo = require('../../src/modules/open-settlement/escrow-funding-evidence-repository').escrowFundingEvidenceRepository
       const afterRestart = await freshRepo.listForEscrow(escrowId)

@@ -1,102 +1,70 @@
 import { Link } from 'react-router'
 import type { Offer } from '../../types'
-import { AssetBadge, SideBadge, PaymentBadge } from '../ui/StatusBadges'
+import { PaymentMethods } from '../ui/PaymentMethods'
+import { LIST_METHODS_MAX, LIST_METHODS_MAX_NARROW, offerPaymentMethods } from '../../lib/paymentMethods'
 import { UserAvatar } from '../ui/UserAvatar'
 import { formatAmount } from '../../lib/format'
-import { formatByCurrency } from '../../lib/currency'
-import { ASSET_LABELS } from '../../lib/labels'
+import { formatPrice } from '../../lib/currency'
+import { ASSET_LABELS, ASSET_SHORT_LABELS, PAYMENT_METHOD_LABELS } from '../../lib/labels'
+import { AssetNetworkLabel } from '../ui/AssetIcon'
+import { sellerTrust } from './offerList'
+import { TrustLine } from '../ui/TrustLine'
+import { offerRatings, ratingCompactItem } from '../../lib/ratings'
 import { buttonVariants } from '../ui/button'
 import { cn } from '../../lib/utils'
-import { Check, Star } from 'lucide-react'
+import { Check } from 'lucide-react'
+import { t } from '../../i18n'
 
-// Dense list-row layout (2026-07-28 visual redesign) replacing the
-// bordered-card-in-a-grid shape — matches Marketplace.tsx's switch from
-// a card grid to a single hairline-divided list (Binance P2P/Airtm/El
-// Dorado's actual offer-listing layout). Side reads instantly off the
-// left accent border instead of only a badge; the fixed-width columns
-// below only take effect at md+ (mobile keeps the old stacked reading
-// order via .offer-row's own flex-col default).
-export function OfferCard({ offer }: { offer: Offer }) {
-  const sideAccent = offer.side === 'BUY' ? 'border-l-green-500' : 'border-l-red-500'
+/**
+ * Compact offer row for widths below the desktop table (OfferTable.tsx): the same cells folded into
+ * three lines, hairline separators, no boxes. Line 1 seller + trust line, line 2 price, line 3 limits and
+ * payment; the action (or "Sua oferta" on the viewer's own offer) sits on the right. The whole row is
+ * the link; the action is a visual affordance only (no nested interactive element).
+ */
+export function OfferCard({ offer, own = false }: { offer: Offer; own?: boolean }) {
+  const action = own ? t('market.offer.yours') : offer.side === 'SELL' ? t('labels.side.buy') : t('labels.side.sell')
+  const { name, items } = sellerTrust(offer)
+  const seller = name ?? t('market.offer.seller')
+  const price = formatPrice(offer.priceFiat, offer.fiatCurrency)
+  const limits = `${formatAmount(offer.minAmount)} – ${formatAmount(offer.maxAmount)} ${ASSET_SHORT_LABELS[offer.asset]}`
+  // Real offers carry one method; only the dev demo has several (offerPaymentMethods).
+  const methods = offerPaymentMethods(offer).map((m) => PAYMENT_METHOD_LABELS[m])
+  // One concise accessible name instead of every cell's text read in a row (same wording as the table).
+  // Ratings: dev demo only until LOOSE_WIRES.readRatings; real rows show nothing. On phone they sit on the line below.
+  const ratings = offerRatings(offer)
+  const rating = ratings ? ratingCompactItem(ratings) : null
+  const label = t('market.offer.cardLabel', { action, asset: ASSET_LABELS[offer.asset], price, seller, rating: rating ? `, ${rating.srText}` : '', methods: methods.join(', '), limits })
 
   return (
-    <Link to={`/offer/${offer.id}`} className={`offer-row ${sideAccent}`}>
-      {/* Mobile: 2 paired rows (trader+payment, asset/side+price) instead of
-          5 stacked full-width blocks — the original one-column-per-line
-          layout was technically responsive but way too tall per offer once
-          actually viewed on a phone. `lg:contents` drops these wrapper divs
-          from the desktop layout entirely so their children become direct
-          flex items of `.offer-row` (lg:flex-row) again, same as before —
-          `lg:order-*` on each child then restores the original desktop
-          left-to-right sequence, since grouping for mobile changes DOM
-          order (payment now sits right after trader, not last). */}
-      <div className="flex items-center justify-between gap-2 lg:contents">
-        <div className="flex items-center gap-2 lg:order-1 lg:w-44 lg:shrink-0">
-          <UserAvatar user={offer.user} size="sm" />
-          <div className="min-w-0">
-            <div className="flex items-center gap-1">
-              {/* Impeccable critique P0 (2026-08-24): GET /v1/liquidity/offers
-                  doesn't return the owning User row — realOffers.ts's own
-                  summaryToOffer() comment discloses this — so displayName is
-                  always null and userId is the literal sentinel 'unknown' for
-                  every real offer today. A blank name and a real-looking
-                  "0 trades" both read as actual data on a marketplace whose
-                  whole trust model is evaluating the trader before sending
-                  money; this is the honest placeholder instead. */}
-              <span className="text-sm font-medium text-brand-text truncate">{offer.user.displayName ?? 'Anunciante'}</span>
-              {offer.user.verified && (
-                <span title="Verificado" className="shrink-0">
-                  <Check className="h-3.5 w-3.5 text-brand-orange-accent" />
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-brand-text-muted flex items-center gap-1">
-              <Star className="h-3 w-3" fill="currentColor" strokeWidth={0} /> {offer.user.reputationScore.toFixed(0)} · {offer.user.id === 'unknown' ? '—' : `${offer.user.totalTrades} trades`}
-            </div>
-          </div>
+    <Link to={`/offer/${offer.id}`} aria-label={label} className="offer-row items-start">
+      <UserAvatar user={{ id: offer.user.id, displayName: seller }} size="sm" />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-x-2">
+          <span className="flex items-center gap-1 min-w-0">
+            <span data-seller-name className="text-sm font-medium text-brand-text">{seller}</span>
+            {offer.user.verified && <Check aria-label={t('market.offer.verified')} className="size-icon-xs shrink-0 text-brand-orange-accent" />}
+          </span>
+          <TrustLine items={items} className="text-xs text-brand-text-muted" />
         </div>
-        <div className="lg:order-5 lg:w-32 lg:shrink-0">
-          <PaymentBadge method={offer.paymentMethod} />
-        </div>
-      </div>
-
-      <div className="flex items-center justify-between gap-2 lg:contents">
-        <div className="flex items-center gap-2.5 lg:order-2 lg:w-48 lg:shrink-0">
-          <AssetBadge asset={offer.asset} />
-          <SideBadge side={offer.side} />
-        </div>
-        <div className="text-right lg:order-3 lg:text-left lg:flex-1 lg:min-w-0">
-          <div className="text-xl font-display font-bold text-brand-text tabular-nums leading-tight">
-            {formatByCurrency(offer.priceFiat, offer.fiatCurrency)}
-          </div>
-          <div className="text-xs text-brand-text-muted">
-            por {ASSET_LABELS[offer.asset]}
+        {rating && <TrustLine items={[rating]} className="block mt-0.5 text-xs text-brand-text-muted" />}
+        <div className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+          <span data-price className="money-lg text-brand-text whitespace-nowrap">{price}</span>
+          <span className="inline-flex flex-wrap items-center gap-x-1 text-xs text-brand-text-muted">
+            {t('market.offer.per')} <AssetNetworkLabel asset={offer.asset} />
             {offer.fiatCurrency !== 'USD' && ` · ≈ $${offer.priceUsd} USD`}
-          </div>
+          </span>
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-brand-text-secondary tabular-nums">
+          <span className="whitespace-nowrap"><span className="sr-only">{t('market.offer.limitsPrefix')} </span>{limits}</span>
+          <PaymentMethods labels={methods} max={LIST_METHODS_MAX} maxNarrow={LIST_METHODS_MAX_NARROW} layout="inline" className="text-xs" />
         </div>
       </div>
-
-      {/* Explicit per-row CTA (Binance P2P/HodlHodl/El Dorado all put a
-          "Buy"/"Sell" button directly on the row, not just a clickable
-          card) — visual affordance only, not a real nested control: the
-          whole row is already the actual `<Link>`, and a real `<button>`
-          nested inside it would be invalid HTML (the exact bug this
-          codebase's own AgentIntentionPanel fix, see sails-ui/README,
-          already ran into once with a button-in-button). Label is the
-          viewer's action, the inverse of `offer.side` — same computation
-          OfferDetail.tsx already uses for its own amount-field label. */}
-      <div className="flex items-center justify-between gap-2 lg:contents">
-        <div className="flex gap-2 text-xs text-brand-text-muted lg:order-4 lg:w-40 lg:shrink-0">
-          <span className="bg-brand-elevated rounded px-1.5 py-0.5">min {formatAmount(offer.minAmount)}</span>
-          <span className="bg-brand-elevated rounded px-1.5 py-0.5">max {formatAmount(offer.maxAmount)}</span>
-        </div>
-        <span className={cn(buttonVariants({ className: 'lg:order-6 px-4 py-1.5 text-sm shrink-0' }))}>
-          {offer.side === 'SELL' ? 'Comprar' : 'Vender'}
+      {own ? (
+        <span className="shrink-0 self-center text-xs font-medium text-brand-text-secondary">{action}</span>
+      ) : (
+        <span aria-hidden="true" className={cn(buttonVariants({ variant: offer.side === 'SELL' ? 'buy-tonal' : 'sell-tonal', size: 'sm' }), 'shrink-0 self-center min-w-[5.5rem]')}>
+          {action}
         </span>
-      </div>
-
-      {offer.description && (
-        <p className="text-xs text-brand-text-muted line-clamp-1 lg:hidden">{offer.description}</p>
       )}
     </Link>
   )

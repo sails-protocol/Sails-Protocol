@@ -10,6 +10,7 @@ import { randomBytes, randomUUID } from 'crypto'
 import path from 'path'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
 import { closeTestRedis } from './identityTestHelpers'
+import { legacyEscrowRow } from './helpers/legacyEscrowSeed'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const HELD_KEY = 'settlement.provenance-held'
@@ -70,7 +71,7 @@ describe('settlement provenance fails closed on an event with no immutable evide
     const [buyer, seller, arbiter] = await Promise.all([makeUser(), makeUser(), makeUser()])
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
     const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    const escrow = await prisma.escrow.create({ data: { tradeId: trade.id, type: 'MULTISIG', status: terminal(kind), lockedAmount: '0.001', asset: 'BTC', txReleaseId: `tx-${randomUUID()}` } })
+    const escrow = await legacyEscrowRow(prisma, { tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC', columns: { status: terminal(kind), txReleaseId: `tx-${randomUUID()}` } })
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id, status: 'DISPUTED' } })
     if (disputeStatus) {
       await prisma.dispute.create({

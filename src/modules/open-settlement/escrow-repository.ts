@@ -78,6 +78,8 @@ export interface CreateEscrowData {
   asset: AssetType
   network: string | undefined
   timelockHours: number
+  /** F4 / invariant 3b: the COMMITTED commitment pair this escrow is bound to (the database trigger requires it for every type but MOCK). */
+  commitmentPairId?: string
   // Missão 11 Fase 4.1 §4 — the fee-policy snapshot, computed BEFORE this
   // escrow exists (escrow-fee-snapshot.service.ts's computeSnapshotFields())
   // and folded into this SAME insert rather than a separate update
@@ -94,7 +96,8 @@ export interface CreateEscrowData {
 }
 
 export interface EscrowRepository {
-  create(input: CreateEscrowData): Promise<EscrowRow>
+  /** `client` (optional) lets the caller run the INSERT inside its own transaction (F4 A1: after the pair lock). */
+  create(input: CreateEscrowData, client?: Prisma.TransactionClient): Promise<EscrowRow>
 
   /** Bare row, no relations — the one shape behind every read in this module that just needs the current escrow before deciding what to do next. */
   findById(escrowId: string): Promise<EscrowRow | null>
@@ -204,10 +207,15 @@ export interface EscrowRepository {
 }
 
 class PrismaEscrowRepository implements EscrowRepository {
-  async create(input: CreateEscrowData) {
-    return prisma.escrow.create({
+  async create(input: CreateEscrowData, client?: Prisma.TransactionClient) {
+    // F4 / invariant 3b (GK, R-C): Escrow.type has a schema default of MOCK, the ONE type exempt from the commitment-pair trigger.
+    // A caller that omitted `type` (JS, an `any` cast) would silently store an exempt MOCK escrow, so the type is required here at
+    // runtime too, not only in the TypeScript signature.
+    if (!input.type) throw new EscrowError('escrow-repository.create: `type` is required (never rely on the schema default)')
+    return (client ?? prisma).escrow.create({
       data: {
         tradeId: input.tradeId,
+        ...(input.commitmentPairId ? { commitmentPairId: input.commitmentPairId } : {}),
         type: input.type as any,
         status: 'CREATED',
         lockedAmount: input.lockedAmount,

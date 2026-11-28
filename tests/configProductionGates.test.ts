@@ -70,6 +70,17 @@ describe('config/index.ts — production boot gates (Missão 06.5)', () => {
     return () => require('../src/config').config
   }
 
+  describe('SAILS_MAX_PROTOCOL_FEE_RATE is validated at boot', () => {
+    it.each(['abc', '-0.001', '0.000000001', '1e-3', '0,005'])('refuses to boot with %s', (value) => {
+      const load = loadConfig({ NODE_ENV: 'development', SAILS_MAX_PROTOCOL_FEE_RATE: value })
+      expect(load).toThrow(/SAILS_MAX_PROTOCOL_FEE_RATE must be a decimal >= 0 with at most 8 decimal places/)
+    })
+    it.each([['unset', undefined, undefined], ['empty', '', undefined], ['0.003', '0.003', '0.003'], ['0', '0', '0']])('accepts %s', (_label, value, expected) => {
+      const load = loadConfig({ NODE_ENV: 'development', SAILS_MAX_PROTOCOL_FEE_RATE: value })
+      expect(load().settlement.maxProtocolFeeRate).toBe(expected)
+    })
+  })
+
   describe('MOCK_ESCROW (RT-001, pre-existing — newly covered here)', () => {
     it('refuses to boot in production when MOCK_ESCROW is unset', () => {
       const load = loadConfig({ ...REQUIRED_PROD_ENV, MOCK_ESCROW: undefined })

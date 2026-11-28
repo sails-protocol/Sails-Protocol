@@ -19,7 +19,8 @@
 
 import { PrismaClient } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
+import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis } from './identityTestHelpers'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 
 describe('MULTISIG dust policy — rejection happens before any pending transaction (real Postgres, Missão 10)', () => {
@@ -86,16 +87,14 @@ describe('MULTISIG dust policy — rejection happens before any pending transact
   it('a dust-triggering initiateRelease() leaves zero EscrowPendingTransaction rows and the escrow status unchanged', async () => {
     requirePostgres('dust-rejected release leaves no pending row')
 
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
-    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
-    // lockedAmount is independent of the trade's own `amount` (no
-    // cross-check exists in createEscrow()) — set to exactly the funding
-    // UTXO value below (293 + RELEASE_FEE_1SAT sats) so lockFunds()'s own
-    // expectedSats() check is satisfied while the resulting release
-    // output (293 sats) is deliberately 1 sat under the 294-sat P2WPKH
-    // dust threshold.
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
+    // The trade (and its committed pair) is for exactly the funding UTXO value below (293 + RELEASE_FEE_1SAT sats): an
+    // escrow's terms must equal its trade's, lockFunds()'s expectedSats() check is satisfied, and the resulting release
+    // output (293 sats) is deliberately 1 sat under the 294-sat P2WPKH dust threshold.
+    const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.00000457', maxAmount: '0.00000457', paymentMethod: 'OTHER' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.00000457', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer, { amount: '0.00000457' }) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.00000457', asset: 'BTC' }, seller.id)
     // Missão 11 Fase 9.1.1 — fail-closed capability declaration required.
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)

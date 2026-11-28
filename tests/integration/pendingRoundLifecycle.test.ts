@@ -10,6 +10,7 @@
 // pg_locks). Only the explorer is simulated (pendingRoundLifecycleHarness.ts). T12 (two OS processes) lives in
 // pendingRoundLifecycleProcesses.test.ts.
 import { PrismaClient } from '@prisma/client'
+import { forceEscrowTypeForRailGateTest } from './helpers/legacyEscrowSeed'
 import { randomUUID } from 'crypto'
 import nacl from 'tweetnacl'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
@@ -362,7 +363,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     pg.requirePostgres('T14')
     for (const type of ['LIGHTNING_HODL', 'SAFE_GUARD_EVM'] as const) {
       const c = await cooperative(`t14-${type}`)
-      await prisma.escrow.update({ where: { id: c.escrow.id }, data: { type } })
+      await forceEscrowTypeForRailGateTest(c.escrow.id, type) // F4: type is immutable; a rail mismatch can only be forced by the test-only superuser helper
       await expect(escrowService.cancelPendingSignatureRound(c.escrow.id, c.round.id, asTrustedActor(c.seller.id))).rejects.toThrow(/does not support cancelling/)
       expect(dispatch.isSupersedableCooperativeRound({ ...c.round, signatures: [] })).toBe(true) // the round itself would be...
       const grant = dispatch.issueRulingSupersessionGrant({ id: 'x', appealRound: 0, arbiterId: ARBITER_ID, ruling: 'RELEASE', authoritySignature: 's', authorityIssuedAt: new Date(), status: 'RESOLVED' })
@@ -519,16 +520,16 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     await sign(c, c.buyer.id)
     await raiseDispute(c) // OPENED, no ruling
     await payoutAddressService.setPayoutAddress(c.seller.id, 'BTC', testnetAddress('t15-seller'))
-    // Exactly what POST /initiate-release and /initiate-refund do (settlement.routes.ts): no grant.
-    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID)).rejects.toThrow(/already has a pending release transaction/)
-    await expect(escrowService.initiateRefund(c.escrow.id, ARBITER_ID)).rejects.toThrow(/already has a pending release transaction/)
-    // A structural copy of a grant is not a grant.
+    // Exactly what POST /initiate-release and /initiate-refund do (settlement.routes.ts): no grant. With the dispute still
+    // OPENED there is no ruling at all, so every call is refused first by DISPUTE_RULING_REQUIRED (an earlier, stronger
+    // refusal than before); the forged and stale grants are exercised as the FIRST refusal in T15b below.
+    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID)).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
+    await expect(escrowService.initiateRefund(c.escrow.id, ARBITER_ID)).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
     const forged = { disputeId: 'd', appealRound: 0, arbiterId: ARBITER_ID, ruling: 'RELEASE', authoritySignature: 's', authorityIssuedAt: new Date() }
-    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, forged as never)).rejects.toThrow(/not issued by the ruling dispatch path/)
-    // A genuine grant for a ruling that is not committed is refused under the lock.
+    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, forged as never)).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
     const dispute = (await prisma.dispute.findFirstOrThrow({ where: { escrowId: c.escrow.id } }))
     const stale = dispatch.issueRulingSupersessionGrant({ ...dispute, status: 'RESOLVED', ruling: 'RELEASE', arbiterId: ARBITER_ID })
-    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, stale)).rejects.toThrow(/no longer matches the committed ruling/)
+    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, stale)).rejects.toMatchObject({ code: 'DISPUTE_RULING_REQUIRED' })
     expect((await liveRound(c.escrow.id))!.id).toBe(c.round.id)
     expect(await retirements(c.escrow.id)).toHaveLength(0)
 
@@ -540,6 +541,23 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     walk(dir)
     expect(routes.length).toBeGreaterThan(3)
     for (const file of routes) expect(fs.readFileSync(file, 'utf8')).not.toMatch(/issueRulingSupersessionGrant|RulingSupersessionGrant/)
+  })
+
+  it('T15b: with a RESOLVED RELEASE ruling, a forged grant and a stale grant are each the FIRST reason the arbiter\'s direct call is refused', async () => {
+    pg.requirePostgres('T15b')
+    const c = await cooperative('t15b')
+    await sign(c, c.buyer.id)
+    const opened = await raiseDispute(c)
+    // The ruling is recorded (RESOLVED, RELEASE, generation 0) without dispatching, so the cooperative round is still live.
+    await prisma.dispute.update({ where: { id: opened.id }, data: { status: 'RESOLVED', ruling: 'RELEASE', resolvedAt: new Date() } })
+    const forged = { disputeId: opened.id, appealRound: 0, arbiterId: ARBITER_ID, ruling: 'RELEASE', authoritySignature: 's', authorityIssuedAt: new Date() }
+    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, forged as never)).rejects.toThrow(/not issued by the ruling dispatch path/)
+    const dispute = (await prisma.dispute.findFirstOrThrow({ where: { escrowId: c.escrow.id } }))
+    // A genuine grant for a DIFFERENT generation than the committed one is refused under the lock.
+    const stale = dispatch.issueRulingSupersessionGrant({ ...dispute, appealRound: dispute.appealRound + 1 })
+    await expect(escrowService.initiateRelease(c.escrow.id, undefined, ARBITER_ID, stale)).rejects.toThrow(/no longer matches the committed ruling/)
+    expect((await liveRound(c.escrow.id))!.id).toBe(c.round.id)
+    expect(await retirements(c.escrow.id)).toHaveLength(0)
   })
 
   it('T11 (GK B1): a hostile co-signer cannot lock the round with a high-S or malformed signature; the honest seller still cancels', async () => {
@@ -802,8 +820,13 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     await resolve(c, dispute.id, 'REFUND')
     const ruling = (await liveRound(c.escrow.id))!
     expect(ruling.disputeId).toBe(dispute.id)
-    // A disputed refund is arbiter-presigned; the seller completes it outside Sails.
-    const spend = completeOutsideSails(ruling.unsignedPsbtBase64, [signRound(ruling.unsignedPsbtBase64, sellerKey)])
+    // The round itself carries no arbiter signature; this case needs a completed external spend, built here with the
+    // arbiter signature produced directly. The property under test is unchanged.
+    const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
+    const { loadParticipantPubkeys } = require('../../src/modules/open-settlement/escrow-lifecycle')
+    const keys = await loadParticipantPubkeys(c.escrow.id)
+    const arbiterCopy = multisigProvider.signAsArbiterAtExecution({ tradeId: c.trade.id, lockedAmount: '0.001', ...keys, status: 'DISPUTED', triggeredBy: ARBITER_ID }, ruling.unsignedPsbtBase64)
+    const spend = completeOutsideSails(ruling.unsignedPsbtBase64, [signRound(ruling.unsignedPsbtBase64, sellerKey), arbiterCopy])
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     chain.confirmed.add(spend.txid)
     chain.hex.set(spend.txid, spend.hex)
@@ -905,6 +928,7 @@ describe('Issue #239 - cooperative signing-round lifecycle (real PostgreSQL, rea
     // If its signers broadcast it, PASS 0 converges to that truth (UNKNOWN != FAILED).
     const spend = completeOutsideSails(c.round.unsignedPsbtBase64, (await liveRound(c.escrow.id))!.signatures.map((s) => s.signedPsbtBase64))
     chain.confirmed.add(spend.txid)
+    chain.hex.set(spend.txid, spend.hex) // the explorer serves a confirmed transaction's bytes
     chain.spentBy.set(`${c.funding}:0`, spend.txid)
     const after = await tick()
     expect(after.resumedUnclaimed.find((x) => x.escrowId === c.escrow.id)).toMatchObject({ txId: spend.txid, outcome: 'ALREADY_BROADCAST' })

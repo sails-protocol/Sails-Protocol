@@ -19,7 +19,7 @@
  */
 import { createHash } from 'node:crypto'
 import { prisma } from '../../common/database'
-import { NotFoundError } from '../../common/errors'
+import { ForbiddenError, NotFoundError } from '../../common/errors'
 import type { PaymentMethod } from '../../common/types'
 
 // RFC-021 D5 — trade-limit ramp. Deliberately reuses SECURITY_MODEL.md
@@ -128,6 +128,8 @@ export class PaymentAccountService {
    */
   async signPaymentAccount(accountHash: string, signedBy: string) {
     const account = await this.getByHash(accountHash)
+    // An attestation is someone else's: an owner never signs their own account.
+    if (account.ownerId === signedBy) throw new ForbiddenError('A payment account cannot be signed by its owner')
     if (account.signed) return account
     return prisma.paymentAccount.update({
       where: { accountHash },

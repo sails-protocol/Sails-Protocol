@@ -21,7 +21,8 @@ import * as ecc from '@bitcoinerlab/secp256k1'
 import { ECPairFactory } from 'ecpair'
 import { createHash } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { registerTestParticipant, closeTestRedis } from './identityTestHelpers'
+import { registerTestParticipant, registerTestParticipantWithKey, closeTestRedis } from './identityTestHelpers'
+import { commitTradePair, acceptedEnvelopeFor } from './helpers/committedPairFixture'
 import { MULTISIG_CAPABILITY_PROFILE_V1 } from '@satsails/p2p-schemas'
 import type { AuthorityDecisionPayload } from '../../src/modules/open-settlement/arbitration-authority'
 import nacl from 'tweetnacl'
@@ -65,9 +66,13 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
   let realFetch: typeof fetch
 
   function mockExplorerForUtxo(txid: string, vout: number, valueSats: number): void {
-    global.fetch = jest.fn(async (url: string) => {
+    global.fetch = jest.fn(async (url: string, init?: { method?: string; body?: unknown }) => {
+      // A broadcast answers with the txid of the bytes it received.
+      if (init?.method === 'POST') return { ok: true, status: 200, text: async () => bitcoin.Transaction.fromHex(String(init.body)).getId() } as any
       if (url.includes('/blocks/tip/height')) return { ok: true, text: async () => '100' } as any
       if (url.includes(`/tx/${txid}/status`)) return { ok: true, json: async () => ({ confirmed: true, block_height: 100 }) } as any
+      // Any other transaction is unknown to this explorer until it is broadcast.
+      if (/\/tx\/[0-9a-f]{64}\/status/.test(url)) return { ok: false, status: 404 } as any
       if (url.includes('/v1/fees/recommended')) return { ok: true, json: async () => ({ halfHourFee: 5, fastestFee: 8 }) } as any
       return { ok: true, json: async () => [{ txid, vout, value: valueSats, status: { confirmed: true } }] } as any
     }) as any
@@ -123,10 +128,11 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
   it('reproduces C8 and resumes it: real signature persisted, escrow non-terminal, PASS 0 asks the chain first, then claims and finalizes', async () => {
     requirePostgres('C8 reproduction + recovery')
 
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -197,10 +203,11 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
   // Gatekeeper NO-GO on 424e8969: PASS 0 ran its gates, then broadcast, and only claimed the escrow afterwards. A dispute
   // opened between the gates and the broadcast did not stop the funds from moving.
   async function makeCooperativeC8(label: string) {
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)
@@ -278,7 +285,9 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     const { escrow, buyer } = await makeCooperativeC8('m9r-c8-unknown')
     const { multisigProvider } = require('../../src/modules/open-settlement/multisig.provider')
     let releaseTxid = ''
+    let releaseHex = ''
     const broadcast = jest.spyOn(multisigProvider, 'broadcast').mockImplementation(async (hex: unknown) => {
+      releaseHex = hex as string
       releaseTxid = bitcoin.Transaction.fromHex(hex as string).getId()
       throw new Error('explorer timed out after sending')
     })
@@ -292,7 +301,9 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
     // The broadcast did reach the network: PASS 1 finds it and converges without broadcasting again.
     const unknown = global.fetch
     global.fetch = jest.fn(async (url: string, init?: unknown) =>
-      url.includes(`/tx/${releaseTxid}/status`) ? ({ ok: true, status: 200, json: async () => ({ confirmed: false }) } as any) : (unknown as any)(url, init)) as any
+      url.includes(`/tx/${releaseTxid}/status`) ? ({ ok: true, status: 200, json: async () => ({ confirmed: false }) } as any)
+        : url.includes(`/tx/${releaseTxid}/hex`) ? ({ ok: true, status: 200, text: async () => releaseHex } as any)
+        : (unknown as any)(url, init)) as any
     broadcast.mockClear()
     await reconcilePendingSettlements()
 
@@ -304,10 +315,11 @@ describe('M9-R — C8 recovery: all signatures persisted, transition never claim
   it('duplicate workers: two concurrent recovery runs against the SAME C8 escrow never both claim the transition', async () => {
     requirePostgres('C8 duplicate workers')
 
-    const seller = await registerTestParticipant(identityService, 'Seller')
-    const buyer = await registerTestParticipant(identityService, 'Buyer')
+    const seller = await registerTestParticipantWithKey(identityService, 'Seller')
+    const buyer = await registerTestParticipantWithKey(identityService, 'Buyer')
     const offer = await liquidityRouter.createOffer({ userId: seller.id, asset: 'BTC', side: 'SELL', priceUsd: '60000', minAmount: '0.001', maxAmount: '0.001', paymentMethod: 'OTHER' })
-    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001' })
+    const trade = await tradeService.createTrade({ offerId: offer.id, counterpartyId: buyer.id, amount: '0.001', acceptedEnvelopeId: await acceptedEnvelopeFor(prisma, seller, offer) })
+    await commitTradePair(prisma, trade.id, seller, buyer) // F4 deny-by-default: the COMMITTED pair of this trade
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.001', asset: 'BTC' }, seller.id)
     await prisma.trade.update({ where: { id: trade.id }, data: { escrowId: escrow.id } })
     await escrowService.submitParticipantKey(escrow.id, buyer.id, BUYER_PUBKEY, MULTISIG_CAPABILITY_PROFILE_V1)

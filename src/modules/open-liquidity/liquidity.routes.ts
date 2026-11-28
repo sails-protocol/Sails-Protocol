@@ -13,6 +13,9 @@ import type { AuthenticatedRequest } from '../../common/middleware/auth'
 import type { AssetType, PaymentMethod } from '../../common/types'
 import { docsOnlySchema } from '../../common/openapi'
 import { positiveDecimalString } from '../../common/validation'
+import { prisma } from '../../common/database'
+import { ForbiddenError } from '../../common/errors'
+import { declareOfferCapacity } from './offer-capacity.service'
 
 // Missão 07.2 (cold-start audit) — `asset` here and in createOfferSchema
 // below was `z.string().min(1)`, unlike every other route that takes an
@@ -159,6 +162,25 @@ export async function liquidityRoutes(app: FastifyInstance): Promise<void> {
     const participantId = (request as AuthenticatedRequest).participantId
     const offer = await liquidityRouter.updateOfferStatus(id, body.status, participantId)
     return reply.code(200).send({ success: true, data: offer })
+  })
+
+  // M-1b: capacity of a LOGICAL Offer, set by a declaration SIGNED with the owner's economic key (sails-offer-capacity-v1).
+  // The signature is the authorization; the session must also belong to that key. See offer-capacity.service.ts.
+  const capacityParamsSchema = z.object({ logicalOfferId: z.string().min(1) })
+  const capacityBodySchema = z.object({
+    ownerPublicKey: z.string(), asset: z.string(), capacityTotal: z.string(), capacityRevision: z.number().int(),
+    networkId: z.string(), issuedAt: z.string(), signature: z.string(),
+  })
+  app.post('/v1/liquidity/offers/:logicalOfferId/capacity', {
+    preHandler: requireAuth,
+    ...docsOnlySchema({ tags: ['open-liquidity'], params: capacityParamsSchema, body: capacityBodySchema }),
+  }, async (request, reply) => {
+    const { logicalOfferId } = capacityParamsSchema.parse(request.params)
+    const body = capacityBodySchema.parse(request.body)
+    const user = await prisma.user.findUnique({ where: { id: (request as AuthenticatedRequest).participantId }, select: { publicKey: true } })
+    if (!user) throw new ForbiddenError('unknown session identity')
+    const result = await declareOfferCapacity({ sessionPublicKey: user.publicKey, declaration: { ...body, logicalOfferId } })
+    return reply.code(200).send({ success: true, data: result })
   })
 
   app.post('/v1/liquidity/match', {

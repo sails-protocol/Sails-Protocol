@@ -67,4 +67,4 @@ Use this template **in the session or mission record**, not in this evergreen gu
 
 Update the **correct canonical owner** when a durable decision or material finding changes. Link Issues/PRs to evidence and update backlog deltas without duplicating entire histories. Preserve rejected alternatives and unresolved risks where relevant. Never bury important institutional knowledge only in chat, a transient agent memory, or a CI log.
 
-**Invariant of this guide:** Não duplicar. Não perder. Não inflar. Não esconder.
+**Invariant of this guide:** Do not duplicate. Do not lose context. Do not inflate. Do not conceal.

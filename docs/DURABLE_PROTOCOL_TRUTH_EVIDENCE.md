@@ -281,7 +281,7 @@ specifically. Confirmed directly: `POST /v1/settlement/disputes/:id/resolve`
 (`settlement.routes.ts`) declares `authoritySignature: z.string().min(1)`
 as a **request-body field** — the signature is computed by the caller
 *before* the request is sent, meaning **the server never holds, and
-never needs to hold, the arbiter's private signing key.** The arbiter's
+never needs to hold, the arbiter's private signing key** (the identity key that signs authority decisions, which is not the Gen-1 escrow arbiter key derived on the node). The arbiter's
 own device is therefore the artifact's natural point of origin,
 independent of Satsails' infrastructure, before any server involvement
 at all — not because an export feature exists, but because the

@@ -5,6 +5,7 @@
  */
 import { randomBytes, randomUUID } from 'crypto'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
+import { createCommitmentFixture } from './helpers/committedPairFixture'
 
 describe('D030 - escrows.type has no default: the rail is always explicit (real PostgreSQL)', () => {
   jest.setTimeout(120_000)
@@ -42,9 +43,11 @@ describe('D030 - escrows.type has no default: the rail is always explicit (real 
       `INSERT INTO escrows (id, "tradeId", "lockedAmount", asset, "updatedAt") VALUES ($1, $2, 0.005, 'BTC', now())`, randomUUID(), t.id,
     )).rejects.toThrow(/23502/) // not_null_violation, matched by SQLSTATE (locale-independent)
     expect(await prisma.escrow.count()).toBe(before)
+    // F4b: a non-MOCK escrow needs the COMMITTED pair of its own trade, so the "explicit type passes" half uses a real committed pair.
+    const { tradeId, pairId } = await (await createCommitmentFixture(prisma, { seed: 0x65 })).committedPair()
     await expect(prisma.$executeRawUnsafe(
-      `INSERT INTO escrows (id, "tradeId", type, "lockedAmount", asset, "updatedAt") VALUES ($1, $2, 'MULTISIG', 0.005, 'BTC', now())`, randomUUID(), t.id,
+      `INSERT INTO escrows (id, "tradeId", type, "lockedAmount", asset, "commitmentPairId", "updatedAt") VALUES ($1, $2, 'MULTISIG', 0.005, 'BTC', $3, now())`, randomUUID(), tradeId, pairId,
     )).resolves.toBe(1)
-    expect((await prisma.escrow.findUnique({ where: { tradeId: t.id } })).type).toBe('MULTISIG')
+    expect((await prisma.escrow.findUnique({ where: { tradeId } })).type).toBe('MULTISIG')
   })
 })

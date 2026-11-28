@@ -14,14 +14,108 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  # Despacho 060 (PR-B): npm test (= test:unit && test:integration:postgres) and the restricted lane run as independent
+  # jobs, each with its own fresh database, so wall-clock time is the slowest job instead of the sum. Coverage is the same
+  # set of suites: the unit job runs test:unit, the pg jobs run test:integration:postgres split by Jest --shard (each shard
+  # still --runInBand), the restricted job runs the same 16 suites as sails_runtime. The required check `test` is the
+  # aggregator below and is green only if every one of those jobs succeeded.
+  # ── Root causes carried over verbatim from the single-job workflow (they still apply to every job below) ──
+  # Missão 11 Fase 6.3B.1 — the real-Postgres integration lane
+  # (npm run test:integration:postgres) needs an actual ephemeral test
+  # Postgres to run for real instead of failing the fail-closed
+  # authorization/connectivity guard. This service container is
+  # created fresh per CI run and discarded afterward — never a shared
+  # or persistent database.
+  # Issue #302 — canonical registration now requires a Redis-backed
+  # registration challenge, so every integration test that registers a
+  # participant needs a real Redis alongside Postgres.
+  # Explicit, deliberate opt-in required by
+  # tests/integration/postgresTestHarness.ts's fail-closed guard —
+  # this service container is a fresh, disposable, CI-only Postgres,
+  # never a shared or production database.
+  # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. These
+  # lanes deliberately migrate and test as the superuser (test setup needs
+  # privileged operations), so the legacy single credential is opted into
+  # explicitly; the role-segregated path is exercised by runtimePrivileges and
+  # by the restricted-runtime lane in ci-tests.yml.
+  # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
+  # this workflow. src/config/index.ts reads it once, at
+  # module-import time; when empty, dispute.service.ts's lazy
+  # singleton getDisputeService() throws ValidationError on its first
+  # call and stays broken for the rest of that worker's process. At
+  # least 10 tests/integration/*.test.ts files (and
+  # tests/settlementReadAccess.test.ts, fixed separately) assume this
+  # var is set — same as every local dev checkout's own gitignored
+  # .env already provides (TRUSTED_ARBITRATORS=k6-test-arbiter).
+  # Matching that exact value here, rather than patching each
+  # affected test file individually, since the dependency is on
+  # ambient environment, not on any one file.
+  # Mission 9.10 — same real root cause fixed in ci.yml (see that
+  # workflow's own comment and docs/TECHNICAL_DEBT_AUDIT.md #49):
+  # @satsails/p2p-trading-sdk's package.json "types" field points
+  # at dist/ (gitignored), which ts-jest's TypeScript diagnostic
+  # pass needs and jest.config.js's moduleNameMapper does not
+  # cover. Reproduced locally byte-for-byte before this fix.
+  # Mission 9.10 — same real root cause fixed in ci.yml (see that
+  # workflow's own comment): `npm install` alone never populates
+  # @prisma/client's real exports, only `prisma generate` does.
+  # Confirmed via this workflow's own jest-output.txt artifact
+  # (run 33352899462): 80 of 147 suites failed on
+  # `TS2305: Module '@prisma/client' has no exported member ...`.
+  unit:
     runs-on: ubuntu-latest
-    # Missão 11 Fase 6.3B.1 — the real-Postgres integration lane
-    # (npm run test:integration:postgres) needs an actual ephemeral test
-    # Postgres to run for real instead of failing the fail-closed
-    # authorization/connectivity guard. This service container is
-    # created fresh per CI run and discarded afterward — never a shared
-    # or persistent database.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDISMS_DISABLE_POSTINSTALL: true
+      REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      # Explicit opt-in required by tests/integration/postgresTestHarness.ts's fail-closed guard: each job's service container
+      # is a fresh, disposable, CI-only Postgres. The unit lane's wrapper drops it and forces an unroutable DATABASE_URL.
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # CTO 230: these lanes migrate and test as the superuser; the role-segregated path is the restricted job.
+      SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
+      # M9.10-R: src/config/index.ts reads TRUSTED_ARBITRATORS at import time.
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
+        run: npm install --no-audit --no-fund
+      - name: Build workspace packages
+        # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
+        run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - name: Generate Prisma Client
+        run: npm run db:generate
+      - name: Unit lane (no database reachable)
+        run: |
+          set -o pipefail
+          npm run test:unit 2>&1 | tee jest-output.txt
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jest-output-unit
+          path: jest-output.txt
+
+  pg:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     services:
       postgres:
         image: postgres:16-alpine
@@ -36,9 +130,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      # Issue #302 — canonical registration now requires a Redis-backed
-      # registration challenge, so every integration test that registers a
-      # participant needs a real Redis alongside Postgres.
       redis:
         image: redis:7-alpine
         ports:
@@ -52,29 +143,12 @@ jobs:
       REDISMS_DISABLE_POSTINSTALL: true
       REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
       DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
-      # Explicit, deliberate opt-in required by
-      # tests/integration/postgresTestHarness.ts's fail-closed guard —
-      # this service container is a fresh, disposable, CI-only Postgres,
-      # never a shared or production database.
+      # Explicit opt-in required by tests/integration/postgresTestHarness.ts's fail-closed guard: each job's service container
+      # is a fresh, disposable, CI-only Postgres. The unit lane's wrapper drops it and forces an unroutable DATABASE_URL.
       SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
-      # CTO 230 - npm run db:migrate goes through scripts/migrate-deploy-safe.sh. These
-      # lanes deliberately migrate and test as the superuser (test setup needs
-      # privileged operations), so the legacy single credential is opted into
-      # explicitly; the role-segregated path is exercised by runtimePrivileges and
-      # by the restricted-runtime lane in ci-tests.yml.
+      # CTO 230: these lanes migrate and test as the superuser; the role-segregated path is the restricted job.
       SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
-      # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere in
-      # this workflow. src/config/index.ts reads it once, at
-      # module-import time; when empty, dispute.service.ts's lazy
-      # singleton getDisputeService() throws ValidationError on its first
-      # call and stays broken for the rest of that worker's process. At
-      # least 10 tests/integration/*.test.ts files (and
-      # tests/settlementReadAccess.test.ts, fixed separately) assume this
-      # var is set — same as every local dev checkout's own gitignored
-      # .env already provides (TRUSTED_ARBITRATORS=k6-test-arbiter).
-      # Matching that exact value here, rather than patching each
-      # affected test file individually, since the dependency is on
-      # ambient environment, not on any one file.
+      # M9.10-R: src/config/index.ts reads TRUSTED_ARBITRATORS at import time.
       TRUSTED_ARBITRATORS: k6-test-arbiter
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -83,29 +157,86 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - name: Install dependencies
+        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
         run: npm install --no-audit --no-fund
       - name: Build workspace packages
-        # Mission 9.10 — same real root cause fixed in ci.yml (see that
-        # workflow's own comment and docs/TECHNICAL_DEBT_AUDIT.md #49):
-        # @satsails/p2p-trading-sdk's package.json "types" field points
-        # at dist/ (gitignored), which ts-jest's TypeScript diagnostic
-        # pass needs and jest.config.js's moduleNameMapper does not
-        # cover. Reproduced locally byte-for-byte before this fix.
+        # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
         run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
       - name: Generate Prisma Client
-        # Mission 9.10 — same real root cause fixed in ci.yml (see that
-        # workflow's own comment): `npm install` alone never populates
-        # @prisma/client's real exports, only `prisma generate` does.
-        # Confirmed via this workflow's own jest-output.txt artifact
-        # (run 33352899462): 80 of 147 suites failed on
-        # `TS2305: Module '@prisma/client' has no exported member ...`.
         run: npm run db:generate
+      - name: Ensure the capacity reviewer role (M-1b migration requires it)
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: node scripts/db/ensure-capacity-reviewer-role.js
       - name: Apply database migrations
         run: npm run db:migrate
-      - name: Run tests (capture output)
+      - name: PostgreSQL lane, shard ${{ matrix.shard }}/4
         run: |
           set -o pipefail
-          npm test 2>&1 | tee jest-output.txt
+          npm run test:integration:postgres -- --shard=${{ matrix.shard }}/4 2>&1 | tee jest-output.txt
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: jest-output-pg-${{ matrix.shard }}
+          path: jest-output.txt
+
+  restricted:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: sails_protocol
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      REDISMS_DISABLE_POSTINSTALL: true
+      REDISMS_SYSTEM_BINARY: /usr/bin/redis-server
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+      # Explicit opt-in required by tests/integration/postgresTestHarness.ts's fail-closed guard: each job's service container
+      # is a fresh, disposable, CI-only Postgres. The unit lane's wrapper drops it and forces an unroutable DATABASE_URL.
+      SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
+      # CTO 230: these lanes migrate and test as the superuser; the role-segregated path is the restricted job.
+      SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
+      # M9.10-R: src/config/index.ts reads TRUSTED_ARBITRATORS at import time.
+      TRUSTED_ARBITRATORS: k6-test-arbiter
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - name: Install dependencies
+        # Despacho 061: same install as today (npm ci only after an equivalence proof, not in this PR).
+        run: npm install --no-audit --no-fund
+      - name: Build workspace packages
+        # TECHNICAL_DEBT_AUDIT.md #49: ts-jest's diagnostic pass resolves the SDK's "types" from dist/.
+        run: npm run build -w @sails/core -w @satsails/p2p-schemas -w @satsails/p2p-trading-sdk
+      - name: Generate Prisma Client
+        run: npm run db:generate
+      - name: Ensure the capacity reviewer role (M-1b migration requires it)
+        env:
+          ADMIN_DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
+        run: node scripts/db/ensure-capacity-reviewer-role.js
+      - name: Apply database migrations
+        run: npm run db:migrate
       - name: Critical flows as the restricted runtime role (CTO 225)
         # Re-runs real-Postgres suites for trade, escrow, dispute, reconciliation,
         # event store/projections, idempotency and capabilities with the
@@ -129,8 +260,10 @@ jobs:
             npx jest --runInBand \
               tests/integration/tradeProjectionMonotonicity.test.ts \
               tests/integration/offerIntentIdempotencyUniqueness.test.ts \
+              tests/integration/tradeAdmissionAtomicity.test.ts \
               tests/integration/escrowFundingConcurrency.test.ts \
               tests/integration/escrowTypeNoDefault.test.ts \
+              tests/integration/wdkTransferAttemptConcurrency.test.ts \
               tests/integration/m9rClaimRecovery.test.ts \
               tests/integration/m9rDispatchRecovery.test.ts \
               tests/integration/atomicDisputeOpening.test.ts \
@@ -146,5 +279,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: jest-output
+          name: jest-output-restricted
           path: jest-output.txt
+
+  # The required check. if: always() so that it reports even when a needed job failed, was cancelled or was skipped;
+  # it then fails explicitly. Without this, a skipped required job would be reported as a passing check.
+  test:
+    if: always()
+    needs: [unit, pg, restricted]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test job to succeed
+        run: |
+          echo "unit=${{ needs.unit.result }} pg=${{ needs.pg.result }} restricted=${{ needs.restricted.result }}"
+          test "${{ needs.unit.result }}" = success
+          test "${{ needs.pg.result }}" = success
+          test "${{ needs.restricted.result }}" = success

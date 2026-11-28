@@ -510,6 +510,14 @@ model Escrow {
   createdAt                             DateTime          @default(now())
   updatedAt                             DateTime          @updatedAt
 
+  // F4 / invariant 3b (migration 20261122122000_f4_escrow_commitment_binding). A NEW escrow of an executable type is bound to a
+  // COMMITTED commitment pair, in the database (trigger), and the binding never changes. The two marks exist ONLY on rows that
+  // existed at the economic cut: written once by that migration, never by the runtime (no grant, trigger-immutable).
+  commitmentPairId                      String?
+  commitmentPair                        CommitmentPair?   @relation(fields: [commitmentPairId], references: [id], onDelete: Restrict)
+  legacyPreCommitmentAt                 DateTime?         @db.Timestamptz(3)
+  addressPresentAtCutAt                 DateTime?         @db.Timestamptz(3)
+
   events             EscrowEvent[]
   disputes           Dispute[]
   feeDistribution    FeeDistribution?
@@ -2709,6 +2717,9 @@ model CommitmentPair {
   withdrawProof               String?
   createdAt                   DateTime         @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
 
+  /// F4: the escrows bound to this pair (inverse side of Escrow.commitmentPairId; no column here).
+  escrows                     Escrow[]
+
   @@index([anchorRef])
   @@map("commitment_pairs")
 }
@@ -2724,4 +2735,50 @@ model DeploymentMode {
   createdAt DateTime @default(dbgenerated("clock_timestamp()")) @map("created_at") @db.Timestamptz(3)
 
   @@map("deployment_mode")
+}
+
+/// M-1b (migration 20261122130000): aggregate capacity of ONE logical Offer, shared by every revision (PK = identity).
+/// NULL capacityTotal = not configured = nothing executable (fail-closed). Raised/lowered only by an owner-signed declaration
+/// (service); the database keeps it for offline re-verification and enforces shape, monotonic capacityRevision and block rules.
+model OfferCapacity {
+  ownerPublicKey       String
+  logicalOfferId       String
+  capacityTotal        Decimal?                    @db.Decimal(24, 8)
+  capacityRevision     Int
+  declaredAt           DateTime?                   @db.Timestamptz(3)
+  declaration          Json?
+  declarationSignature String?
+  blockedAt            DateTime?                   @db.Timestamptz(3)
+  blockReason          String?
+  blockEvidence        String?
+  unblockProof         String?
+  createdAt            DateTime                    @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
+  updatedAt            DateTime                    @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
+  reservations         OfferCapacityReservation[]
+
+  @@id([ownerPublicKey, logicalOfferId])
+  @@map("offer_capacity")
+}
+
+/// M-1b: one reservation per trade (tradeIntentId UNIQUE) and per pair, written by the COMMITTED transition under the
+/// capacity row lock; RESERVED -> RELEASED only by the release path.
+model OfferCapacityReservation {
+  id                         String         @id @default(uuid())
+  ownerPublicKey             String
+  logicalOfferId             String
+  capacity                   OfferCapacity  @relation(fields: [ownerPublicKey, logicalOfferId], references: [ownerPublicKey, logicalOfferId], onDelete: Restrict, onUpdate: Restrict)
+  tradeIntentId              String         @unique
+  commitmentPairId           String         @unique
+  amount                     Decimal        @db.Decimal(24, 8)
+  capacityRevisionObserved   Int
+  capacityTotalAtReservation Decimal        @db.Decimal(24, 8)
+  offerRevision              Int
+  offerEnvelopeDigest        String
+  state                      String         @default("RESERVED")
+  reservedAt                 DateTime       @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(3)
+  releasedAt                 DateTime?      @db.Timestamptz(3)
+  releaseKind                String?
+  releaseProof               String?
+
+  @@map("offer_capacity_reservations")
 }

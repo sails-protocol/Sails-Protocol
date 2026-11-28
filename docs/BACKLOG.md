@@ -150,6 +150,7 @@ Fases 3 (Settlement Obligation Integration), 4 (Protocol Fee Collection Implemen
 - `escrow-pending-tx.ts`'s signature-collection path still never threads `triggeredBy` fully into every downstream consumer beyond what Fase 5.3 needed — worth a broader audit, not done here.
 - The false-green Postgres-test-hygiene pattern Fase 5.3 fixed in two named files (`feePolicyImmutability.test.ts`, `feeCollectionRecognitionIntegration.test.ts`) still exists identically in other integration test files (e.g. `postgresProductionReadiness.test.ts`) — not fixed, disclosed only.
 - Production protocol fee rate selection (0.40% or any other number), revenue-distribution percentages, production collection address/key generation, and any real mainnet transaction remain untouched and unauthorized by this work — a separate CTO gate.
+- Nota (Decisão CTO 36 (2026-11-22)): 0,40% é taxa de referência para avaliação de ativação, não cobrança ativa; ver `docs/PROTOCOL_ECONOMY.md`.
 
 Next phase: **Missão 11 — Protocol Economics / Revenue Distribution Design.**
 
@@ -6030,6 +6031,7 @@ Every merge was individually authorized by the CTO for one exact head, after an 
 | #546 and #532 | HOLD; diagnose the failing CI check; no early release | — |
 | Documentation #531 and #538 | Resume as one consolidated reconciliation; do not integrate outdated documents | — |
 | Documentation #551 (economic amendments) | HOLD; depends on a specific economic decision; the 0.40% fee is not to be assumed as an activated policy | — |
+| Nota (Decisão CTO 36 (2026-11-22)) | 0,40% permanece referência, não ativo; ver `docs/PROTOCOL_ECONOMY.md` | — |
 | Redis Streams #539 | Isolated evaluation of scope and tests; Redis Gate 2 remains NO-GO | — |
 
 **Still open and unchanged by this entry:** every item listed as open in the entry "Institutional status after the #654 integration (2026-11-16)" above, the database steps for any migration, and every economic activation.

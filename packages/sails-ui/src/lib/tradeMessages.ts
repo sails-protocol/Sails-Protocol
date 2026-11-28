@@ -7,6 +7,7 @@
 import type { Message as SdkMessage, ChatMessageEvent, Ed25519Keypair, EncryptedChatMessage } from '@satsails/p2p-trading-sdk'
 import { decryptChatMessage } from '@satsails/p2p-trading-sdk'
 import type { Message, MessageType, User } from '../types'
+import { t } from '../i18n'
 
 // ENCRYPTED_TEXT's `content` holds JSON.stringify(EncryptedChatMessage) on
 // the wire (types.ts's own comment on MessageType) — opportunistically
@@ -24,14 +25,14 @@ export function decryptIncoming(
     return { content, type: (msgType as MessageType) ?? 'TEXT' }
   }
   if (!myKeypair || !counterpartyPublicKeyHex) {
-    return { content: 'Mensagem criptografada — carregando chaves...', type: 'ENCRYPTED_TEXT', decryptionFailed: true }
+    return { content: t('escrow.chat.loadingKeys'), type: 'ENCRYPTED_TEXT', decryptionFailed: true }
   }
   try {
     const encrypted: EncryptedChatMessage = JSON.parse(content)
     const plain = decryptChatMessage(encrypted, counterpartyPublicKeyHex, myKeypair)
     return { content: plain, type: 'ENCRYPTED_TEXT' }
   } catch {
-    return { content: 'Não foi possível decifrar esta mensagem.', type: 'ENCRYPTED_TEXT', decryptionFailed: true }
+    return { content: t('escrow.chat.decryptFailed'), type: 'ENCRYPTED_TEXT', decryptionFailed: true }
   }
 }
 

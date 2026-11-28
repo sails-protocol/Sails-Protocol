@@ -98,7 +98,26 @@ this yet (Sails OpenP2P's chat module is listed as missing in `TODO.md`
 section 1), so no live migration is required — this is a pre-build
 correction.
 
-## Reference Implementation Plan
+## Current reference implementation boundary
+
+`negotiation.service.ts` implements `HumanChatChannel`. Inbound Pears
+messages are filtered by negotiation kind, trade ID and the connected
+peer ID associated with the expected counterparty. Persistence attributes
+`senderId` to that counterparty rather than trusting the event's `by`
+field; this does not authenticate every embedded event field or timestamp.
+The WebSocket chat route separately checks trade participation on join
+and send and attributes messages to the ticket-authenticated participant.
+
+Inbound wiring avoids duplicate listeners per PearNode instance and trade,
+and suppresses the inbound copy when the counterparty has a node in the
+same registry. These are process-local duplicate-suppression mechanisms,
+not durable message replay protection or cross-operator exactly-once
+delivery. Persisted message IDs identify local rows, not a shared signed
+wire-event identity. Negotiation messages alone do not authorize economic
+commitment or settlement. Independent cross-operator delivery and
+convergence require separate Day-0 evidence (ADR-001 / Issue #105).
+
+## Reference Implementation Plan (historical)
 
 Sails OpenP2P's chat/negotiation module (`TODO.md` §1, not yet built)
 implements `HumanChatChannel` directly against this corrected interface —

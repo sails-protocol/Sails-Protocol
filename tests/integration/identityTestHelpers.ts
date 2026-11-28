@@ -19,10 +19,11 @@
 // crypto flow across nine call sites with a chance of silent drift.
 import nacl from 'tweetnacl'
 
-export async function registerTestParticipant(
+/** Same registration, also returning the throwaway secret key (hex, 64 bytes): for suites that must sign as this participant (F4: commitment pairs). */
+export async function registerTestParticipantWithKey(
   identityService: { register(input: { publicKey: string; signature: string; displayName?: string }): Promise<{ id: string; publicKey: string }> },
   displayName?: string
-): Promise<{ id: string; publicKey: string }> {
+): Promise<{ id: string; publicKey: string; secretKey: string }> {
   // Lazily required — common/middleware/auth.ts touches redis/config at
   // module scope, same discipline every caller of this helper already
   // applies to identityService/liquidityRouter/etc. in its own
@@ -35,7 +36,16 @@ export async function registerTestParticipant(
   const signature = Buffer.from(
     nacl.sign.detached(registrationProofMessage(challenge, displayName), keypair.secretKey)
   ).toString('hex')
-  return identityService.register({ publicKey, signature, displayName })
+  const p = await identityService.register({ publicKey, signature, displayName })
+  return { ...p, secretKey: Buffer.from(keypair.secretKey).toString('hex') }
+}
+
+export async function registerTestParticipant(
+  identityService: { register(input: { publicKey: string; signature: string; displayName?: string }): Promise<{ id: string; publicKey: string }> },
+  displayName?: string
+): Promise<{ id: string; publicKey: string }> {
+  const { secretKey, ...participant } = await registerTestParticipantWithKey(identityService, displayName)
+  return participant
 }
 
 // Root cause of Jest failing to exit: registerTestParticipant() loads
