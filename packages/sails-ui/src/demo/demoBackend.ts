@@ -29,8 +29,6 @@ const STATE_KEY = 'sails_demo_state_v7'
 // localStorage is untouched.
 const DISCARDED_KEYS = new Set(['sails_ui_escrow_keypair'])
 const SHADOW_PREFIX = 'sails_demo_shadow:'
-// This tab's demo session (the fictional identity's secret key, hex), so a reload or HMR keeps it signed in.
-const SESSION_KEY = 'sails_demo_session_v1'
 /** Every demo login is this one fictional participant, whatever key the login generated. */
 const ME = 'demo-me'
 const JUDGE = 'demo-0e55'
@@ -685,7 +683,6 @@ export function installDemoBackend() {
     },
     async authenticate(keypair) {
       currentId = registerPublicKey(hex(keypair.publicKey)).id
-      try { sessionStorage.setItem(SESSION_KEY, hex(keypair.secretKey)) } catch { /* the session ends on reload */ }
       const sessionToken = `demo-session-${currentId}`
       c.setSessionToken(sessionToken)
       return { participantId: currentId, sessionToken }
@@ -697,24 +694,14 @@ export function installDemoBackend() {
     },
   } satisfies Partial<typeof c.identity>)
 
-  // AuthContext.logout() clears the token; forget the demo session too.
   const setToken = c.setSessionToken.bind(c)
   c.setSessionToken = (token) => {
     if (token === null) {
       currentId = null
-      try { sessionStorage.removeItem(SESSION_KEY) } catch { /* nothing persisted */ }
     }
     setToken(token)
   }
   setDemoHooks({
-    sessionKeypair() {
-      try {
-        const raw = sessionStorage.getItem(SESSION_KEY)
-        if (!raw || !/^[0-9a-f]{128}$/.test(raw)) return null
-        const secretKey = Uint8Array.from(raw.match(/../g)!, (b) => parseInt(b, 16))
-        return { secretKey, publicKey: secretKey.slice(32) }
-      } catch { return null }
-    },
     simulateIncomingTrade: async (offerId) => simulateIncomingTrade(offerId),
     stageTradePaymentMethod(method) { stagedMethod = method },
   })

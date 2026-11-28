@@ -471,6 +471,7 @@ Origem: áudios do PO (22/11) organizados pela sessão de UI (`ui-mercados-audio
 ## Demonstração sem becos sem saída (PO, 2026-11-27)
 
 - A demonstração percorre toda jornada até a tela final: compra, venda repetida, disputa e contestação, devolução, cancelamento, mercados (criar, convidar, entrar, chats, publicar, sair, transferir), ativação, recuperação e sessão mantida ao recarregar. Todo passo simulado leva o selo "Simulado"; no modo real nada muda e o que falta continua "Em breve".
+  - **Mudança de funcionalidade 2026-11-28 (alerta CodeQL #70, lote 4):** a sessão demo não sobrevive mais ao reload sem senha: a chave secreta não é mais guardada em texto claro. Depois do reload, o desbloqueio é pela senha, que decifra a chave guardada cifrada, como no app real. "Já usei o Sails" na demonstração vale até o reload e não grava nada. O texto acima fica como registro.
 - A página de um mercado recomeça do zero quando o mercado muda: aba, filtros, passos de KYC/login social e conversa privada nunca passam de um mercado para outro.
 - A rodada de devolução do MULTISIG ("Cancelar e devolver") é só simulada: no modo real a interface não assina nenhuma rodada MULTISIG (Despacho 033 em HOLD).
 - Na demonstração, as conversas privadas de um mercado ficam guardadas na sessão, separadas por mercado: depois de "Propor negociação", "Voltar à conversa" reabre a conversa com o histórico (2026-11-27).

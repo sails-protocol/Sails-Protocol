@@ -3,12 +3,10 @@
  * them through `demoHooks()`, which is empty in production builds and outside demo mode, so the demo module is never
  * imported by a page (it stays a dev-only chunk).
  */
-import type { Ed25519Keypair, PaymentMethod } from '@satsails/p2p-trading-sdk'
+import type { PaymentMethod } from '@satsails/p2p-trading-sdk'
 import { isDemoMode } from './demoMarkers'
 
 export interface DemoHooks {
-  /** The demo identity key of this tab's session, so a reload or HMR keeps the session (demo only). */
-  sessionKeypair: () => Ed25519Keypair | null
   /** A fictional counterparty opens a trade on one of your offers; resolves to the new trade id. */
   simulateIncomingTrade: (offerId: string) => Promise<string>
   /** The payment method chosen for the next demo trade (the real trade-create has no such field). */

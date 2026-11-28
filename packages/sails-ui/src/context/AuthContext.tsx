@@ -46,7 +46,6 @@ import { deriveKeyFromPassphrase, encryptBytes, decryptBytes } from '../lib/keyE
 import { WrongPassphraseError } from '../lib/errors'
 import { createSessionEpochGate } from '../lib/sessionEpochGate'
 import { setAvatarChoiceOwner } from '../lib/avatarChoice'
-import { demoHooks } from '../lib/demoHooks'
 import { t } from '../i18n'
 
 const KEYPAIR_STORAGE_KEY = 'sails_ui_keypair_secret_hex'
@@ -262,26 +261,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
-  // Demo only (fictional identity, demo/demoBackend.ts): a reload or HMR keeps the tab's session, and "Já usei o
-  // Sails" signs in with the recovered demo identity. The passphrase-derived key cannot survive a reload, so the demo
-  // session gets a fresh non-extractable key; the demo never keeps the escrow key anyway.
+  // Demo only (fictional identity, demo/demoBackend.ts): "Já usei o Sails" signs in with a fresh demo identity that
+  // lasts until reload. Nothing is persisted: a secret key in clear text in storage is never allowed (CodeQL #70).
+  // After a reload the passphrase login unlocks the encrypted stored key, as in the real app.
   const demoKey = () => crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
   const signInDemo = async () => {
     setLoading(true)
     try {
-      const keypair = demoHooks().sessionKeypair?.() ?? generateKeypair()
+      const keypair = generateKeypair()
       await sailsClient.identity.create(keypair)
       await adopt(keypair, await demoKey())
     } finally {
       setLoading(false)
     }
   }
-  useEffect(() => {
-    const keypair = demoHooks().sessionKeypair?.()
-    if (!keypair) return
-    setLoading(true)
-    void demoKey().then((key) => adopt(keypair, key)).catch(() => {}).finally(() => setLoading(false))
-  }, [])
 
   const logout = () => {
     // Mission 3 R2 — deactivate() synchronously, same reasoning as
