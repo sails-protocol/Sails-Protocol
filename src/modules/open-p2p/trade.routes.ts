@@ -36,6 +36,8 @@ const createTradeSchema = z.object({
   // that omits it gets exactly today's behavior. See
   // src/common/idempotency.ts's own header for the full contract.
   idempotencyKey: z.string().min(1).max(200).optional(),
+  // E21 R1 - optional: the signed Offer envelope revision this trade accepts. Omitted keeps the Offer-only admission.
+  acceptedEnvelopeId: z.string().min(1).optional(),
 })
 
 const updateStatusSchema = z.object({
@@ -86,6 +88,7 @@ export async function tradeRoutes(app: FastifyInstance): Promise<void> {
       counterpartyId: participantId,
       amount: body.amount,
       idempotencyKey: body.idempotencyKey,
+      acceptedEnvelopeId: body.acceptedEnvelopeId,
     })
     return reply.code(201).send({ success: true, data: trade })
   })

@@ -300,6 +300,15 @@ describe('SailsOpenP2PModule', () => {
     expect(JSON.parse(init.body)).toEqual({ offerId: 'offer-1', amount: '0.1' })
   })
 
+  it('trade() forwards an accepted envelope revision when given (E21)', async () => {
+    const fetchImpl = fakeFetch(201, { success: true, data: { id: 'trade-1' } })
+    const openp2p = new SailsOpenP2PModule(authedTransport(fetchImpl))
+
+    await openp2p.trade('offer-1', '0.1', 'key-1', 'env-1')
+
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({ offerId: 'offer-1', amount: '0.1', idempotencyKey: 'key-1', acceptedEnvelopeId: 'env-1' })
+  })
+
   it('chat() throws if called before authenticate() (no session token)', () => {
     const openp2p = new SailsOpenP2PModule(new SailsTransport({ baseUrl: 'http://localhost:3000', fetchImpl: jest.fn() as unknown as typeof fetch }))
     expect(() => openp2p.chat('trade-1')).toThrow(/active session/)

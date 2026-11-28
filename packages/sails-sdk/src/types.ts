@@ -101,6 +101,10 @@ export interface Trade {
   cancelledAt: string | null
   createdAt: string
   updatedAt: string
+  // E21 - the trade's own Intent and, when the trade accepted a signed Offer envelope revision, that envelope. Optional:
+  // older servers do not return them.
+  tradeIntentId?: string | null
+  acceptedEnvelopeId?: string | null
   // Only populated by openp2p.getTrade() (GET /v1/openp2p/trades/:id) —
   // the Offer this Trade was accepted from, so a caller mid-trade can
   // still see paymentMethod/paymentDetails (where to actually send fiat)
