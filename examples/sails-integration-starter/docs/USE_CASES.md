@@ -64,8 +64,4 @@ isn't.
   `src/wallet-mock/` in this starter shows the *separate*, optional
   `WalletAdapter` extension point (for apps that also want on-chain
   signing), which none of the use cases above actually require.
-- `negotiate()`, `submitProof()`, and `releaseAsset()` on the SDK's
-  six-verb Intent facade always throw `SailsNotImplementedError` today
-  — every real flow above goes through the lower-level
-  `settlement.*`/`openp2p.*` methods instead, not the facade's
-  unimplemented verbs.
+- The examples use lower-level `settlement.*`/`openp2p.*` methods. Only `negotiate()` unconditionally throws `SailsNotImplementedError`; use `openp2p.chat(tradeId)`. `submitProof()` calls authenticated Claim and Proof endpoints; `releaseAsset()` and `dispute()` resolve the Intent's Trade and Escrow before calling their endpoints.
