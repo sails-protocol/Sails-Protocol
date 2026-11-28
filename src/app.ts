@@ -90,7 +90,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   // Issue #255 — same "loud startup validation failure" mandate as the check above, closing a
   // different concern: market-mode collateral is caller-declared bookkeeping, not economically backed
   // (see arbitration-policy.ts's own comment on this function for the full trace/evidence).
-  assertMarketArbitrationCollateralProductionEligible(config.settlement.arbitrationMode, config.isProduction)
+  assertMarketArbitrationCollateralProductionEligible(
+    config.settlement.arbitrationMode,
+    config.isProduction,
+    config.settlement.arbitrationPolicyByEscrowType,
+  )
 
   const app = Fastify({
     logger: {
