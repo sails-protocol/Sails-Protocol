@@ -36,7 +36,7 @@ jest.mock('../src/config', () => ({
   get config() {
     return {
       isProduction: isProductionFlag,
-      features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false },
+      features: { mockEscrow: mockEscrowFeatureFlag, enforceCapabilities: false, requireDualApprovalForRelease: false, escrowCreateSellerOnly: 'warn' },
       trade: { defaultTimelockHours: 24 },
       settlement: { trustedArbitrators: ['arb-1'] },
       // Empty on purpose — lightning-hodl.provider.ts (real since the

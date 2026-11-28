@@ -140,6 +140,20 @@ const resolvedNodeEnv = resolveNodeEnv()
 // it doesn't exist yet during its own construction).
 const isProductionEnv = resolvedNodeEnv === 'production'
 
+// D7 (CTO 29 Despacho 005): only the seller creates a trade's escrow. `warn` lets the buyer still create one, with a
+// deprecation notice, for integrators migrating outside production; `enforce` refuses the buyer. Unset means `enforce`
+// in production and `warn` elsewhere. In production the buyer is refused whatever the value (warn never reopens it),
+// and an unknown value fails the boot in every environment.
+export type EscrowCreateSellerOnlyMode = 'warn' | 'enforce'
+function resolveEscrowCreateSellerOnly(): EscrowCreateSellerOnlyMode {
+  const raw = process.env.ESCROW_CREATE_SELLER_ONLY
+  if (raw !== undefined && raw !== '' && raw !== 'warn' && raw !== 'enforce') {
+    throw new Error(`FATAL: ESCROW_CREATE_SELLER_ONLY must be "warn" or "enforce" (got '${raw}')`)
+  }
+  if (isProductionEnv) return 'enforce'
+  return raw === 'enforce' ? 'enforce' : 'warn'
+}
+
 // Missão 11 Fase 8.1 LB-01 — MULTISIG_NETWORK used to be a bare string
 // that multisig.provider.ts's own networkFor() silently mapped to
 // testnet for anything unrecognized (typo, wrong case, unset). Same
@@ -459,6 +473,8 @@ export const config = {
     // issued) — flipping this to true with no grants issued would reject
     // every TradeIntent and settlement, not fail safe silently.
     enforceCapabilities: process.env.ENFORCE_CAPABILITIES === 'true',
+    // D7: who may create a trade's escrow (see resolveEscrowCreateSellerOnly()).
+    escrowCreateSellerOnly: resolveEscrowCreateSellerOnly(),
     // RFC-015: application-layer two-person control on escrow.service.ts's
     // releaseFunds() — NOT on-chain multisig (WDK's real package is
     // single-owner only, checked before choosing this design). When on,

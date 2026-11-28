@@ -300,6 +300,10 @@ export class SailsSettlementModule {
   constructor(private readonly transport: SailsTransport) {}
 
   /**
+   * Only the trade's SELLER creates its escrow. A buyer gets a `SailsError` with code `ESCROW_CREATE_SELLER_ONLY`
+   * (403) where the node enforces it; the buyer waits for the `settlement.escrow.created` event, or reads the
+   * trade's `escrowId` (`GET /v1/openp2p/trades/:id`), instead of calling this.
+   *
    * Requires an active session. If `type` is omitted, it's resolved via
    * `recommendedEscrowType(input.asset)` — throws immediately, before any
    * network call, for an asset with no real SettlementProvider yet, rather
