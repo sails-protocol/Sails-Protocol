@@ -47,7 +47,9 @@ import {
   type CreateDraftFeePolicyVersionData,
 } from './fee-policy-repository'
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
+import { networkFor } from './multisig.provider'
 import { config } from '../../config'
+import { parseBreakEven, assertCollectionDustCovered, collectionAddressDust } from './fee-break-even'
 
 // The protocol fee ceiling (CTO 38, D-E6). PROPOSED value, pending governance: 0.50%, 1.25x the 0.40% reference, until
 // the signed global policy carries it. A node's SAILS_MAX_PROTOCOL_FEE_RATE can only TIGHTEN it, never widen it, so local
@@ -87,6 +89,9 @@ export class FeePolicyService {
 
   async createDraft(input: CreateDraftFeePolicyVersionData) {
     assertValidProtocolFeeRate(input.protocolFeeRate)
+    const breakEven = parseBreakEven(input.smallTradeRule)
+    const collection = config.settlement?.protocolFeeCollectionAddress
+    if (breakEven && collection) assertCollectionDustCovered(breakEven, collectionAddressDust(collection, networkFor(config.multisig.network)))
     return this.repo.create(input)
   }
 

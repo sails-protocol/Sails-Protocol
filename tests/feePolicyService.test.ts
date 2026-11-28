@@ -331,3 +331,31 @@ describe('protocol fee ceiling: local configuration only tightens it', () => {
     expect(maxProtocolFeeRate()).toBe(effective)
   })
 })
+
+describe('createDraft: smallTradeRule.breakEven is validated strictly (CTO 38 §14)', () => {
+  const { config } = require('../src/config')
+  const original = config.settlement.protocolFeeCollectionAddress
+  afterEach(() => { config.settlement.protocolFeeCollectionAddress = original })
+  const breakEven = { fMaxSatPerVb: 25, vBytes: 43, dMaxSats: 330, collectionDustSats: 330, allowedPayoutTypes: ['P2WPKH', 'P2WSH', 'P2TR'] }
+  const draft = (rule: unknown) => ({ label: 'fixture-be', railScope: 'FIXTURE_RAIL', protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, createdBy: 'test-fixture', smallTradeRule: rule } as any)
+
+  it('an invalid breakEven (dMaxSats 0) is refused and nothing is written', async () => {
+    const repo = fakeRepo()
+    await expect(new FeePolicyService(repo).createDraft(draft({ breakEven: { ...breakEven, dMaxSats: 0 } }))).rejects.toThrow(/dMaxSats must be a positive integer/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it("a collection address whose dust exceeds collectionDustSats is refused (P2PKH 546 > 330)", async () => {
+    config.settlement.protocolFeeCollectionAddress = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
+    const repo = fakeRepo()
+    await expect(new FeePolicyService(repo).createDraft(draft({ breakEven }))).rejects.toThrow(/below the collection address's dust 546/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it('the Day-0 parameters with a P2WPKH collection address, together with fixtureOnlyMinimum, are written unchanged', async () => {
+    config.settlement.protocolFeeCollectionAddress = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+    const repo = fakeRepo({ create: jest.fn(async (input: any) => input) })
+    const rule = { fixtureOnlyMinimum: '0.001', breakEven }
+    await expect(new FeePolicyService(repo).createDraft(draft(rule))).resolves.toMatchObject({ smallTradeRule: rule })
+  })
+})

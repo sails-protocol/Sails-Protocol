@@ -7,7 +7,9 @@ const mockLock = jest.fn()
 jest.mock('../src/modules/open-p2p/commitment-pair.service', () => ({ lockPairForEffect: (...a: unknown[]) => mockLock(...a) }))
 
 const order: string[] = []
-const txMarker = { marker: 'tx' }
+const mockPolicyFind = jest.fn(async (): Promise<unknown> => null)
+const mockPayoutFind = jest.fn(async (): Promise<unknown[]> => [])
+const txMarker = { marker: 'tx', feePolicyVersion: { findUnique: (...a: unknown[]) => (mockPolicyFind as any)(...a) }, payoutAddress: { findMany: (...a: unknown[]) => (mockPayoutFind as any)(...a) } }
 jest.mock('../src/common/database', () => ({
   prisma: { $transaction: async (fn: (tx: unknown) => Promise<unknown>) => { order.push('tx:open'); const r = await fn(txMarker); order.push('tx:close'); return r } },
 }))
@@ -16,7 +18,7 @@ const mockFindById = jest.fn()
 jest.mock('../src/modules/open-p2p/trade-repository', () => ({ tradeRepository: { findById: (...a: unknown[]) => mockFindById(...a) } }))
 jest.mock('../src/modules/open-settlement/escrow-fee-snapshot.service', () => ({ escrowFeeSnapshotService: { computeSnapshotFields: jest.fn(async () => null), computeCommittedSnapshotFields: jest.fn(async () => null) } }))
 jest.mock('../src/common/events/event-bus', () => ({ eventBus: { emit: jest.fn(async () => undefined) } }))
-jest.mock('../src/config', () => ({ get config() { return { isProduction: false, features: { mockEscrow: false, enforceCapabilities: false, requireDualApprovalForRelease: false }, trade: { defaultTimelockHours: 24 }, settlement: { trustedArbitrators: [] }, arkade: { seed: '' } } } }))
+jest.mock('../src/config', () => ({ get config() { return { isProduction: false, features: { mockEscrow: false, enforceCapabilities: false, requireDualApprovalForRelease: false }, trade: { defaultTimelockHours: 24 }, settlement: { trustedArbitrators: [] }, multisig: { network: 'testnet' }, arkade: { seed: '' } } } }))
 jest.mock('@tetherto/wdk-wallet-evm', () => ({ __esModule: true, default: class FakeWalletManagerEvm {} }))
 jest.mock('@arkade-os/sdk', () => ({ SeedIdentity: { fromSeed: jest.fn() }, MultisigTapscript: { encode: jest.fn() }, CSVMultisigTapscript: { encode: jest.fn() }, VtxoScript: class {} }))
 jest.mock('@scure/btc-signer', () => ({ Transaction: { fromPSBT: jest.fn() } }))
@@ -147,5 +149,40 @@ describe("createEscrow(): its asset/amount are the trade's and its committed pai
     mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
     await service.createEscrow({ ...input('MULTISIG'), lockedAmount: '0.00100000' }, 'buyer-1')
     expect(repoCreate.mock.calls[0][0]).toMatchObject({ type: 'MULTISIG', commitmentPairId: 'pair-1', lockedAmount: '0.00100000' })
+  })
+})
+
+describe('createEscrow(): with break-even, registered payout addresses must be of a type the COMMITTED policy allows', () => {
+  const { escrowFeeSnapshotService } = require('../src/modules/open-settlement/escrow-fee-snapshot.service')
+  const breakEven = { fMaxSatPerVb: 25, vBytes: 43, dMaxSats: 330, collectionDustSats: 330, allowedPayoutTypes: ['P2WPKH', 'P2WSH', 'P2TR'] }
+  let repoCreate: jest.Mock
+  let service: EscrowService
+  beforeEach(() => {
+    mockLock.mockReset(); mockFindById.mockReset(); mockPolicyFind.mockReset(); mockPayoutFind.mockReset()
+    repoCreate = jest.fn(async (data: any) => ({ id: 'escrow-1', tradeId: data.tradeId, type: data.type, asset: data.asset, lockedAmount: data.lockedAmount }))
+    service = new EscrowService({ create: repoCreate } as any)
+    mockFindById.mockResolvedValue(trade({ tradeIntentId: 'anchor-1' }))
+    mockLock.mockResolvedValue({ row: pair('pair-1', 'MULTISIG'), readiness: { ok: true }, t: new Date() })
+    escrowFeeSnapshotService.computeCommittedSnapshotFields.mockResolvedValueOnce({ feePolicyVersionId: 'committed-1' })
+    mockPolicyFind.mockResolvedValue({ smallTradeRule: { breakEven } })
+  })
+
+  it('a registered P2PKH payout address is refused (409 PAYOUT_TYPE_NOT_ALLOWED), read from the committed policy: nothing is created', async () => {
+    mockPayoutFind.mockResolvedValue([{ address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' }, { address: 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn' }])
+    await expect(service.createEscrow(input('MULTISIG'), 'buyer-1')).rejects.toMatchObject({ code: 'PAYOUT_TYPE_NOT_ALLOWED' })
+    expect((mockPolicyFind.mock.calls[0] as any)[0]).toMatchObject({ where: { id: 'committed-1' } })
+    expect((mockPayoutFind.mock.calls[0] as any)[0]).toMatchObject({ where: { participantId: { in: ['buyer-1', 'seller-1'] }, asset: 'BTC' } })
+    expect(repoCreate).not.toHaveBeenCalled()
+  })
+
+  it('allowed types pass; a policy without breakEven checks nothing', async () => {
+    mockPayoutFind.mockResolvedValue([{ address: 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx' }])
+    await service.createEscrow(input('MULTISIG'), 'buyer-1')
+    expect(repoCreate).toHaveBeenCalledTimes(1)
+    escrowFeeSnapshotService.computeCommittedSnapshotFields.mockResolvedValueOnce({ feePolicyVersionId: 'committed-2' })
+    mockPolicyFind.mockResolvedValue({ smallTradeRule: {} })
+    mockPayoutFind.mockClear()
+    await service.createEscrow(input('MULTISIG'), 'buyer-1')
+    expect(mockPayoutFind).not.toHaveBeenCalled()
   })
 })
