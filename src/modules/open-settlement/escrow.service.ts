@@ -754,10 +754,14 @@ export class EscrowService {
   // "AUTHORITY BOUNDARY" comment (M8-R2, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
   // settlement.routes.ts's `/release` always passes undefined here, so a
   // cooperative release resolves the buyer's own registered PayoutAddress.
-  // dispute.service.ts's legacy applyRuling() (LIGHTNING_HODL/
-  // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
-  // the arbiter's own releaseToAddress here — a disclosed residual gap,
-  // not fixed by M8-R2 (out of that mission's bounded scope).
+  // dispute.service.ts's applyRuling() (LIGHTNING_HODL/SAFE_GUARD_EVM/
+  // WDK_USDT_EVM/MOCK disputes) passes undefined here too: since M8-R2
+  // (2026-09-11) releaseToAddress/refundToAddress were removed from it,
+  // and resolveDispute() treats them as inert for every escrow type, so a
+  // disputed release also resolves the buyer's registered PayoutAddress.
+  // MULTISIG disputes snapshot that address into the durable Outcome
+  // (applyRulingCoreAuthoritative()). Only a trusted internal caller that
+  // has already verified the address may pass an explicit value.
   // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
   // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
   // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
