@@ -388,6 +388,8 @@ guard. `Escrow.feeCharged` (above) is the same `totalFee` value,
 denormalized onto the escrow itself; it is never set again by any live
 code path and stays `null` for every future release.
 
+> Nota (Decisão CTO 36 (2026-11-22)): 35/30/25/10 é proposta histórica, não política ativada; ver `docs/PROTOCOL_ECONOMY.md`.
+
 ### `FeeDistributionBatch` / `FeeDistributionBatchItem` — HISTORICAL / SUPERSEDED / WRITE-FROZEN (Missão 11 Fase 2.2's accounting foundation)
 
 Introduced (commit `af8de81`, "add protocol fee accounting foundation")
