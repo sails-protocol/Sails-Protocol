@@ -292,7 +292,7 @@ flowchart TD
 
 ## 12. Sources and traceability
 
-All repository paths below are at the fixed baseline unless a live issue/PR is identified. See `STUDY_01_TRACEABILITY.md` for claim-level status and closure evidence.
+All repository paths below are at the fixed baseline unless a live issue/PR is identified. A section-by-section traceability record is kept in the project's documentary audit records.
 
 ### Original baseline references
 
