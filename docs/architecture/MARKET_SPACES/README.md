@@ -33,6 +33,13 @@ A especificar (recomendações do Gatekeeper para a especificação técnica): a
 - **Preços:** os preços exibidos na demonstração são **fictícios, apenas de demonstração**, e **não** são os preços comerciais definitivos, que serão definidos separadamente.
 - **Pagamentos futuros** em BTC, USDT e USDC previstos; **nenhuma cobrança real** nesta etapa. Oferta futura de nós Sails gerenciados.
 
+### 4.1 Decisão CTO 36 (2026-11-22)
+- **Compra única, sem assinatura.** Preços de demonstração **fictícios**: US$ 497 / US$ 997 / US$ 1.997; não aprovados para cobrança real. A compra não é requisito para implementações independentes do protocolo.
+- **Três modalidades de infraestrutura:** Public Network (hospedagem compartilhada), Self-Hosted (nó próprio) e Managed Node White Label (contratação semestral ou anual, nunca mensal). Contratar um nó não gera direito automático a taxas.
+- **Merchant Program** (Merchant / Pro / Elite; nomes e critérios a homologar): sem vantagem em arbitragem, disputas ou segurança; a compra de um espaço não concede o nível máximo.
+- O selo "Mercado ativo" mede atividade, não identidade.
+- O Merchant Program permanece **proposta**: não há taxas nem descontos homologados; qualquer benefício depende da política econômica global.
+
 ## 5. Responsabilidades
 CTO define e aprova a visão; EPM registra a decisão, mantém a documentação e o Project #3 e acompanha a execução; Principal avalia e implementa contratos, serviços e SDKs; UI implementa a experiência conforme a especificação aprovada; Gatekeeper verifica que a implementação preserva as garantias de segurança do protocolo.
 

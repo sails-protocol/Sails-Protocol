@@ -649,6 +649,8 @@ Protocol fee: 0%. Intended 0.40% remains OFF.
 Multi-rail recovery: NOT demonstrated (MULTISIG only).
 Production readiness: NOT claimed.
 SDK version: 0.1.3 (unchanged since M10; not published).
+
+> Nota (Decisão CTO 36 (2026-11-22)): 0,40% é taxa de referência, não cobrança ativa; ver `docs/PROTOCOL_ECONOMY.md`.
 ```
 
 ---

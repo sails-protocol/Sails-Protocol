@@ -28,6 +28,19 @@
 > primarily documented in `GOVERNANCE.md` §2B, cross-referenced from
 > sections 3 and 4.3 here rather than duplicated.
 
+
+> **Decisão CTO 36 (2026-11-22):** 0.40% é a taxa de *referência* para avaliação de ativação, não uma cobrança ativa. A divisão 35/30/25/10 é proposta histórica, não política publicada nem ativada. A autoridade econômica é a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry; o pagamento efetivo dos direitos registrados exige mecanismos próprios de execução e validação. A política é versionada e preserva direitos já constituídos. As taxas Merchant 0,36/0,32/0,28% são apenas cenários de simulação, não aprovados. Nenhum incentivo pode superar a receita reconhecida; a parcela de tesouraria não pertence integralmente à Satsails; a remuneração de operadores de nós é por serviço economicamente relevante comprovado, sem dupla remuneração.
+
+> **Decisão CTO 38 (2026-11-22) — autoridade econômica global (direção; política assinada em implementação):**
+>
+> - **Taxa de referência 0,40%** sobre o ativo entregue pelo vendedor, cobrada no ativo de liquidação, sem conversão obrigatória. Continua sendo referência/proposta: nenhuma cobrança está ativa.
+> - **A taxa global é definida pela autoridade econômica do protocolo, não pelo operador de nó.** A autoridade econômica global assinada é uma **direção aprovada, com implementação e validação ainda pendentes** (ver §6.5). Implementações independentes permanecem livres; os critérios de participação na rede econômica oficial serão definidos e homologados à parte.
+> - **Wallets:** as duas pontas (wallet do comprador e wallet do vendedor), quando elegíveis, participam do **mesmo pool conjunto**, sem duplicar o pool. Remunerar duas wallets não significa cobrar das duas partes (quem paga: §6.1, SELLER_PAYS / SELLER_DELIVERED_VALUE).
+> - **Merchant:** direção de desconto na cobrança, conforme a política global. **Não há taxas nem descontos homologados**; 0,36/0,32/0,28% seguem apenas como cenários.
+> - **Break-even BTC MULTISIG (perfil Day 0, parâmetros iniciais, não ativos):** fMax = 25 sat/vB como parâmetro inicial do perfil; endereços de devolução P2WPKH/P2WSH/P2TR (Dmax 330 sats); a saída de coleta absorve o próprio custo marginal; quando a taxa não é cobrada, a reserva volta ao vendedor (descontado apenas o custo de rede da própria saída de devolução, quando ela for necessária), e o comprador nunca paga pela taxa; a cobrança só ocorre quando viável (acima do dust e do custo marginal); acima do limite de taxa de rede não se promete confirmação imediata. **Esse cálculo vale apenas para BTC MULTISIG e não deve ser extrapolado para outros rails.**
+> - **Cobrabilidade e custos de rede:** valores pequenos podem não ser cobráveis (dust, custo de rede). Nos demais rails (por exemplo EVM) o gas é custo próprio do rail, tratado na homologação de cada rail; o break-even BTC não se aplica.
+>
+> Nada neste bloco ativa taxas, descontos, distribuição ou pagamentos.
 ---
 
 ## 1. The Core Constraint: No Speculative Token
@@ -130,6 +143,8 @@ fiat — never a protocol-native token:
 | **Enterprise Licensing** | White-label protocol access with dedicated support for OTCs, fintechs, exchanges | Enterprise licensees |
 | **Premium Reputation Services** | Optional advanced verification, analytics, badges for high-volume participants | Opt-in participants |
 
+> Nota (Decisão CTO 38 (2026-11-22)): a coluna "Who pays" da linha Protocol Fee ("split between the two counterparties") é **histórica**. A autoridade vigente é `SELLER_PAYS` / `SELLER_DELIVERED_VALUE`: taxa cobrada do vendedor sobre o valor entregue (ver §6.1). Texto original preservado.
+
 The **Protocol Fee** is the only mechanism structurally tied to the
 protocol's core function (settlement) — it is the primary long-term
 sustainability engine and the only one analyzed at the fee-flow level in
@@ -223,6 +238,8 @@ Months 18+ (governance maturity)
     already committed in ROADMAP.md's Months 10-12 phase
   → This is the anti-centralization mechanism — see section 7
 ```
+
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
 
 This still mirrors how the Ethereum Foundation or the Uniswap Foundation
 used initial concentrated funding/control to bootstrap an ecosystem, then
@@ -365,12 +382,16 @@ pay a reduced Protocol Fee, similar to maker-rebate tiers on centralized
 exchanges. This costs the protocol a small amount of fee revenue but grows
 total settlement volume, which is the actual goal.
 
+> Nota (Decisão CTO 38 (2026-11-22)): descontos por volume/reputação são direitos **condicionados à política global aprovada**, ainda não homologada; nada aqui promete desconto ou pagamento automático.
+
 **Why no token here:** Uniswap pays LPs via pool fee-share, requiring
 pooled capital and a token-like LP-share accounting unit. Sails has no
 pooled liquidity — offers are individually posted and matched P2P — so
 there's no pool-share problem to solve with a token in the first place.
 
 ### 4.2 Node Operators (Bootstrap nodes, Reputation nodes, future relay nodes)
+
+> Nota (Decisão CTO 36 (2026-11-22)): a remuneração de operadores é por serviço economicamente relevante comprovado, sem dupla remuneração; ver o bloco no topo deste documento.
 
 This is the hardest group to incentivize without a token, because unlike
 LPs, node operators don't have a natural transaction to earn a spread on.
@@ -506,6 +527,8 @@ prose, before either primitive existed in this form.
     └── Node/Treasury/Arbitrator buckets (section 6.2)
   ```
 
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
+
   When both sides happen to use the same wallet, that wallet simply
   receives both origination rebates. When they differ — the common case
   once multiple wallets integrate — **both wallets are paid for the same
@@ -515,6 +538,8 @@ prose, before either primitive existed in this form.
   its side of this trade as Satsails does for originating the other, with
   no dependency on which wallet the Reference Implementation happens to
   be.
+
+> Nota (Decisão CTO 38 (2026-11-22)): o rebate de wallets é um direito condicionado à política global aprovada e à elegibilidade, dentro do pool conjunto descrito no bloco "Decisão CTO 38" no topo; **não há promessa de pagamento automático** (não existe hoje caminho de pagamento; ver §6.3).
 
 ### 4.6 Integrators (fintechs, ERPs, enterprise apps beyond wallets)
 
@@ -620,6 +645,8 @@ competition for the wallet businesses themselves.
 
 ### 6.1 Who pays
 
+> Nota (Decisão CTO 38 (2026-11-22)): §§6.1–6.4 preservam propostas históricas. Para evitar ambiguidade: (i) a **divisão histórica** (35/30/25/10 etc.) é proposta, não política publicada; (ii) o **ledger atual** é FeeCollectionEvidence → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry, que registra direitos; (iii) a **execução futura de pagamento** é mecanismo à parte, que **não existe hoje**. Registrar um direito não é pagá-lo.
+
 **HISTORICAL / SUPERSEDED — never implemented this way (noted Missão 11
 Fase 6.5.2).** The paragraph below describes the original design
 proposal. What was actually built (`FeePayerModel`/`FeeEconomicBasis` in
@@ -643,6 +670,8 @@ either party alone. This mirrors how HodlHodl splits its escrow fee.
 </details>
 
 ### 6.2 Who receives
+
+> Nota (Decisão CTO 36 (2026-11-22)): 35/30/25/10 é proposta histórica, não política publicada nem ativada; 0.40% é referência, não cobrança ativa. Ver o bloco no topo deste documento.
 
 **HISTORICAL / SUPERSEDED as of Missão 11 Fase 6.5.2 — the mechanism
 below (`chargeProtocolFee()`/`FeeDistribution`, RFC-021 Phase 0) and the
@@ -679,6 +708,8 @@ Protocol Fee (100%, default rate 0.40% of trade value — section 3)
   └── 10% → Arbitrator Reserve         (pre-funds dispute resolution, section 4.4)
 ```
 
+> Nota (Decisão CTO 36 (2026-11-22)): 0.40% é taxa de referência, não cobrança ativa; ver o bloco "Decisão CTO 36 (2026-11-22)" no topo deste documento.
+
 **Revised 2026-08-11** from the original 40/30/20/10 (Node/Treasury/Wallet/
 Arbitrator) split. Rationale: wallets are the acquisition channel — without
 a partner wallet integrating the SDK, the protocol has no users at all, so
@@ -696,6 +727,8 @@ the split is per-originating-side, so a trade between two different
 wallets pays both, never just one.
 
 ### 6.3 How distributed
+
+> Nota (Decisão CTO 38 (2026-11-22)): "distribuição" aqui é histórica. Hoje existe apenas o registro de direitos no ledger (§6.5); não existe caminho de pagamento. A execução futura exigirá mecanismo próprio, validação e decisão específica.
 
 **HISTORICAL / SUPERSEDED — see §6.2's own note.** The real, built
 architecture (Fase 6.3A) separates *entitlement* (an exact ledger record
@@ -727,6 +760,8 @@ business decision any single implementer could quietly change.
 
 ### 6.4 How to avoid centralization
 
+> Nota (Decisão CTO 38 (2026-11-22)): lista histórica; ver a nota de superação no item 4 e o bloco "Decisão CTO 38" no topo.
+
 Four concrete mechanisms:
 
 1. **No intermediary custody of fee revenue.** Funds move directly from the
@@ -747,7 +782,13 @@ Four concrete mechanisms:
    whichever company happens to run the most-used reference implementation.
 4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** there is no per-integrator or per-node fee setting; the fee is one global policy, versioned and not decided yet (the percentages are on hold), and a Merchant discount at collection is a proposed direction under the global policy; no fee or discount is approved. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
 
+   > **SUPERADO (Decisão CTO 38, 2026-11-22):** o ponto 4 (integrador escolher 0% para seus usuários) conflita com a direção econômica vigente: a taxa do protocolo deve ser global, definida pela autoridade econômica do Sails (direção vigente; a imposição técnica está em implementação), e nem o operador de nó nem o integrador a definem unilateralmente. O texto acima é mantido como registro histórico, sem reescrita. Ver o bloco "Decisão CTO 36" no topo e a Decisão CTO 38 sobre a autoridade econômica.
+
 ### 6.5 Economic Authority Model — Terminology (Missão 11 Fase 7.1/7.2)
+
+> Nota (Decisão CTO 36 (2026-11-22)): a cadeia FeeCollectionEvidence(CONFIRMED) → FeeObligation → DistributionPolicyVersion → EntitlementLedgerEntry é a autoridade econômica; pagar os direitos registrados exige execução e validação próprias. Ver o bloco no topo.
+
+> Nota (Decisão CTO 38 (2026-11-22)): distinguir **(a) política hoje implementada** — versionada localmente por nó (`FeePolicyVersion`/`DistributionPolicyVersion` no próprio nó) — de **(b) a nova autoridade global**, uma política assinada pela autoridade econômica do protocolo, que os nós reconhecem e validam. (b) é **direção ainda dependente de integração**; não está ativa e não altera as entidades descritas abaixo.
 
 Three distinct real, implemented entities govern economics today — easy to
 conflate by name alone, so spelled out explicitly:
