@@ -115,33 +115,9 @@ jobs:
           SAILS_LEGACY_SINGLE_CREDENTIAL: "1"
         run: npm run db:migrate
 
-      - name: Run unit tests
-        # Vars scoped to this step only (Missão 11 Fase 6.3B.1) —
-        # SAILS_INTEGRATION_TEST_DB_CONFIRMED is the explicit, deliberate
-        # opt-in tests/integration/postgresTestHarness.ts's fail-closed
-        # guard requires; DATABASE_URL points only at the ephemeral CI
-        # service above. None of these vars are present for the Docker
-        # integration-test step below, which never needs them —
-        # docker-compose.yml hardcodes its own DATABASE_URL for the
-        # containers it starts and does not read this one.
-        #
-        # M9.10-R root cause: TRUSTED_ARBITRATORS was never set anywhere
-        # in this workflow. src/config/index.ts reads it once, at
-        # module-import time; when empty, dispute.service.ts's lazy
-        # singleton getDisputeService() throws ValidationError on its
-        # first call and stays broken for the rest of that worker's
-        # process. At least 10 tests/integration/*.test.ts files (and
-        # tests/settlementReadAccess.test.ts, fixed separately) assume
-        # this var is set — same as every local dev checkout's own
-        # gitignored .env already provides (TRUSTED_ARBITRATORS=
-        # k6-test-arbiter). Matching that exact value here, rather than
-        # patching each affected test file individually, since the
-        # dependency is on ambient environment, not on any one file.
-        env:
-          DATABASE_URL: postgresql://postgres:password@localhost:5432/sails_protocol
-          SAILS_INTEGRATION_TEST_DB_CONFIRMED: yes-i-am-sure
-          TRUSTED_ARBITRATORS: k6-test-arbiter
-        run: npm test
-
+      # Despacho 066 (PR-A): `npm test` runs once, in ci-tests.yml (unit, pg shards, restricted, aggregated by the required
+      # `test` check), with the same environment (DATABASE_URL, SAILS_INTEGRATION_TEST_DB_CONFIRMED, TRUSTED_ARBITRATORS) and
+      # the same `npm ci` install. ci-tests.yml runs on every pull_request (any base) and on push to main, a superset of this
+      # workflow's triggers. This job keeps the install, the build, the Prisma generate, the migration and the Docker test.
       - name: Run Docker integration test
         run: bash ./scripts/docker-test.sh
