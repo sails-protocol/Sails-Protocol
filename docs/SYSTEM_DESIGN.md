@@ -319,6 +319,50 @@ Relevant deeper sources:
 
 ---
 
+### 5.2 Reference implementation: local offer capacity and liquidity availability
+
+The following diagrams are descriptive, not new protocol rules or evidence of multi-operator homologation. Baseline: `403ee65951f4c85b9354c5ee9585f17f394d3a4b`.
+
+**Local offer capacity (M-1b).** The signed envelope identifies the accepted offer; the signed capacity declaration configures local capacity. The database reserves capacity atomically with the transition into COMMITTED. COMMITTED alone does not authorize funding or settlement. Release requires the implemented evidence conditions.
+
+```mermaid
+flowchart TD
+    A[Signed OfferEnvelope] --> B[Signature and revision validation]
+    B --> C[Resolved Offer]
+    D[Signed capacity declaration] --> E[Local Offer Capacity]
+    C --> F[Commitment Pair]
+    F --> G{Atomic capacity reservation}
+    E --> G
+    G -->|Refused| H[COMMITTED transition aborted]
+    G -->|Accepted| I[COMMITTED + Reservation]
+    I --> J[Trade lifecycle]
+    J --> K{Valid release evidence}
+    K -->|Insufficient| L[Capacity remains reserved]
+    K -->|Valid| M[Capacity released]
+```
+
+Release conditions: cancelled trade without escrow, proven never-funded refund, or finalized settlement under the implemented release-proof checks. Independent-operator inventory behavior remains subject to [ADR-001](adr/ADR-001-day0-multi-operator-network.md) and [Issue #105](https://github.com/sails-protocol/Sails-Protocol/issues/105). Implementation references: `src/modules/open-liquidity/offer-capacity.service.ts`, `src/modules/open-p2p/commitment-pair.service.ts`, and the M-1b capacity migrations (2026-11-22).
+
+**Liquidity availability.** The current router registers only InternalOrderBook. Provider errors can be logged and represented as empty results or no match; aggregation also exposes source names, so responses need not be identical. The required availability distinction below is not an implemented API contract.
+
+```mermaid
+flowchart TD
+    subgraph Current["Current possible behavior"]
+        A[Liquidity query] --> B[Successful query with no offers]
+        A --> C[Provider failure caught]
+        B --> D[Empty result or no match]
+        C --> D
+    end
+    subgraph Required["Required distinction — implementation not established"]
+        E[Liquidity query] --> F[Successful query]
+        E --> G[Source unavailable]
+        F --> H[Offers or legitimate empty result]
+        G --> I[Explicit availability distinction]
+    end
+```
+
+Evidence: `src/modules/open-liquidity/liquidity.service.ts` (router registration and aggregation/matching/proposal paths). The existing operational availability obligation is tracked in [Issue #220](https://github.com/sails-protocol/Sails-Protocol/issues/220) and BACKLOG item 46. This illustration neither selects an error schema nor claims outage validation.
+
 ## 6. State, lifecycle and economic truth
 
 Sails distinguishes:
