@@ -90,6 +90,7 @@ import { validateOutput, dustThresholdSats } from './bitcoin-dust-policy'
 import { computeMaxProtocolFee, computeProtocolFee } from './fee-reserve-math'
 import { estimatedVBytesForOutputCount, maxExecutionCostSats } from './execution-cost-policy'
 import type { FeeCollectionResult } from './escrow-providers'
+import { effectiveFeeRate, type BreakEven } from './fee-break-even'
 import { childLogger } from '../../common/logger'
 import { boundedFetch } from './bounded-rpc'
 import { SubmissionDefinitelyFailed, BroadcastRejected } from './broadcast-outcome'
@@ -433,6 +434,9 @@ export type MultisigEscrowInput = {
   // never redirect its fee to a different destination.
   snapshotFeeCollectionAddress?: string | null
   snapshotFeeCollectionWaivedPreFunding?: boolean | null
+  // CTO 38 §14 — the committed policy's break-even parameters (escrow-pending-tx.ts reads them from the escrow's own,
+  // immutable feePolicyVersionId). Absent => the earlier construction, unchanged.
+  feeBreakEven?: BreakEven | null
   // Missão 11 Fase 5.2 §2/§4 — the escrow-specific, immutable arbiter
   // public-key commitment (hex, 33-byte compressed), from
   // EscrowParticipantKey's role='arbiter' row. Never re-derived for an
@@ -1034,6 +1038,20 @@ export class MultisigProvider implements SettlementProvider {
     return BigInt(Math.ceil(feeRateSatsPerVByte * estimatedVBytesForOutputCount(outputCount)))
   }
 
+  // Break-even (CTO 38 §14): the whole spend is built at f_eff = min(market, committed cap); undefined without breakEven.
+  private async breakEvenRate(escrow: MultisigEscrowInput): Promise<number | undefined> {
+    return escrow.feeBreakEven ? effectiveFeeRate(escrow.feeBreakEven, await this.fetchFeeRateSatsPerVByte()) : undefined
+  }
+
+  // The collection output's own marginal cost at this rate, on the same weight reference the spend is built with (ceil).
+  private collectionOutputCost(rate: number, withoutCollection: number): bigint {
+    return this.estimateFeeSats(rate, withoutCollection + 1) - this.estimateFeeSats(rate, withoutCollection)
+  }
+
+  private collectionDust(address: string, network: bitcoin.Network): bigint {
+    return dustThresholdSats(Buffer.from(bitcoin.address.toOutputScript(address, network)))
+  }
+
   // Shared by buildUnsignedRelease()/buildUnsignedRefund()/
   // buildUnsignedSplit() below — builds the unsigned spend PSBT against
   // the escrow's recorded funding UTXO. Does not sign anything; the
@@ -1048,8 +1066,11 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     parties: MultisigParties,
     outputCount: number,
-    computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>
+    computeOutputs: (spendableValue: bigint) => Array<{ address: string; value: bigint }>,
+    feeRate?: number,
   ): Promise<{ psbt: bitcoin.Psbt; feeSats: bigint }> {
+    // The executing identity must still derive the committed arbiter key; checked here (public key only) and again
+    // where the arbiter actually signs.
     this.assertArbiterMatchesScript(escrow)
     const { p2ms, p2wsh, network } = this.buildScript(parties)
 
@@ -1082,7 +1103,7 @@ export class MultisigProvider implements SettlementProvider {
 
     // Real fee estimation (2026-08-02) — see fetchFeeRateSatsPerVByte()/
     // estimateFeeSats()'s own comments for the reasoning.
-    const feeRateSatsPerVByte = await this.fetchFeeRateSatsPerVByte()
+    const feeRateSatsPerVByte = feeRate ?? await this.fetchFeeRateSatsPerVByte()
     const feeSats = this.estimateFeeSats(feeRateSatsPerVByte, outputCount)
     // Sails Core Implementation Program M8.6 — a deterministic ceiling on
     // the fee this transaction may ever imply, independent of whatever
@@ -1169,22 +1190,32 @@ export class MultisigProvider implements SettlementProvider {
     const fmax = this.maxFeeSats(escrow)
 
     const outputCount = policyAware && fmax > 0 ? 2 : 1
+    const rate = policyAware ? await this.breakEvenRate(escrow) : undefined
+    let collected = fmax
+    if (rate !== undefined && fmax > 0) {
+      // Break-even: the collection output pays its own vbytes out of the fee, so the buyer gets T - M(1 output), exactly
+      // the no-fee spend. Creation guarantees Fmax - cost >= dMaxSats >= collectionDustSats; reaching here otherwise is a bug.
+      collected = fmax - Number(this.collectionOutputCost(rate, 1))
+      const dust = this.collectionDust(escrow.snapshotFeeCollectionAddress!, networkFor(config.multisig.network))
+      if (BigInt(collected) < dust || collected < escrow.feeBreakEven!.collectionDustSats) {
+        throw new EscrowError(`MULTISIG provider: release of trade ${escrow.tradeId} would collect ${collected} sats, below the collection dust — the creation rule should have made this impossible`)
+      }
+    }
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
       if (!policyAware || fmax === 0) {
         return [{ address: toAddress, value: spendableValue }]
       }
-      const buyerPool = spendableValue - BigInt(fmax) // = T - M (Fmax = F always, here)
+      const buyerPool = spendableValue - BigInt(collected) // = T - M; with break-even, M of the 1-output spend
       return [
         { address: toAddress, value: buyerPool },
-        { address: escrow.snapshotFeeCollectionAddress!, value: BigInt(fmax) },
+        { address: escrow.snapshotFeeCollectionAddress!, value: BigInt(collected) },
       ]
-    })
+    }, rate)
 
-    const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: fmax, waived: fmax === 0 } : null
+    const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collected, waived: fmax === 0 } : null
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // The arbiter's signature is added only at execution, after the commit gates (signAsArbiterAtExecution()); a round never carries it.
       if (!escrow.buyerId) {
         throw new EscrowError(`MULTISIG provider: missing buyerId for disputed release of trade ${escrow.tradeId}`)
       }
@@ -1236,11 +1267,11 @@ export class MultisigProvider implements SettlementProvider {
     const parties = this.partiesFor(escrow)
     const sellerRefundAddress = authorizedDestination
 
-    const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }])
+    const rate = this.isPolicyAware(escrow) ? await this.breakEvenRate(escrow) : undefined
+    const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, 1, (spendableValue) => [{ address: sellerRefundAddress, value: spendableValue }], rate)
 
     if (escrow.status === 'DISPUTED') {
-      const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-      psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+      // See buildUnsignedRelease(): the arbiter signs only at execution.
       if (!escrow.sellerId) {
         throw new EscrowError(`MULTISIG provider: missing sellerId for disputed refund of trade ${escrow.tradeId}`)
       }
@@ -1312,14 +1343,30 @@ export class MultisigProvider implements SettlementProvider {
     // intermediate product needed BigInt exactness.
     const sellerBasisSats = Number((BigInt(tSats) * BigInt(10000 - buyerBps)) / 10000n)
     const sellerBasisBtc = new Prisma.Decimal(sellerBasisSats).dividedBy(1e8)
-    const feeDecision = policyAware && fmax > 0
-      ? this.decideFeeCollection(escrow, sellerBasisBtc, network)
-      : { feeSats: 0, waived: true, collectionAddress: null }
-    const collectedFee = feeDecision.waived ? 0 : feeDecision.feeSats
+    const rate = policyAware ? await this.breakEvenRate(escrow) : undefined
+    let feeDecision: { feeSats: number; waived: boolean; collectionAddress: string | null } = { feeSats: 0, waived: true, collectionAddress: null }
+    let collectedFee = 0
+    let costOfCollection = 0n
+    if (rate !== undefined && fmax > 0) {
+      // Break-even: the seller-side fee F pays its own output's vbytes (collected = F - cost), charged only when that clears
+      // the committed and the script's dust; otherwise the whole reserve returns in the seller's existing output.
+      const gross = this.decimalBtcToSats(computeProtocolFee(sellerBasisBtc, new Prisma.Decimal(escrow.snapshotProtocolFeeRate!)))
+      costOfCollection = this.collectionOutputCost(rate, 2)
+      const net = gross - Number(costOfCollection)
+      const address = escrow.snapshotFeeCollectionAddress!
+      const collect = gross > 0 && net >= escrow.feeBreakEven!.collectionDustSats && BigInt(net) >= this.collectionDust(address, network)
+      feeDecision = { feeSats: gross, waived: !collect, collectionAddress: collect ? address : null }
+      collectedFee = collect ? net : 0
+    } else if (policyAware && fmax > 0) {
+      feeDecision = this.decideFeeCollection(escrow, sellerBasisBtc, network)
+      collectedFee = feeDecision.waived ? 0 : feeDecision.feeSats
+    }
     const outputCount = policyAware && fmax > 0 ? (feeDecision.waived ? 2 : 3) : 2
+    // Break-even keeps the buyer at the 2-output (no-fee) spend: the collection output's cost is added back to the pool.
+    const addBack = rate !== undefined && outputCount === 3 ? costOfCollection : 0n
 
     const { psbt, feeSats } = await this.buildUnsignedSpend(escrow, parties, outputCount, (spendableValue) => {
-      const buyerPool = policyAware ? spendableValue - BigInt(fmax) : spendableValue
+      const buyerPool = policyAware ? spendableValue - BigInt(fmax) + addBack : spendableValue
       const buyerValue = (buyerPool * BigInt(buyerBps)) / 10000n
       const sellerBase = buyerPool - buyerValue
       if (!policyAware || fmax === 0) {
@@ -1328,7 +1375,7 @@ export class MultisigProvider implements SettlementProvider {
           { address: sellerAddress, value: sellerBase },
         ]
       }
-      const sellerFinal = sellerBase + BigInt(fmax) - BigInt(collectedFee)
+      const sellerFinal = sellerBase + BigInt(fmax) - BigInt(collectedFee) - addBack
       const outputs = [
         { address: buyerAddress, value: buyerValue },
         { address: sellerAddress, value: sellerFinal },
@@ -1337,12 +1384,11 @@ export class MultisigProvider implements SettlementProvider {
         outputs.push({ address: feeDecision.collectionAddress!, value: BigInt(collectedFee) })
       }
       return outputs
-    })
+    }, rate)
 
     const feeCollectionResult: FeeCollectionResult | null = policyAware ? { feeSats: collectedFee, waived: feeDecision.waived } : null
 
-    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow)) // Fase 7.3.1 §B — see resolveArbiterSigningId()'s own comment
-    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    // See buildUnsignedRelease(): the arbiter signs only at execution.
     if (!escrow.buyerId) {
       throw new EscrowError(`MULTISIG provider: missing buyerId for disputed split of trade ${escrow.tradeId}`)
     }
@@ -1368,6 +1414,20 @@ export class MultisigProvider implements SettlementProvider {
   // bugs happen, even when they turn out harmless on inspection — here
   // there is only ever one). Never re-derives or re-requests a signature;
   // only recombines what real signers already submitted and persisted.
+  private assertSignaturesVerify(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]) {
+    const network = networkFor(config.multisig.network)
+    const roundTx = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network }).data.globalMap.unsignedTx.toBuffer()
+    const keys = [escrow.buyerPubkey, escrow.sellerPubkey].filter((k): k is string => !!k).map((k) => Buffer.from(k, 'hex'))
+    for (const signed of signedPsbtBase64List) {
+      const copy = bitcoin.Psbt.fromBase64(signed, { network })
+      const sameRound = Buffer.from(copy.data.globalMap.unsignedTx.toBuffer()).equals(Buffer.from(roundTx))
+      const verifies = (k: Buffer) => (copy.data.inputs[0]?.partialSig ?? []).some((p) => Buffer.from(p.pubkey).equals(k)) && copy.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), k)
+      if (!sameRound || !keys.some(verifies)) {
+        throw new SubmissionDefinitelyFailed(`MULTISIG provider: failed to combine/finalize signatures for trade ${escrow.tradeId}: a stored signature does not verify for a party key`)
+      }
+    }
+  }
+
   private buildFinalizedTransaction(tradeId: string, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): bitcoin.Transaction {
     const network = networkFor(config.multisig.network)
     try {
@@ -1465,23 +1525,30 @@ export class MultisigProvider implements SettlementProvider {
     escrow: MultisigEscrowInput,
     unsignedPsbtBase64: string,
     signedPsbtBase64List: string[],
-    beforeFirstBroadcast?: () => Promise<void>
+    beforeFirstBroadcast?: () => Promise<void>,
+    arbiterAtExecution = false
   ): Promise<
     | { outcome: 'ALREADY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'NEWLY_BROADCAST'; txId: string; rawTxHex: string; detail: string }
     | { outcome: 'ANOMALY'; detail: string }
   > {
-    const tx = this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, signedPsbtBase64List)
-    const expectedTxId = tx.getId()
+    // P2WSH: the txid excludes the witness, so it is known from the unsigned transaction alone. A ruling round no longer
+    // carries the arbiter's signature, so it is added only below, after the gates, when a NEW broadcast is needed.
+    const network = networkFor(config.multisig.network)
+    const expectedTxId = bitcoin.Transaction.fromBuffer(bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network }).data.globalMap.unsignedTx.toBuffer()).getId()
+    const buildSigned = () => {
+      const arbiterSig = arbiterAtExecution ? this.signAsArbiterAtExecution(escrow, unsignedPsbtBase64) : null
+      return this.buildFinalizedTransaction(escrow.tradeId, unsignedPsbtBase64, arbiterSig ? [...signedPsbtBase64List, arbiterSig] : signedPsbtBase64List)
+    }
     // Sails Core Implementation Program M9 (Recovery) — additive, same
     // precedent as finalizeSpend()'s own M8.6 change: the recovery path
     // needs the real, exactly-reconstructed transaction bytes to
     // (re)evaluate M6 correspondence, exactly like the happy path
     // already does. Computed once here since `tx` already exists.
-    const rawTxHex = tx.toHex()
-
     const existence = await fetchTransactionExistence(expectedTxId)
     if (existence.exists) {
+      // The network's own bytes; never re-signed to reconstruct them.
+      const rawTxHex = await fetchTransactionHex(expectedTxId)
       return {
         outcome: 'ALREADY_BROADCAST', txId: expectedTxId, rawTxHex,
         detail: `Transaction ${expectedTxId} is already known to the network (confirmed=${existence.confirmed}) — converging local state to this observed truth, no new broadcast.`,
@@ -1508,7 +1575,21 @@ export class MultisigProvider implements SettlementProvider {
       // fail-closed commit gate immediately before the first broadcast.
       // ALREADY_BROADCAST never reaches this callback, preserving recovery
       // of external truth after later authority changes.
+      // Checked before the gates callback (which takes the escrow claim): the stored signatures verify against the round,
+      // and the executing identity still derives the committed arbiter key.
+      this.assertSignaturesVerify(escrow, unsignedPsbtBase64, signedPsbtBase64List)
+      if (arbiterAtExecution) {
+        this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+        if (this.storedArbiterSignatureState(escrow, unsignedPsbtBase64) === 'invalid') {
+          throw new EscrowError(`MULTISIG provider: the stored arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
+        }
+      }
       if (beforeFirstBroadcast) await beforeFirstBroadcast()
+      // After the gates: the arbiter signs in memory.
+      const tx = buildSigned()
+      const rawTxHex = tx.toHex()
+      // N2: checked BEFORE anything is sent.
+      if (tx.getId() !== expectedTxId) throw new EscrowError(`MULTISIG provider: the rebuilt transaction for trade ${escrow.tradeId} does not match its round`)
 
       // Sails Core Implementation Program M9-R (R6, provider txid
       // integrity) — same discipline as finalizeSpend(): `expectedTxId`
@@ -1532,6 +1613,39 @@ export class MultisigProvider implements SettlementProvider {
       outcome: 'ANOMALY',
       detail: `Funding outpoint ${escrow.txLockId}:${escrow.txLockVout ?? '(no vout)'} is no longer unspent, but no transaction matching the expected reconstructed txid ${expectedTxId} was found on the network — an unexpected spend. Manual review required; no funds moved by this reconciliation attempt.`,
     }
+  }
+
+  /** Whether a round's stored PSBT carries an arbiter signature, and whether it verifies for the committed key. */
+  storedArbiterSignatureState(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): 'absent' | 'valid' | 'invalid' {
+    const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
+    if (!arbiterPubkey) return 'absent'
+    const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network: networkFor(config.multisig.network) })
+    if (!(psbt.data.inputs[0]?.partialSig ?? []).some((p) => Buffer.from(p.pubkey).equals(arbiterPubkey))) return 'absent'
+    try {
+      return psbt.validateSignaturesOfInput(0, (pub, msghash, sig) => ecc.verify(msghash, pub, sig), arbiterPubkey) ? 'valid' : 'invalid'
+    } catch {
+      return 'invalid'
+    }
+  }
+
+  /**
+   * The ONLY place the arbiter key signs a settlement. Callers reach it only after the ADR-005 + ADR-004 commit gates of
+   * a disputed (ruling) round. The signature lives in memory only: it is never persisted, logged or returned. A
+   * round whose PSBT already carries a valid arbiter signature gets none added (returns null).
+   */
+  signAsArbiterAtExecution(escrow: MultisigEscrowInput, unsignedPsbtBase64: string): string | null {
+    const arbiterPubkey = escrow.arbiterPubkey ? Buffer.from(escrow.arbiterPubkey, 'hex') : null
+    if (!arbiterPubkey) throw new EscrowError(`MULTISIG provider: escrow for trade ${escrow.tradeId} has no persisted arbiter public-key commitment`)
+    // The identity executing the ruling must still derive the exact committed key (drift fails closed, before anything else).
+    this.assertArbiterMatchesScript({ ...escrow, status: 'DISPUTED' })
+    const network = networkFor(config.multisig.network)
+    const psbt = bitcoin.Psbt.fromBase64(unsignedPsbtBase64, { network })
+    const stored = this.storedArbiterSignatureState(escrow, unsignedPsbtBase64)
+    if (stored === 'invalid') throw new EscrowError(`MULTISIG provider: the stored arbiter signature on trade ${escrow.tradeId}'s round does not verify`)
+    if (stored === 'valid') return null
+    const arbiterKey = this.deriveArbiterKey(this.resolveArbiterSigningId(escrow))
+    psbt.signInput(0, arbiterKey as unknown as bitcoin.Signer)
+    return psbt.toBase64()
   }
 
   async finalizeRelease(escrow: MultisigEscrowInput, unsignedPsbtBase64: string, signedPsbtBase64List: string[]): Promise<{ txId: string; rawTxHex: string }> {

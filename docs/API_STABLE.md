@@ -156,8 +156,8 @@ would just be a synonym, not a real accessibility gain.
 - `resolveDispute(disputeId, ruling, releaseToAddress?, refundToAddress?, splitBuyerBps?, authoritySignature?, authorityIssuedAt?)` → `Dispute` *(requires session + assigned arbiter; `releaseToAddress`/`refundToAddress`/`splitBuyerBps` — both required together, only for `ruling: 'SPLIT'`, RFC-021 D9. Missão 13 Fase 2 (INV-12, 2026-08-29) added the two trailing params, additive per this doc's own freeze commitment: the server now independently verifies a signed authority decision before executing any ruling, so these two are effectively required in practice — omitting them throws a clear client-side `SailsValidationError` rather than sending a request the server would reject anyway. Most callers should use `resolveDisputeWithWallet()` below instead of constructing the signature by hand.)*
 - `resolveDisputeWithWallet(disputeId, ruling, wallet, releaseToAddress?, refundToAddress?, splitBuyerBps?)` → `Dispute` *(requires session + assigned arbiter; Missão 13 Fase 2, new method — fetches the dispute, builds the canonical authority decision (`canonicalizeAuthorityDecision()`/`hashAuthorityDecision()`, also exported), and asks `wallet.signMessage()` to sign it before calling `resolveDispute()`. The caller's private key never leaves their own `WalletAdapter`, same shape as `proof.attachEvidence()`.)*
 - `appealDispute(disputeId)` → `{ dispute, appealFeeRequired }` *(requires session + trade party; RFC-021 D6, market arbitration mode only)*
-- `submitDisputeEvidence(disputeId, descriptor)` → `Dispute` *(requires session + trade party; RFC-021 D8, may trigger a QVAC auto-resolution attempt server-side)*
-- `contestAutoResolution(disputeId)` → `Dispute` *(requires session + trade party; RFC-021 D8, rejects a proposed automated ruling)*
+- `submitDisputeEvidence(disputeId, descriptor)` → `Dispute` *(requires session + trade party; RFC-021 D8, may trigger a QVAC advisory recommendation server-side; it never executes a settlement)*
+- `contestAutoResolution(disputeId)` → `Dispute` *(requires session + trade party; RFC-021 D8, rejects a proposed QVAC recommendation (advisory only))*
 - `parseSafeGuardBundle(unsignedPsbtBase64)` → `SafeGuardBundle` *(pure parsing helper, no transport call; SAFE_GUARD_EVM only — decodes the Safe Guard deployment info a `create()`/`initiateRelease()` response carries for that escrow type)*
 - `signEscrowSafeUserOp(unsignedPsbtBase64, privateKey)` → `string` *(top-level SDK export, not a `settlement` method — same client-held-key pattern as `signEscrowPsbt()`/`signEscrowArkTx()`; produces a `0x`-prefixed 65-byte ECDSA signature over the bundle's `userOpHash`, ready for `submitTransactionSignature()`; UI-audit gap closed 2026-08-03 — SAFE_GUARD_EVM disputes were previously stuck forever with no way to actually produce this signature client-side)*
 - `setPayoutAddress({ asset, address })` → `PayoutAddress` *(requires session; missing from this line until Missão 07.4 — real since the "Participant payout address" gap closed)*
@@ -299,6 +299,14 @@ other trade-creation/settlement call — trading against it directly still
 executes at its own *listed* price. Not yet frozen (new this pass, same
 as `proposeTrade` was when it first shipped); expected to stabilize
 alongside it.
+
+### Errors added without a type change
+➕ **ADDITIVE (Despacho 064, 2026-11-21)**: `RAIL_CLOSED` (HTTP 409). LN_BTC and the LIGHTNING_HODL (Arkade) escrow are
+closed for Day 0 in every environment. The calls behind `POST /v1/liquidity/offers`, `POST /v1/intents`,
+`POST /v1/openp2p/trades` and `POST /v1/settlement/escrow` (asset LN_BTC, or `type: 'LIGHTNING_HODL'` with any asset)
+refuse with a `SailsError` whose
+`code` is `RAIL_CLOSED`; nothing is written. No SDK type changes: `AssetType` and `EscrowType` keep both values, and
+existing escrows keep their current dispatch, refund and recovery rules.
 
 ### Escape hatch
 `setSessionToken(token)` / `getSessionToken()` — direct session control,

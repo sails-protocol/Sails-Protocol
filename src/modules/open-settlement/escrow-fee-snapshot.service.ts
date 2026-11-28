@@ -30,10 +30,13 @@
  * this path.
  */
 import { prisma } from '../../common/database'
+import { AppError } from '../../common/errors'
 import { Prisma, FeePayerModel, FeeEconomicBasis } from '@prisma/client'
-import { feePolicyService, FeePolicyService } from './fee-policy.service'
+import { feePolicyService, FeePolicyService, maxProtocolFeeRate } from './fee-policy.service'
 import { computeMaxProtocolFee } from './fee-reserve-math'
-import { evaluateFeeCollectibility } from './multisig.provider'
+import { evaluateFeeCollectibility, networkFor } from './multisig.provider'
+import { parseBreakEven, reserveRequired, collectionAddressDust } from './fee-break-even'
+import { config } from '../../config'
 import { FEE_COLLECTION_CAPABLE_RAILS, assertRailCanActivateFeeCollection } from './escrow-providers'
 
 export interface FeeSnapshotFields {
@@ -58,6 +61,37 @@ export class EscrowFeeSnapshotService {
   async computeSnapshotFields(railScope: string, lockedAmount: Prisma.Decimal | string): Promise<FeeSnapshotFields | null> {
     const policy = await this.policyService.findLivePolicyForRail(railScope)
     if (!policy) return null
+    return this.fieldsFor(policy, railScope, lockedAmount)
+  }
+
+  /**
+   * The snapshot of an escrow bound to a COMMITTED pair: the fee policy the two parties signed, read in the caller's
+   * transaction (under the pair lock), never the rail's policy of the moment. A party pays the committed fee, none, or
+   * the escrow is refused:
+   * - the committed policy is this rail's (and not a DRAFT) => it is frozen, even if retired since the commitment;
+   * - it is another rail's while this rail has a live policy => refused (409 FEE_POLICY_NOT_COMMITTED);
+   * - it is another rail's and this rail has none => no snapshot (legacy, no fee).
+   * Without a pair (only a MOCK escrow in a test database; every other type is refused before this) the legacy live lookup applies.
+   */
+  async computeCommittedSnapshotFields(
+    railScope: string,
+    lockedAmount: Prisma.Decimal | string,
+    committedPolicyId: string | null,
+    tx: Prisma.TransactionClient,
+  ): Promise<FeeSnapshotFields | null> {
+    if (!committedPolicyId) return this.computeSnapshotFields(railScope, lockedAmount)
+    const committed = await tx.feePolicyVersion.findUnique({ where: { id: committedPolicyId } })
+    if (committed && committed.railScope === railScope && committed.status !== 'DRAFT') return this.fieldsFor(committed, railScope, lockedAmount)
+    const live = await tx.feePolicyVersion.findFirst({ where: { railScope, status: 'PUBLISHED' }, select: { id: true } })
+    if (live) throw new AppError(`escrow refused: the committed fee policy is not this rail's (${railScope})`, 409, 'FEE_POLICY_NOT_COMMITTED')
+    return null
+  }
+
+  private fieldsFor(policy: { id: string; protocolFeeRate: Prisma.Decimal | string; payerModel: FeePayerModel; economicBasis: FeeEconomicBasis; smallTradeRule?: unknown }, railScope: string, lockedAmount: Prisma.Decimal | string): FeeSnapshotFields {
+    // The node's ceiling is a safety restriction only: above it the operation is REFUSED; the rate charged is never altered.
+    if (new Prisma.Decimal(policy.protocolFeeRate).greaterThan(maxProtocolFeeRate())) {
+      throw new AppError(`escrow refused: the committed fee rate is above this node's ceiling`, 409, 'FEE_RATE_ABOVE_CEILING')
+    }
 
     // Missão 11 Fase 5 §10 — defense-in-depth: fee-policy.service.ts's
     // publish() is the real, only application path that can make a policy
@@ -82,7 +116,12 @@ export class EscrowFeeSnapshotService {
       const fmaxCandidate = computeMaxProtocolFee(lockedAmount, rate)
       const fmaxCandidateSats = Number(fmaxCandidate.times(1e8).toFixed(0))
       const decision = evaluateFeeCollectibility(fmaxCandidateSats)
-      if (decision.collectible) {
+      // Break-even (CTO 38 §14.1): a reserve only when it covers the payout dust plus the collection output's own cost at
+      // the committed cap, and the collection address's dust is within the committed one.
+      const breakEven = parseBreakEven(policy.smallTradeRule)
+      const breakEvenOk = !breakEven || (reserveRequired(breakEven, fmaxCandidateSats)
+        && collectionAddressDust(decision.collectionAddress ?? '', networkFor(config.multisig.network)) <= BigInt(breakEven.collectionDustSats))
+      if (decision.collectible && breakEvenOk) {
         collectionAddress = decision.collectionAddress
       } else {
         waivedPreFunding = true

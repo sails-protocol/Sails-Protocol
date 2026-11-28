@@ -22,7 +22,7 @@
 
 import { PrismaClient, Prisma } from '@prisma/client'
 import { createPostgresIntegrationHarness } from './postgresTestHarness'
-import { createBoundTrade } from './helpers/committedPairFixture'
+import { createBoundTrade, createCommitmentFixture } from './helpers/committedPairFixture'
 
 const COLLECTIBLE_ADDRESS = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
 
@@ -53,6 +53,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   })
 
   afterAll(async () => {
+    // Isolation: a live MULTISIG policy left PUBLISHED would be the rail's live policy for every later suite in this database.
+    if (dbAvailable) await retireAnyLivePolicyForRail('MULTISIG')
     if (dbAvailable) await prisma.$disconnect()
   })
 
@@ -60,11 +62,12 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     pg.requirePostgres(name)
   }
 
-  async function createFixtureTrade(suffix: string) {
-    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+  // The escrow's terms are its trade's: the trade is admitted for the amount the test then locks.
+  async function createFixtureTrade(suffix: string, amount = '0.01000000', commit = true, feePolicyVersionId?: string) {
+    const bound = await createBoundTrade(prisma, { amount, feePolicyVersionId }) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
-    const boundPairId = await bound.commit()
+    if (commit) await bound.commit()
     return { trade, buyer, seller }
   }
 
@@ -100,6 +103,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
         treasuryPct: '25',
         walletRebatePct: '35',
         arbitratorReservePct: '10',
+        requiredConfirmations: 2, // a committed policy must have a canonical FeePolicyV1 digest
         createdBy: 'fase41-integration-test',
         publishedAt: new Date(),
         ...overrides,
@@ -111,7 +115,7 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   it('Test 1: createEscrow() with no PUBLISHED policy for the rail creates a legacy (unsnapshotted) escrow', async () => {
     requirePostgres('Test 1')
     const suffix = `t1-${Date.now()}`
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const { trade, buyer } = await createFixtureTrade(suffix, '0.00100000', false) // no committed pair: this test-database escrow takes the existing exemption (deployment_mode)
 
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MOCK', lockedAmount: '0.001', asset: 'BTC' as any }, buyer.id)
 
@@ -127,8 +131,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     requirePostgres('Test 2')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t2-${Date.now()}`
-    await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const multisigPolicy = await createPublishedPolicy('MULTISIG')
+    const { trade, buyer } = await createFixtureTrade(suffix, undefined, true, multisigPolicy.id) // the trade commits to the rail's live policy
 
     // 0.01 BTC = 1,000,000 sats; rate=0.004 -> Fmax=4,000 sats, well above dust.
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
@@ -145,8 +149,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     requirePostgres('Test 3')
     config.settlement.protocolFeeCollectionAddress = undefined
     const suffix = `t3-${Date.now()}`
-    await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const multisigPolicy = await createPublishedPolicy('MULTISIG')
+    const { trade, buyer } = await createFixtureTrade(suffix, undefined, true, multisigPolicy.id) // the trade commits to the rail's live policy
 
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
 
@@ -203,8 +207,8 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
     requirePostgres('Test 5')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
     const suffix = `t5-${Date.now()}`
-    await createPublishedPolicy('MULTISIG')
-    const { trade, buyer } = await createFixtureTrade(suffix)
+    const multisigPolicy = await createPublishedPolicy('MULTISIG')
+    const { trade, buyer } = await createFixtureTrade(suffix, undefined, true, multisigPolicy.id) // the trade commits to the rail's live policy
 
     const first = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
     expect(first.feePolicyVersionId).not.toBeNull()
@@ -258,28 +262,64 @@ describe('Fee snapshot pre-funding waiver + fail-closed (Missão 11 Fase 4.1, re
   // Test 7 (Fase 4.1 §4 — "policy retirement after snapshot does not
   // affect escrow"): retiring the referenced policy must never touch the
   // already-snapshotted escrow.
-  // E25 (CTO 433) — CHARACTERIZATION of a KNOWN GAP, not a guarantee. ADR-001 §28.3 asks the fee policy/version to
-  // be frozen "before commitment", and CTO 24 set the signed trade-open as the intended commitment point. On main the
-  // trade-open records no policy (Trade has no such field) and the escrow is created later, asynchronously (the
-  // openp2p.trade.created handler -> executeSettlement -> createEscrow). So a policy published in that window is the
-  // one frozen. This test pins today's behaviour so the gap is executable; when the trade-open binding exists (E21-E24
-  // anchor, CTO decision) this test must be INVERTED to expect policyAtTradeOpen: inverting it needs no new decision,
-  // it is not a gate protecting the defect. Tracked as E25 on #105. It does not homologate E25.
-  it('E25 gap CHARACTERIZATION (#105), to invert when the trade-open -> fee policy binding exists: a policy published between trade-open and escrow creation is the one frozen', async () => {
+  // E25 (CTO 433), inverted: the escrow freezes the fee policy the trade COMMITTED to, never one published afterwards.
+  it('E25: a policy published between the commitment and escrow creation is not the one frozen; the committed policy is', async () => {
     requirePostgres('E25 window')
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
-    const policyAtTradeOpen = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.004' })
-    const { trade, buyer } = await createFixtureTrade(`e25w-${Date.now()}`) // the trade-open moment: policyAtTradeOpen is in force
-
-    const tradeRow = await prisma.trade.findUniqueOrThrow({ where: { id: trade.id } })
-    expect(Object.keys(tradeRow).some((k) => /policy|fee/i.test(k))).toBe(false) // nothing about the policy is recorded at trade-open
+    const policyAtCommit = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.004' })
+    const { trade, buyer } = await createFixtureTrade(`e25w-${Date.now()}`, undefined, true, policyAtCommit.id)
 
     const rotated = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.008', label: `e25w-rotated-${Date.now()}` })
     const escrow = await escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id)
 
-    expect(escrow.feePolicyVersionId).toBe(rotated.id) // GAP: not policyAtTradeOpen.id
-    expect(escrow.feePolicyVersionId).not.toBe(policyAtTradeOpen.id)
-    expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.008')
+    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: policyAtCommit.id } })).status).toBe('RETIRED') // the rotation retired it
+    expect(escrow.feePolicyVersionId).toBe(policyAtCommit.id) // committed, though retired since
+    expect(escrow.feePolicyVersionId).not.toBe(rotated.id)
+    expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004')
+  })
+
+  it('a trade committed to another rail\'s fee policy, while this rail has a live one, is refused (409 FEE_POLICY_NOT_COMMITTED) and writes nothing', async () => {
+    requirePostgres('fee policy not committed')
+    await createPublishedPolicy('MULTISIG')
+    const { trade, buyer } = await createFixtureTrade(`nc-${Date.now()}`) // commits to the fixture's own rail-scoped policy
+    await expect(escrowService.createEscrow({ tradeId: trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, buyer.id))
+      .rejects.toMatchObject({ statusCode: 409, code: 'FEE_POLICY_NOT_COMMITTED' })
+    expect(await prisma.escrow.count({ where: { tradeId: trade.id } })).toBe(0)
+  })
+
+  // CTO 38 R1: a node's ceiling only restricts. Below the committed rate the escrow is REFUSED; the committed rate is never changed.
+  it('a node ceiling below the committed rate refuses the escrow (409 FEE_RATE_ABOVE_CEILING); at or above it the committed rate is charged unchanged', async () => {
+    requirePostgres('node ceiling')
+    const original = config.settlement.maxProtocolFeeRate
+    try {
+      const policy = await createPublishedPolicy('MULTISIG', { protocolFeeRate: '0.004' })
+      const refused = await createFixtureTrade(`ceil-low-${Date.now()}`, undefined, true, policy.id)
+      config.settlement.maxProtocolFeeRate = '0.003'
+      await expect(escrowService.createEscrow({ tradeId: refused.trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, refused.buyer.id))
+        .rejects.toMatchObject({ statusCode: 409, code: 'FEE_RATE_ABOVE_CEILING' })
+      expect(await prisma.escrow.count({ where: { tradeId: refused.trade.id } })).toBe(0)
+
+      const charged = await createFixtureTrade(`ceil-ok-${Date.now()}`, undefined, true, policy.id)
+      config.settlement.maxProtocolFeeRate = '0.0045' // tighter than the protocol ceiling, still above the committed rate
+      const escrow = await escrowService.createEscrow({ tradeId: charged.trade.id, type: 'MULTISIG', lockedAmount: '0.01', asset: 'BTC' as any }, charged.buyer.id)
+      expect(escrow.snapshotProtocolFeeRate?.toString()).toBe('0.004') // never lowered to the ceiling
+    } finally {
+      config.settlement.maxProtocolFeeRate = original
+    }
+  })
+
+  it('a trade cannot commit to a fee policy that is not in force (a DRAFT, or one RETIRED)', async () => {
+    requirePostgres('pair fee policy status')
+    const base = { payerModel: 'SELLER_PAYS' as const, economicBasis: 'SELLER_DELIVERED_VALUE' as const, protocolFeeRate: '0.004', requiredConfirmations: 2, createdBy: 'test' }
+    const draft = await prisma.feePolicyVersion.create({ data: { ...base, label: `st-draft-${Date.now()}`, railScope: `ST-DRAFT-${Date.now()}`, status: 'DRAFT' } })
+    const retiredRail = `ST-RETIRED-${Date.now()}`
+    const live = await createPublishedPolicy(retiredRail)
+    await retireAnyLivePolicyForRail(retiredRail)
+    for (const policy of [draft, live]) {
+      const fx = await createCommitmentFixture(prisma, { feePolicyVersionId: policy.id })
+      // The same code as an unknown policy, told apart by the field: this refusal is about the policy's status.
+      await expect(fx.committedPair()).rejects.toMatchObject({ statusCode: 409, code: 'E25_FEE_POLICY_DIGEST_MISMATCH', details: { field: 'feePolicyVersionId.status' } })
+    }
   })
 
   it('Test 7: retiring the referenced policy after snapshotting leaves the escrow\'s own snapshot untouched', async () => {

@@ -1,4 +1,4 @@
-import { deriveTradeState, ESCROW_STATE_LABEL, type TradeStateInput } from '../src/lib/tradeState'
+import { canCancelTrade, deriveTradeState, ESCROW_STATE_LABEL, type TradeStateInput } from '../src/lib/tradeState'
 import { deriveCurrentAction } from '../src/lib/currentAction'
 import type { EscrowStatus, TradeStatus } from '../src/types'
 
@@ -123,6 +123,13 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
     for (const r of ROLES) expect(deriveTradeState(input(null, r)).action.canDispute).toBe(false)
   })
 
+  it('D7: the buyer waits for the seller to create the escrow and is told why', () => {
+    const a = deriveTradeState(input(null, BUYER)).action
+    expect(a.tone).toBe('waiting')
+    expect(a.title).toBe('Aguardando o vendedor criar o escrow')
+    expect(a.description).toMatch(/^Neste protocolo, quem vende cria o escrow\. /)
+  })
+
   it('a cancelled trade without escrow is terminal, and a refund keeps the escrow outcome', () => {
     const c = deriveTradeState(input(null, BUYER, { tradeStatus: 'CANCELLED' }))
     expect(c.status.label).toBe('Trade cancelado')
@@ -166,6 +173,56 @@ describe('trade state derivation (single source for chip, timeline, action)', ()
       // No bare "Concluído" chip and no success (financial) framing for any status.
       expect(s.status.label).not.toMatch(/^conclu[ií]do$/i)
       expect(s.status.tone).not.toBe('success')
+    }
+  })
+})
+
+describe('canCancelTrade (Principal 8f80d4b6: trade cancel only before any escrow exists)', () => {
+  const TRADE_STATUSES: TradeStatus[] = ['PENDING', 'ACTIVE', 'COMPLETED', 'DISPUTED', 'CANCELLED']
+  it('buyer or seller, trade PENDING/ACTIVE, no escrow: true', () => {
+    for (const r of [BUYER, SELLER]) for (const tradeStatus of ['PENDING', 'ACTIVE'] as const) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...r })).toBe(true)
+    }
+  })
+  it('never once an escrow exists, for any role, escrow status or trade status', () => {
+    for (const r of ROLES) for (const status of STATUSES) for (const tradeStatus of [...TRADE_STATUSES, TRADE_FOR[status]]) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: true, ...r })).toBe(false)
+    }
+  })
+  it('never on a closed trade or for a non-party', () => {
+    for (const r of [BUYER, SELLER]) for (const tradeStatus of ['COMPLETED', 'DISPUTED', 'CANCELLED'] as const) {
+      expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...r })).toBe(false)
+    }
+    for (const tradeStatus of TRADE_STATUSES) expect(canCancelTrade({ tradeStatus, hasEscrow: false, ...OTHER })).toBe(false)
+  })
+})
+
+describe('seller refund round with funds locked ("Cancelar e devolver", MULTISIG)', () => {
+  const round = { requiredSigners: ['b'], signedBy: [] }
+  const refund = (role: typeof BUYER) => deriveTradeState(input('FUNDS_LOCKED', role, { signingRoundKind: 'refund', round, buyerId: 'b', sellerId: 's', escrowType: 'MULTISIG' }))
+
+  it('shows signatures then an upcoming "Devolvido" stage, waiting on the buyer, never the payment step', () => {
+    const s = refund(SELLER)
+    expect(s.steps.map((x) => x.id)).toEqual(['opened', 'escrow', 'deposit', 'locked', 'signatures', 'outcome'])
+    expect(stepIds(s, 'current')).toEqual(['signatures'])
+    expect(s.steps.find((x) => x.id === 'outcome')?.state).toBe('upcoming')
+    expect(s.steps.find((x) => x.id === 'signatures')?.actors).toEqual(['buyer'])
+  })
+
+  it('says only that the refund started (no "Devolvido" before REFUNDED), with no primary action', () => {
+    const seller = refund(SELLER).action
+    expect(seller.title).toBe('Devolução iniciada')
+    expect(seller.description).toMatch(/aguardando a assinatura do comprador/)
+    expect(seller.primary).toBeUndefined()
+    expect(refund(BUYER).action.description).toMatch(/depende da sua assinatura/)
+  })
+})
+
+describe('"Abrir disputa" once a dispute exists', () => {
+  it('is gone after a ruling, whatever the escrow outcome', () => {
+    const dispute = { status: 'RESOLVED' as const, arbiterId: 'a' }
+    for (const status of ['SPLIT', 'COMPLETED', 'REFUNDED'] as const) {
+      for (const r of ROLES) expect(deriveTradeState(input(status, r, { dispute })).action.canDispute).toBe(false)
     }
   })
 })

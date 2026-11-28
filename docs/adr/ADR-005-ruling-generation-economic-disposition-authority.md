@@ -5,6 +5,21 @@
 **Parent gate:** Issue #165 / docs/BACKLOG.md item 44  
 **Baseline:** `main@500d5ee3784f92e961e8046436f1de8206081dd5`
 
+## Implementation note (branch reconciliation)
+
+The Context below describes the historical baseline, not the current
+implementation. `economic-disposition-authority.ts` implements
+`authorizeDisputedPendingExecution()` with a transaction-scoped lock
+shared with appeal and ruling persistence, checks the current resolved
+ruling, appeal round, arbiter and authority signature, and persists an
+operation-bound authorization digest. An existing authorization is reused
+only for the same immutable operation; a subsequent appeal does not
+retroactively revoke that committed authorization. Missing ruling
+provenance is accepted only when cooperative origin is durably provable.
+These are scoped code-level controls, not independent evidence of all
+acceptance tests passing, universal provider recovery or production
+homologation. The frozen decision below is unchanged.
+
 ## Context
 
 Sails already distinguishes several authority layers:

@@ -18,6 +18,7 @@ import { Input } from '../../components/ui/input'
 import { Button, buttonVariants } from '../../components/ui/button'
 import { IconButton } from '../../components/ui/icon-button'
 import { Alert } from '../../components/ui/alert'
+import { SafetyCenterLink } from '../../components/safety/SafetyCenterLink'
 import { IdentityAvatar } from '../../components/ui/IdentityAvatar'
 import { SimulatedBadge } from '../../components/ui/SimulatedBadge'
 import { RadioCard, RadioGroup } from '../../components/ui/radio-group'
@@ -32,9 +33,18 @@ import { t } from '../../i18n'
 
 type IntentType = 'payBill' | 'buyUsdt' | 'buyBtc' | 'sellBtc'
 interface Intent { type: IntentType; min: number; max?: number; method: string }
-interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean; risky?: boolean }
+interface Msg { id: string; author: string; seed: string; text?: string; intent?: Intent; own?: boolean; risky?: boolean; demoReply?: boolean }
 interface Peer { author: string; seed: string }
 type Tab = 'group' | 'private'
+type Threads = Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>
+
+// Demo private threads by market (a `sails_demo_` key, so the demo reset clears it); unreadable storage = empty.
+const THREADS_KEY = 'sails_demo_market_chats_v1'
+const readAllThreads = (): Record<string, Threads> => { try { return JSON.parse(sessionStorage.getItem(THREADS_KEY) ?? '{}') as Record<string, Threads> } catch { return {} } }
+const loadThreads = (market: string): Threads => readAllThreads()[market] ?? {}
+function saveThreads(market: string, threads: Threads): void {
+  try { sessionStorage.setItem(THREADS_KEY, JSON.stringify({ ...readAllThreads(), [market]: threads })) } catch { /* stays in memory */ }
+}
 
 const INTENT_TYPES: readonly IntentType[] = ['payBill', 'buyUsdt', 'buyBtc', 'sellBtc']
 // The side of the person who answers: they sell what the poster wants to buy, and buy what the poster sells.
@@ -47,19 +57,24 @@ const INTENT_ASSET: Record<IntentType, string> = { payBill: 'USDT_TRC20', buyUsd
  * "Propor negociação": from an offer, that offer's trade start (/offer/:id); otherwise the new-offer flow prefilled from
  * the intent card (side, asset, amount, method) with a link back to this conversation.
  */
-function proposeLink(th: { offerId?: string; side?: 'BUY' | 'SELL'; intent?: Intent; peer: Peer }, backTo?: string): string {
-  if (th.offerId) return `/offer/${encodeURIComponent(th.offerId)}`
+function proposeLink(th: { offerId?: string; side?: 'BUY' | 'SELL'; intent?: Intent; peer: Peer }, backTo?: string): { to: string; state?: { ctx?: string; peerName: string } } {
+  if (th.offerId) return { to: `/offer/${encodeURIComponent(th.offerId)}` }
   const q = new URLSearchParams({ side: th.side ?? (th.intent ? ANSWER_SIDE[th.intent.type] : 'SELL') })
+  let ctx: string | undefined
   if (th.intent) {
     // Never a USD amount in the crypto quantity fields: the amount goes as context text only.
     q.set('asset', INTENT_ASSET[th.intent.type])
     q.set('method', METHOD_CODE[th.intent.method] ?? 'PIX')
-    q.set('ctx', t('spaces.propose.context', { name: th.peer.author, type: t(`spaces.intent.type.${th.intent.type}`), amount: intentAmount(th.intent), method: th.intent.method }))
+    ctx = t('spaces.propose.context', { name: th.peer.author, type: t(`spaces.intent.type.${th.intent.type}`), amount: intentAmount(th.intent), method: th.intent.method })
   }
-  // Back to Conversas › Privadas with this thread open.
-  if (backTo) q.set('back', `${backTo}?tab=chat&peer=${encodeURIComponent(th.peer.seed)}&name=${encodeURIComponent(th.peer.author)}`)
-  return `${TRADES_ROUTES.newOffer}?${q.toString()}`
+  // Back to Conversas › Privadas with this thread open. Names and context go in router state, never in the URL.
+  if (backTo) q.set('back', `${backTo}?tab=chat&peer=${encodeURIComponent(th.peer.seed)}`)
+  return { to: `${TRADES_ROUTES.newOffer}?${q.toString()}`, state: { ctx, peerName: th.peer.author } }
 }
+
+// Canned counterparty replies (demo): the other side answers about 2 s after you send, marked as an example.
+const REPLY_DELAY_MS = 2000
+const replyLater = (fn: () => void) => window.setTimeout(fn, REPLY_DELAY_MS)
 
 // Fictional members (DECISIONS.md "Identidade") and intentions, pt-BR like the other demo fixtures.
 const SEED_GROUP: readonly Msg[] = [
@@ -73,12 +88,12 @@ const ME = { author: 'Você', seed: 'demo-member-you' }
 const usd = (v: number) => v.toLocaleString(getLocale(), { style: 'currency', currency: 'USD', currencyDisplay: currencyDisplay('USD'), maximumFractionDigits: 0 })
 const intentAmount = (i: Intent) => (i.max && i.max !== i.min ? `${usd(i.min)}–${usd(i.max)}` : usd(i.min))
 
-function IntentCard({ intent, onPrivate }: { intent: Intent; onPrivate?: () => void }) {
+function IntentCard({ intent, author, onPrivate }: { intent: Intent; author: string; onPrivate?: () => void }) {
   return (
     <div className="mt-1 space-y-1 rounded-md bg-brand-surface px-3 py-2">
       <p className="text-body-sm font-medium text-brand-text">{t(`spaces.intent.type.${intent.type}`)}</p>
       <p className="tabular-nums text-caption text-brand-text-secondary">{intentAmount(intent)} · {intent.method}</p>
-      {onPrivate && <Button type="button" size="sm" variant="secondary" onClick={onPrivate} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.chat.privateShort')}</Button>}
+      {onPrivate && <Button type="button" size="sm" variant="secondary" onClick={onPrivate} aria-label={t('spaces.chat.privateWith', { name: author })} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.chat.privateShort')}</Button>}
     </div>
   )
 }
@@ -90,7 +105,8 @@ function Bubble({ m, onPrivate, onPin }: { m: Msg; onPrivate?: (m: Msg) => void;
       <div className={cn('min-w-0 max-w-prose rounded-lg px-3 py-2', m.own ? 'bg-brand-info-solid text-brand-on-info' : 'bg-brand-elevated text-brand-text')}>
         <p className={cn('text-caption font-medium', m.own ? 'text-brand-on-info' : 'text-brand-text')}>{m.author}</p>
         {m.text && <p className="break-words text-body-sm">{m.text}</p>}
-        {m.intent && <IntentCard intent={m.intent} onPrivate={onPrivate && !m.own ? () => onPrivate(m) : undefined} />}
+        {m.demoReply && <SimulatedBadge label={t('spaces.chat.demoReply')} className="mt-1" />}
+        {m.intent && <IntentCard intent={m.intent} author={m.author} onPrivate={onPrivate && !m.own ? () => onPrivate(m) : undefined} />}
         {/* Stays on the sent message too (a soft reminder, never a block). */}
         {m.risky && <p className="mt-1 flex items-start gap-1 text-caption"><AlertTriangle aria-hidden="true" className="mt-px size-icon-xs shrink-0" />{t('spaces.chat.offTrade')}</p>}
       </div>
@@ -168,7 +184,7 @@ function IntentForm({ onPost, onCancel }: { onPost: (i: Intent) => void; onCance
 /** `membersSlot` renders the admin's member list (public keys only) with a way into a private conversation. */
 export interface OpenPrivateRequest { peer: Peer; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; key: number }
 
-export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
+export function MarketChats({ membersSlot, openWith, backTo, canPin = false, canPost = true }: {
   membersSlot?: (openPrivate: (peer: Peer) => void) => ReactNode
   /** Opens (or reopens) a private conversation from outside, e.g. "Conversar" on an offer; `context` is shown on top. */
   openWith?: OpenPrivateRequest | null
@@ -176,6 +192,8 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   backTo?: string
   /** Admin (demo): pin one group message to the top. */
   canPin?: boolean
+  /** Members post in the group; anyone else reads the preview only. */
+  canPost?: boolean
 }) {
   const idBase = useId()
   const [tab, setTab] = useState<Tab>('group')
@@ -184,17 +202,23 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   const [pinned, setPinned] = useState<string | null>(null)
   const listRef = useRef<HTMLUListElement>(null)
   const postButton = useRef<HTMLButtonElement>(null)
-  const [threads, setThreads] = useState<Record<string, { peer: Peer; intent?: Intent; context?: string; side?: 'BUY' | 'SELL'; offerId?: string; msgs: readonly Msg[] }>>({})
+  const [threads, setThreads] = useState<Threads>(() => loadThreads(backTo ?? ''))
+  // Kept per market in sessionStorage, so "Voltar à conversa" after "Propor negociação" finds the history.
+  useEffect(() => { saveThreads(backTo ?? '', threads) }, [backTo, threads])
   const [open, setOpen] = useState<string | null>(null)
 
   const openPrivate = (peer: Peer, intent?: Intent, context?: string, side?: 'BUY' | 'SELL', offerId?: string) => {
-    setThreads((th) => ({ ...th, [peer.seed]: { peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side, offerId: offerId ?? th[peer.seed]?.offerId } }))
+    setThreads((th) => ({ ...th, [peer.seed]: { peer: th[peer.seed]?.peer ?? peer, msgs: th[peer.seed]?.msgs ?? [], intent: intent ?? th[peer.seed]?.intent, context: context ?? th[peer.seed]?.context, side: side ?? th[peer.seed]?.side, offerId: offerId ?? th[peer.seed]?.offerId } }))
     setOpen(peer.seed)
     setTab('private')
   }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (openWith) openPrivate(openWith.peer, undefined, openWith.context, openWith.side, openWith.offerId) }, [openWith?.key])
-  const sendGroup = (text: string) => { setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }]); simulatedToast() }
+  const sendGroup = (text: string) => {
+    setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, text, own: true }])
+    simulatedToast()
+    replyLater(() => setGroup((g) => [...g, { id: `g${g.length + 1}`, author: 'Bob', seed: 'demo-member-bob', text: t('spaces.chat.demoReplyGroup'), demoReply: true }]))
+  }
   const postIntent = (intent: Intent) => {
     setGroup((g) => [...g, { id: `g${g.length + 1}`, ...ME, intent, own: true }])
     setPosting(false)
@@ -207,6 +231,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
   const sendPrivate = (seed: string, text: string) => {
     setThreads((th) => ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, ...ME, text, own: true, risky: looksOffTrade(text) }] } }))
     simulatedToast()
+    replyLater(() => setThreads((th) => th[seed] ? ({ ...th, [seed]: { ...th[seed], msgs: [...th[seed].msgs, { id: `p${th[seed].msgs.length + 1}`, author: th[seed].peer.author, seed, text: t('spaces.chat.demoReplyPrivate'), demoReply: true }] } }) : th))
   }
   const thread = open ? threads[open] : null
   const list = Object.values(threads)
@@ -224,13 +249,13 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
         items={[{ value: 'group', label: t('spaces.chat.groupTab') }, { value: 'private', label: list.length ? t('spaces.chat.privateTabCount', { count: list.length }) : t('spaces.chat.privateTab') }]}
       />
       {tab === 'group' ? (
-        <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3 outline-none">
+        <div {...tabPanelProps(idBase, 'group')} className="space-y-3 pt-3">
           {pinned && (() => {
             const p = group.find((x) => x.id === pinned)
             return p ? (
               <div className="flex items-start gap-2 rounded-lg bg-brand-elevated px-3 py-2">
                 <Pin aria-hidden="true" className="mt-0.5 size-icon-sm shrink-0 text-brand-text-muted" />
-                <p className="min-w-0 flex-1 text-body-sm text-brand-text"><span className="font-medium">{t('spaces.admin.pinned')}: </span>{p.author}: {p.text ?? (p.intent ? `${t(`spaces.intent.type.${p.intent.type}`)} · ${intentAmount(p.intent)}` : '')}</p>
+                <p className="min-w-0 flex-1 text-body-sm text-brand-text"><span className="font-medium">{t('spaces.admin.pinnedPrefix')}</span>{' '}{t('spaces.admin.pinnedLine', { author: p.author, text: p.text ?? (p.intent ? `${t(`spaces.intent.type.${p.intent.type}`)} · ${intentAmount(p.intent)}` : '') })}</p>
                 {canPin && <Button type="button" size="sm" variant="ghost" onClick={() => setPinned(null)} className="touch:min-h-11">{t('spaces.admin.unpin')}</Button>}
               </div>
             ) : null
@@ -238,8 +263,14 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
           <ul ref={listRef} className="space-y-2" aria-label={t('spaces.chat.title')}>
             {group.map((m) => <Bubble key={m.id} m={m} onPrivate={(x) => openPrivate({ author: x.author, seed: x.seed }, x.intent)} onPin={canPin ? (x) => { setPinned(x.id); simulatedToast() } : undefined} />)}
           </ul>
-          <Composer label={t('spaces.chat.groupPlaceholder')} onSend={sendGroup} />
-          <Button ref={postButton} type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
+          {canPost ? (
+            <>
+              <Composer label={t('spaces.chat.groupPlaceholder')} onSend={sendGroup} />
+              <Button ref={postButton} type="button" variant="ghost" size="sm" onClick={() => setPosting(true)} className="touch:min-h-11">{t('spaces.intent.open')}</Button>
+            </>
+          ) : (
+            <p className="rounded-md bg-brand-elevated px-3 py-2 text-body-sm text-brand-text-secondary">{t('spaces.chat.joinToPost')}</p>
+          )}
           <Dialog open={posting} onOpenChange={setPosting}>
             {/* No Radix trigger: focus goes back to "Publicar intenção" on close. */}
             <DialogContent className="max-w-lg" onCloseAutoFocus={(e) => { e.preventDefault(); postButton.current?.focus() }}>
@@ -250,7 +281,7 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
           {membersSlot?.((p) => openPrivate(p))}
         </div>
       ) : (
-        <div {...tabPanelProps(idBase, 'private')} className="space-y-3 pt-3 outline-none">
+        <div {...tabPanelProps(idBase, 'private')} className="space-y-3 pt-3">
           {!thread ? (
             list.length === 0 ? (
               <p className="text-body-sm text-brand-text-secondary">{t('spaces.chat.privateEmpty')}</p>
@@ -274,15 +305,17 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(null)} className="touch:min-h-11"><ArrowLeft aria-hidden="true" />{t('spaces.chat.privateBack')}</Button>
               <p className="text-body-sm font-medium text-brand-text">{t('spaces.chat.privateWith', { name: thread.peer.author })}</p>
               {/* Fixed at the top of every private conversation (PO). */}
-              <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')} />
-              {thread.intent && <IntentCard intent={thread.intent} />}
+              <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')}>
+                <SafetyCenterLink page="escrowLimits">{t('shell.safetyCenter.howToStaySafe')}</SafetyCenterLink>
+              </Alert>
+              {thread.intent && <IntentCard intent={thread.intent} author={thread.peer.author} />}
               {thread.context && <p className="rounded-md bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">{thread.context}</p>}
               <ul className="space-y-2" aria-label={t('spaces.chat.privateWith', { name: thread.peer.author })}>
                 {thread.msgs.length === 0 && <li className="text-caption text-brand-text-secondary">{t('spaces.chat.privateNew')}</li>}
                 {thread.msgs.map((m) => <Bubble key={m.id} m={m} />)}
               </ul>
               <Composer label={t('spaces.chat.privatePlaceholder')} onSend={(v) => sendPrivate(thread.peer.seed, v)} warn />
-              <Link to={proposeLink(thread, backTo)} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
+              <Link {...proposeLink(thread, backTo)} className={cn(buttonVariants({ variant: 'secondary' }), 'touch:min-h-11')}>{t('spaces.chat.createTrade')}</Link>
             </>
           )}
         </div>

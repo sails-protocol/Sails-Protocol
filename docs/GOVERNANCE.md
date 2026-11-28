@@ -336,11 +336,7 @@ accepted it — confirmed here rather than left to be re-derived.
 
 **Implementation Freeze began 2026-07-19** — declared by a CTO-role
 review, relayed by the project owner, after the RFC-018/RFC-019/Core RFC
-consolidation pass: "A governança do protocolo é considerada
-estabilizada... a prioridade muda para: implementar fielmente o que já
-foi especificado, validar o protocolo em um caso de uso real, receber
-feedback de desenvolvedores externos, evoluir por evidência, não por
-especulação." Explicit guidance for this phase: **new governance
+consolidation pass (translated from the original Portuguese): "Protocol governance is considered stable; priority shifts to faithfully implementing what has been specified, validating the protocol in a real use case, gathering external developer feedback, and evolving from evidence rather than speculation." Explicit guidance for this phase: **new governance
 process, classifications, or documents should not be introduced unless
 a clearly demonstrated need arises from implementation** — process
 changes are the exception now, not a natural extension of documentation

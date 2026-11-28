@@ -10,6 +10,7 @@ import { LEGACY_REDIRECTS, legacyRedirect, MARKET_PAGE_ROUTE, MARKETS_ROUTES, SP
 import { UiStringsProvider } from './components/ui/uiStrings'
 import { t, useLocale } from './i18n'
 import { sailsUiStrings } from './i18n/uiStrings'
+import { FAQ_ROUTE } from './lib/faq'
 
 // Route-level code splitting (2026-08-11) — vite build's own warning
 // (a single ~2.6MB chunk) was every page in one bundle regardless of
@@ -21,9 +22,11 @@ import { sailsUiStrings } from './i18n/uiStrings'
 import { Login } from './pages/Login'
 import { NotFound } from './pages/NotFound'
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })))
+const MarketHome = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.MarketHome })))
 const OfferDetail = lazy(() => import('./pages/OfferDetail').then((m) => ({ default: m.OfferDetail })))
 const Trade = lazy(() => import('./pages/Trade').then((m) => ({ default: m.Trade })))
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })))
+const Faq = lazy(() => import('./pages/Faq').then((m) => ({ default: m.Faq })))
 const PublishOffer = lazy(() => import('./pages/PublishOffer').then((m) => ({ default: m.PublishOffer })))
 const TradeHistory = lazy(() => import('./pages/TradeHistory').then((m) => ({ default: m.TradeHistory })))
 const ActiveTrades = lazy(() => import('./pages/ActiveTrades').then((m) => ({ default: m.ActiveTrades })))
@@ -106,7 +109,7 @@ export default function App() {
               <Route element={<Layout />}>
                 {/* Connect-wallet dialog over the Market: the app stays open without a session */}
                 <Route path="/login" element={<><Suspense fallback={<RouteFallback />}><Marketplace /></Suspense><Login /></>} />
-                <Route path="/" element={<Suspense fallback={<RouteFallback />}><Marketplace /></Suspense>} />
+                <Route path="/" element={<Suspense fallback={<RouteFallback />}><MarketHome /></Suspense>} />
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
                 <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />
@@ -116,6 +119,7 @@ export default function App() {
                 <Route path={TRADES_ROUTES.newOffer} element={<Suspense fallback={<RouteFallback />}><PublishOffer /></Suspense>} />
                 <Route path={TRADES_ROUTES.disputes} element={<Suspense fallback={<RouteFallback />}><Disputes /></Suspense>} />
                 <Route path="/settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
+                <Route path={FAQ_ROUTE} element={<Suspense fallback={<RouteFallback />}><Faq /></Suspense>} />
                 {Object.values(MARKETS_ROUTES).map((path) => <Route key={path} path={path} element={<Suspense fallback={<RouteFallback />}><Markets /></Suspense>} />)}
                 <Route path={SPACE_SHOP_ROUTE} element={<Suspense fallback={<RouteFallback />}><SpaceShop /></Suspense>} />
                 <Route path={MARKET_PAGE_ROUTE} element={<Suspense fallback={<RouteFallback />}><MarketPage /></Suspense>} />

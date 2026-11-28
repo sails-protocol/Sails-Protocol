@@ -9,11 +9,13 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { ArrowLeft, CheckCircle2, UsersRound } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
-import { MARKETS_ROUTES, marketPath } from '../components/layout/navMatch'
+import { MARKETS_ROUTES, MARKET_OPEN_PATH, marketPath } from '../components/layout/navMatch'
 import { TabLinks } from '../components/ui/tabs'
 import { Card } from '../components/ui/card'
 import { Alert } from '../components/ui/alert'
 import { ConfirmActionDialog } from '../components/ui/ConfirmActionDialog'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog'
+import { Input } from '../components/ui/input'
 import { Button, buttonVariants } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
 import { FilterChip } from '../components/ui/filter-chip'
@@ -27,7 +29,7 @@ import { addDemoCreatedMarket, demoMarketPage, isDemoMode, isRetainedPreview } f
 import { MARKET_CATEGORIES, filterByCategory, offersForMarket, pageOf, readViewMode, saveViewMode, type CategoryFilter, type ViewMode } from '../lib/marketSpaces'
 import { spaceProduct, type SpaceProductId } from '../lib/spaceCatalog'
 import { SpaceCheckout, SpaceTypePicker, spaceName } from './spaces/SpaceCheckout'
-import { formatUsd } from '../lib/format'
+import { formatAmount, formatUsd } from '../lib/format'
 import { IMAGE_MAX_BYTES, IMAGE_SPECS, formatPx, type ImageKind } from '../lib/imageCheck'
 import { getLocale } from '../lib/locale'
 import type { ImagePickerCopy } from '../components/markets/ImagePicker'
@@ -36,11 +38,12 @@ import type { Offer } from '../types'
 import { fetchOffers } from '../lib/realOffers'
 import { pairForAssetType } from '../lib/assetCatalog'
 import { cn } from '../lib/utils'
-import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
+import { categoryLabel, DemoVerifiedSeal, entryText, guarantees, identifiers, JoinMarketPanel, marketCardCopy, marketListCopy, marketsValueLine, PrivateHostingNote, profileLabel, RoleLinks, simulatedToast, SOCIAL_OPTIONS, WireNote, WirePlanned, useVisibleMarkets } from './markets/shared'
 import { MarketIcon, MARKET_ACTION_ICON } from '../components/markets/MarketIcon'
 import { ownMarkets } from '../lib/myMarkets'
 import { useAuth } from '../context/AuthContext'
 import { t } from '../i18n'
+import { MarketRoleLine, RecoveryAuthorityChoice, RecoveryObjectionBanner } from '../components/settings/PortableIdentityDemo'
 
 const TAB_ICON = 'h-4 w-4 shrink-0'
 const tabs = () => [
@@ -54,7 +57,7 @@ const SURFACE = 'border-brand-border-subtle bg-brand-surface p-4'
 const safeLocalStorage = () => { try { return window.localStorage } catch { return undefined } }
 
 // Pixel sizes and formats from lib/imageCheck.ts, written in the interface language (PO, 2026-11-22).
-const imageCopy = (kind: ImageKind, label: string): ImagePickerCopy => {
+const imageCopy = (kind: ImageKind, label: string, name: string): ImagePickerCopy => {
   const spec = IMAGE_SPECS[kind]
   const locale = getLocale()
   const formats = t(kind === 'icon' ? 'spaces.create.formatsIcon' : 'spaces.create.formatsPhoto')
@@ -64,6 +67,7 @@ const imageCopy = (kind: ImageKind, label: string): ImagePickerCopy => {
     label,
     help: t('spaces.create.imageHelp', { ratio: spec.ratioLabel, rec, min: formatPx(spec.minimum, locale), formats, max }) + (kind === 'icon' ? '' : ` ${t('spaces.create.safeArea')}`),
     choose: t('spaces.create.choose'), replace: t('spaces.create.replace'), remove: t('spaces.create.remove'),
+    names: Object.fromEntries((['choose', 'replace', 'remove'] as const).map((a) => [a, t('spaces.create.imageActionName', { action: t(`spaces.create.${a}`), image: name })])) as ImagePickerCopy['names'],
     wrongType: t('spaces.create.wrongType', { formats }),
     tooBig: t('spaces.create.tooBig', { max }),
     warnSmall: t('spaces.create.warnSmall', { rec }),
@@ -103,6 +107,8 @@ function createCopy(): CreateMarketCopy {
     infrastructure: [
       { value: 'network', label: t('markets.create.infrastructure.networkLabel'), description: t('markets.create.infrastructure.networkDescription') },
       { value: 'own', label: t('markets.create.infrastructure.ownLabel'), description: t('markets.create.infrastructure.ownDescription') },
+      // CTO 36 (C): simulated in the demo, "Em breve" (not selectable) in real mode.
+      { value: 'managed', label: `${t('markets.create.infrastructure.managedLabel')} (${isDemoMode() ? t('spaces.simulated') : t('common.soon')})`, description: t('markets.create.infrastructure.managedDescription'), disabled: !isDemoMode() },
     ],
     infrastructureNote: t('markets.create.infrastructureNote'),
     category: { legend: t('spaces.create.category'), options: MARKET_CATEGORIES.map((c) => ({ value: c, label: t(`spaces.category.${c}`) })) },
@@ -114,9 +120,9 @@ function createCopy(): CreateMarketCopy {
       ],
     },
     images: {
-      icon: imageCopy('icon', t('spaces.create.icon')),
-      banner: imageCopy('banner', t('spaces.create.banner')),
-      cover: imageCopy('cover', t('spaces.create.cover')),
+      icon: imageCopy('icon', t('spaces.create.icon'), t('spaces.create.iconName')),
+      banner: imageCopy('banner', t('spaces.create.banner'), t('spaces.create.bannerName')),
+      cover: imageCopy('cover', t('spaces.create.cover'), t('spaces.create.coverName')),
       coverToggle: t('spaces.create.coverToggle'),
       note: t('spaces.create.imagesNote'),
     },
@@ -132,8 +138,9 @@ function createCopy(): CreateMarketCopy {
         { value: 'above_threshold', label: t('spaces.create.kyc.above'), description: t('spaces.create.kyc.aboveDescription') },
         { value: 'all', label: t('spaces.create.kyc.all'), description: t('spaces.create.kyc.allDescription') },
       ],
-      threshold: t('spaces.create.threshold'), thresholdHelp: t('spaces.create.thresholdHelp'), thresholdError: t('spaces.create.thresholdError'),
+      threshold: t('spaces.create.threshold'), thresholdHelp: t('spaces.create.thresholdHelp', { amount: formatAmount(10000, 0) }), thresholdError: t('spaces.create.thresholdError'),
       provider: t('spaces.create.provider'), providerHelp: t('spaces.create.providerHelp'), providerError: t('spaces.create.providerError'),
+      providerName: t('spaces.create.providerName'), providerNameHelp: t('spaces.create.providerNameHelp'),
       socialLegend: t('spaces.create.socialLegend'), socialHelp: t('spaces.create.socialHelp'), social: SOCIAL_OPTIONS,
       responsibility: t('spaces.create.responsibility'),
       limits: t('spaces.create.limits'),
@@ -165,10 +172,11 @@ function examples(): readonly { key: string; visibility: string; infrastructure:
   const pub = t('markets.list.visibility.public')
   const priv = t('markets.list.visibility.private')
   const own = t('markets.create.infrastructure.ownLabel')
+  const network = t('markets.create.infrastructure.networkLabel')
   return [
-    { key: 'public-network', visibility: pub, infrastructure: 'Rede Sails', example: t('markets.create.example.publicNetwork') },
+    { key: 'public-network', visibility: pub, infrastructure: network, example: t('markets.create.example.publicNetwork') },
     { key: 'public-own', visibility: pub, infrastructure: own, example: t('markets.create.example.publicOwn') },
-    { key: 'private-network', visibility: priv, infrastructure: 'Rede Sails', example: t('markets.create.example.privateNetwork') },
+    { key: 'private-network', visibility: priv, infrastructure: network, example: t('markets.create.example.privateNetwork') },
     { key: 'private-own', visibility: priv, infrastructure: own, example: t('markets.create.example.privateOwn') },
   ]
 }
@@ -225,7 +233,7 @@ function ExploreView() {
             <h2 className="text-sm font-medium text-brand-text">{open.name}</h2>
             <p className="mt-0.5 text-caption text-brand-text-secondary">{open.description}</p>
           </div>
-          <Link to="/" className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
+          <Link to={MARKET_OPEN_PATH} className={cn(buttonVariants({ variant: 'secondary', size: 'sm' }), 'shrink-0 touch:min-h-11')}>{t('markets.explore.open')}<span className="sr-only"> {open.name}</span></Link>
         </div>
       )}
       <section aria-labelledby="explore-public" className="space-y-3">
@@ -271,22 +279,54 @@ function MineView() {
   const cardCopy = marketCardCopy()
   // "Seu espaço": markets the person administers or created. Transferir is simulated in the demo (no transfer exists).
   const [transferring, setTransferring] = useState<MarketView | null>(null)
+  const [transferTo, setTransferTo] = useState('')
   const yours = (m: MarketView) => m.relation === 'admin' || !!m.ownedByYou
+  // CTO 29 (marketOwnershipRecovery wire), demo only: role and hosting in plain words.
+  // shortcut: the contract has adminIdentity but no owner/delegate role, so every demo space of yours reads "Proprietário"; use the role field when the Principal adds it.
+  const roleLine = (m: MarketView, className?: string) => (demo && yours(m) ? <MarketRoleLine role="owner" infrastructure={m.infrastructure} className={className} /> : null)
   const transferButton = (m: MarketView) => (
     <Button type="button" size="sm" variant="ghost" onClick={() => setTransferring(m)} className="relative z-10 touch:min-h-11">{t('spaces.transfer')}<span className="sr-only"> {m.name}</span></Button>
   )
+  // "Painel do espaço" lives on the market page (tab Painel), owner only.
+  const dashboardLink = (m: MarketView) => (
+    <Link to={`${marketPath(m.id)}?tab=dashboard`} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'relative z-10 touch:min-h-11')}>{t('stats.space.tab')}<span className="sr-only"> {m.name}</span></Link>
+  )
+  // CTO 29, demo: the owner's notice of a pending recovery of one of their markets (the old device's view).
+  const recoveryNotice = demo ? markets.find(yours) : undefined
   return (
     <div className="space-y-4">
-      <ConfirmActionDialog
-        open={transferring !== null}
-        onOpenChange={(o) => { if (!o) setTransferring(null) }}
-        title={t('spaces.transferTitle', { name: transferring?.name ?? '' })}
-        consequence={t('spaces.transferBody')}
-        confirmLabel={t('spaces.transfer')}
-        onConfirm={() => { setTransferring(null); simulatedToast(t('spaces.transferToast')) }}
-      />
+      {recoveryNotice && <RecoveryObjectionBanner marketName={recoveryNotice.name} />}
+      {/* Transferir (demo): the target identity, then the same 7-day safety period with objection as a recovery (CTO 29). */}
+      <Dialog open={transferring !== null} onOpenChange={(o) => { if (!o) { setTransferring(null); setTransferTo('') } }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader className="pr-10 text-left">
+            <DialogTitle>{t('spaces.transferTitle', { name: transferring?.name ?? '' })}</DialogTitle>
+            <DialogDescription>{t('spaces.transferBody')}</DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const to = transferTo.trim()
+              if (!to || !transferring) return
+              simulatedToast(t('spaces.transferToast', { name: transferring.name, to: to.length > 20 ? `${to.slice(0, 10)}…${to.slice(-6)}` : to }))
+              setTransferring(null)
+              setTransferTo('')
+            }}
+          >
+            <label htmlFor="transfer-to" className="text-sm font-medium text-brand-text">{t('spaces.transferTo')}</label>
+            <Input id="transfer-to" name="transfer-to" autoComplete="off" spellCheck={false} value={transferTo} onChange={(e) => setTransferTo(e.target.value)} className="font-mono" />
+            <p className="text-caption text-brand-text-secondary">{t('spaces.transferSafety')}</p>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="ghost" onClick={() => { setTransferring(null); setTransferTo('') }} className="touch:min-h-11">{t('common.cancel')}</Button>
+              <Button type="submit" disabled={!transferTo.trim()} className="touch:min-h-11">{t('spaces.transfer')}</Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-section-title">{t('markets.action.mine')}</h2>
+        {/* The page h1 already says Meus mercados: this h2 names the list by its size. */}
+        <h2 className="text-section-title">{t('spaces.portal.mineCount', { count: markets.length })}</h2>
         <SegmentedControl
           label={t('spaces.mine.viewLabel')}
           value={mode}
@@ -300,8 +340,8 @@ function MineView() {
             <li key={m.id} className="flex">
               <MarketCard
                 market={m} copy={cardCopy} className="w-full"
-                badges={yours(m) ? <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge> : undefined}
-                action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && transferButton(m)}</div>}
+                badges={yours(m) ? <><Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{t('spaces.yourSpace')}</Badge>{roleLine(m, 'basis-full')}</> : undefined}
+                action={<div className="flex flex-wrap gap-2"><OpenLink m={m} />{yours(m) && dashboardLink(m)}{yours(m) && transferButton(m)}</div>}
               />
             </li>
           ))}
@@ -314,7 +354,9 @@ function MineView() {
             copy={{ ...marketListCopy(), label: t('markets.action.mine') }}
             action={(m) => (
               <div className="flex flex-wrap items-center justify-end gap-1">
+                {roleLine(m, 'w-full text-right sm:w-auto')}
                 {yours(m) && <Badge variant="outline" className="hidden border-transparent bg-brand-tonal font-medium text-brand-text sm:inline-flex">{t('spaces.yourSpace')}</Badge>}
+                {yours(m) && dashboardLink(m)}
                 {yours(m) && transferButton(m)}
                 <Link to={m.relation === 'default' ? '/' : marketPath(m.id)} className={cn(buttonVariants({ variant: 'ghost', size: 'sm' }), 'touch:min-h-11')}>
                   {t('markets.explore.open')}<span className="sr-only"> {m.name}</span>
@@ -385,7 +427,7 @@ function CreateView() {
       preset: paying.preset, category: paying.category, profile: paying.profile, participants: 1,
       // The person's own local previews (kept alive by retainUrl below), never uploaded.
       brandImage: paying.iconUrl ?? undefined, bannerImage: paying.bannerUrl ?? undefined,
-      entryPolicy: { kyc: paying.entry.kyc, thresholdUsd: paying.entry.thresholdUsd ?? undefined, providerUrl: paying.entry.providerUrl ?? undefined, social: paying.entry.social },
+      entryPolicy: { kyc: paying.entry.kyc, thresholdUsd: paying.entry.thresholdUsd ?? undefined, providerUrl: paying.entry.providerUrl ?? undefined, providerName: paying.entry.providerName ?? undefined, social: paying.entry.social },
     })
     if (id) setCreated({ id, name: paying.name })
   }, [paying])
@@ -395,7 +437,7 @@ function CreateView() {
     [t('spaces.create.review.profile'), profileLabel(p) ?? ''],
     [t('spaces.create.review.entry'), entryText({ kyc: p.entry.kyc, thresholdUsd: p.entry.thresholdUsd ?? undefined, providerUrl: p.entry.providerUrl ?? undefined, social: p.entry.social })],
     ...(p.visibility === 'private' ? [] : [[t('markets.create.review.participation'), marketListCopy().preset[p.preset]] as [string, string]]),
-    [t('spaces.create.hostingLegend'), p.infrastructure === 'own' ? t('markets.create.infrastructure.ownLabel') : t('markets.create.infrastructure.networkLabel')],
+    [t('spaces.create.hostingLegend'), marketListCopy().infrastructure[p.infrastructure]],
   ]
   const primary = user ? 'default' : 'secondary'
   const space = spaceProduct(product)
@@ -421,6 +463,7 @@ function CreateView() {
         retainUrl={isRetainedPreview}
         privateHostingSlot={<PrivateHostingNote own={<p className="text-caption text-brand-text-secondary"><span className="font-medium text-brand-text">{t('spaces.hosting.own')}.</span> {t(simple ? 'spaces.hosting.ownNote' : 'spaces.hosting.ownInWizard')}</p>} />}
         brandingSlot={<WirePlanned id="marketBranding" description={t('markets.create.brandingPlanned')} />}
+        recoverySlot={<RecoveryAuthorityChoice name="market-recovery" />}
         invitesSlot={<WirePlanned id="marketInvite" label={t('markets.create.invitesLabel')} description={t('markets.create.invitesPlanned')} />}
         createAvailable={demo}
         unavailableNote={<WireNote ids={['createMarket']} />}
@@ -517,7 +560,7 @@ function JoinView() {
         {isDemoMode() && <p className="-mt-2 mb-4 text-caption text-brand-text-muted">{t('spaces.page.privateAccess')}</p>}
         <JoinMarketPanel primarySolid={!!user} />
       </Card>
-      <FactList title={t('markets.guarantees.title')} facts={guarantees()} />
+      <FactList level={2} title={t('markets.guarantees.title')} facts={guarantees()} />
     </div>
   )
 }
@@ -541,6 +584,8 @@ export function Markets() {
         <TabLinks label={t('markets.title')} items={tabs()} className="overflow-x-auto overflow-y-hidden whitespace-nowrap [scrollbar-width:none] max-sm:[mask-image:linear-gradient(to_right,transparent,black_12px,black_calc(100%-12px),transparent)]" />
       </PageHeader>
       {view === MARKETS_ROUTES.mine ? <MineView /> : view === MARKETS_ROUTES.create ? <CreateView /> : view === MARKETS_ROUTES.join ? <JoinView /> : <ExploreView />}
+      {/* Owning a market lives here; the other two roles (CTO 36 note) are one link away. */}
+      {(view === MARKETS_ROUTES.mine || view === MARKETS_ROUTES.create) && <RoleLinks here="market" className="mt-6" />}
     </Page>
   )
 }

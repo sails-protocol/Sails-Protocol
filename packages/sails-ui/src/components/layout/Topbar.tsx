@@ -28,7 +28,7 @@ export function Topbar({ withNav = false }: { withNav?: boolean }) {
   return (
     <header
       className={cn(
-        'hidden md:flex h-14 items-center justify-end gap-3 border-b border-brand-border-subtle bg-brand-bg/90 backdrop-blur px-6 sticky top-0 z-40',
+        'hidden medium:flex h-14 items-center justify-end gap-3 border-b border-brand-border-subtle bg-brand-bg/90 backdrop-blur px-6 sticky top-0 z-40',
         // Three columns: the nav stays centered while both sides fit; a side never shrinks below its content (no wrapped key).
         withNav && 'lg:grid lg:grid-cols-[minmax(max-content,1fr)_auto_minmax(max-content,1fr)] lg:gap-6'
       )}

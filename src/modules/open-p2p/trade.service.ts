@@ -11,6 +11,7 @@ import { randomUUID } from 'crypto'
 import type { Prisma } from '@prisma/client'
 import { prisma } from '../../common/database'
 import { AppError, NotFoundError, ValidationError, ForbiddenError } from '../../common/errors'
+import { assertRailOpen } from '../../common/day0-closed-rails'
 import { eventBus } from '../../common/events/event-bus'
 import type { DurableEvent } from '../../common/events/event-store'
 import { childLogger } from '../../common/logger'
@@ -147,6 +148,7 @@ export class TradeService {
 
     const offer = await this.repo.findOfferForAdmission(tx, input.offerId)
     if (!offer) throw new NotFoundError('Offer', input.offerId)
+    assertRailOpen({ asset: offer.asset }) // Despacho 064: an older LN_BTC offer cannot become a trade
     if (offer.status !== 'ACTIVE') {
       throw new ValidationError(`Offer ${input.offerId} is not active (status: ${offer.status})`)
     }

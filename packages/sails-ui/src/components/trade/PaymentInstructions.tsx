@@ -8,6 +8,7 @@
  */
 import { CopyButton } from '../ui/CopyButton'
 import { SafetyNote } from '../ui/SafetyNote'
+import { SafetyCenterLink } from '../safety/SafetyCenterLink'
 import { Alert } from '../ui/alert'
 import type { InstructionsVisibility } from '../../lib/tradeState'
 import { t } from '../../i18n'
@@ -65,12 +66,19 @@ export function PaymentInstructions({ viewer, visibility, methodLabel, details, 
             <Details viewer={viewer} details={details} />
             {viewer === 'buyer' && details && (
               <SafetyNote className="mt-3">
-                {t('trade.payment.safety')}
+                {t('trade.payment.safety')}{' '}
+                <SafetyCenterLink page="thirdPartyPayments">{t('shell.safetyCenter.howToStaySafe')}</SafetyCenterLink>
               </SafetyNote>
             )}
             {viewer === 'seller' && details && (
               <p className="mt-2 text-xs text-brand-text-secondary">
                 {t('trade.payment.sellerNote')}
+              </p>
+            )}
+            {details && (
+              <p className="mt-2 text-xs text-brand-text-secondary">
+                {/* Payment details show only once the escrow is locked (hiddenUntilLocked), when neither party can cancel (cancel is only before the escrow): the seller warns the buyer in the chat or opens a dispute; the buyer does not pay. */}
+                {t(viewer === 'seller' ? 'trade.payment.noEditAfterAgreement' : 'trade.payment.noEditAfterAgreementBuyer')}
               </p>
             )}
           </>

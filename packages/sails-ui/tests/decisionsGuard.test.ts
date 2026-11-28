@@ -45,6 +45,14 @@ describe('decisions guard: structure', () => {
     expect(code('demo/demoBackend.ts')).not.toMatch(/LIGHTNING_DIRECT/)
   })
 
+  it("no secret key goes to storage in clear text, demo included (CodeQL #70)", () => {
+    // Static: Jest runs in node and cannot load the demo backend (Vite import.meta, DOM Storage).
+    const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((d) =>
+      d.isDirectory() ? files(join(dir, d.name)) : /\.tsx?$/.test(d.name) ? [join(dir, d.name)] : [])
+    const leaks = files(SRC).filter((f) => /setItem\([^)]*secretKey/.test(readFileSync(f, 'utf8'))).map((f) => f.split(SRC + sep)[1])
+    expect(leaks).toEqual([])
+  })
+
   it('the demo shows no "Verificado" seal until a verification criterion exists', () => {
     expect(code('demo/demoBackend.ts')).toMatch(/verified: false,/)
   })
@@ -74,4 +82,13 @@ describe('decisions guard: structure', () => {
     }
     expect(bad).toEqual([])
   })
+})
+
+describe('decisions guard: Merchant journey (CTO 38, PO 2026-11-23)', () => {
+  const merchant = ALL.filter((e) => /^(?:profile\.merchant\.|faq\.merchant)/.test(e.key))
+  it('no number except the one reference fee, and no progress, goal or unlock wording', () => {
+    expect(merchant.filter((e) => e.key !== 'profile.merchant.referenceFee' && /\d/.test(e.text)).map((e) => `${e.l} ${e.key}`)).toEqual([])
+    expect(hits(merchant, /\{(?:done|goal)\}|faltam|desbloquead|unlocked|débloqué|freigeschaltet|ranking|sequência|streak/i)).toEqual([])
+  })
+  it('the card has no progress bar', () => expect(code('pages/markets/MerchantProgram.tsx')).not.toMatch(/Progress\b/))
 })

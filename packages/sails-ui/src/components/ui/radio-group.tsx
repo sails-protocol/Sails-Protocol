@@ -19,9 +19,9 @@ export function RadioGroup({ legend, legendHidden = false, description, children
   listClassName?: string
 }) {
   return (
-    <fieldset className={className}>
+    <fieldset className={cn("min-w-0", className)}>
       <legend className={legendHidden ? 'sr-only' : 'text-sm font-medium text-brand-text'}>{legend}</legend>
-      {description && <p className="mt-0.5 text-xs text-brand-text-muted">{description}</p>}
+      {description && <p className="mt-0.5 max-w-[68ch] text-xs text-brand-text-muted">{description}</p>}
       <div className={cn(!legendHidden || description ? 'mt-3' : '', listClassName)}>{children}</div>
     </fieldset>
   )
@@ -49,8 +49,9 @@ export function RadioCard({ checked, disabled, children, className, ...input }: 
   return (
     <label
       className={cn(
-        // Transparent border so focus can draw on the card's own edge (one boundary).
-        'flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm transition-colors duration-short field-focus-within',
+        // Transparent border so focus can draw on the card's own edge (one boundary); only the fill animates, so the
+        // keyboard focus border shows at once.
+        'flex min-h-11 items-center gap-3 rounded-lg border border-transparent px-3 py-2.5 text-sm transition-[background-color] duration-short field-focus-within',
         disabled
           ? 'cursor-not-allowed bg-brand-disabled-container text-brand-text-secondary'
           : cn('cursor-pointer state-layer', checked ? 'bg-brand-selected text-brand-text font-medium' : 'bg-brand-tonal text-brand-text'),

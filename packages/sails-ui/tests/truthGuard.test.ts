@@ -174,7 +174,7 @@ describe('structure guard: one home for each decision', () => {
   it('demo-only fields are filled by the demoMarkers guards and read only by their single readers', () => {
     // Writers: the demo backend and lib/demoMarkers.ts. Readers: offerPaymentMethods() and lib/ratings.ts.
     const HOMES = new Set(['lib/demoMarkers.ts', 'lib/paymentMethods.ts', 'lib/ratings.ts'])
-    const readers = SOURCES.filter((f) => !HOMES.has(f.path) && !f.path.startsWith('demo/') && /\.demo(?:PaymentMethods|Ratings|MemberSince|AppealView)\b/.test(f.code)).map((f) => f.path)
+    const readers = SOURCES.filter((f) => !HOMES.has(f.path) && !f.path.startsWith('demo/') && /\.demo(?:PaymentMethods|Ratings|MemberSince|AppealView|FeeBreakdown)\b/.test(f.code)).map((f) => f.path)
     expect(readers).toEqual([])
   })
 })
@@ -189,6 +189,28 @@ describe('nodes and private markets guard', () => {
     for (const id of ['disputeAppealView', 'nodeCatalog', 'nodeStateSync', 'marketInvite', 'marketInviteQr', 'marketMembership', 'marketPortability', 'createMarket', 'marketDiscovery', 'marketBranding'] as const) {
       expect(LOOSE_WIRES[id].contract.length).toBeGreaterThan(20)
     }
+  })
+})
+
+describe('identity and recovery guard (Frente B, CTO R1 GO with adjustments, GK C1-C4)', () => {
+  const ALL_TEXT = (Object.keys(CATALOGS) as (keyof typeof CATALOGS)[]).flatMap((l) =>
+    (Object.entries(CATALOGS[l]) as [string, Message][]).flatMap(([key, m]) => (typeof m === 'string' ? [m] : Object.values(m).filter((v): v is string => typeof v === 'string')).map((text) => ({ l, key, text }))))
+  it('automatic recovery is only ever mentioned as not existing', () => {
+    const hits = ALL_TEXT.filter((e) => /recupera[çc][ãa]o autom[áa]tica|automatic recovery|recuperación automática|récupération automatique|automatische Wiederherstellung/i.test(e.text))
+      .filter((e) => !/n[ãa]o existe|n[ãa]o é|no automatic|not automatic|todavía no existe|no es|n’existe pas|n’est pas|gibt es noch nicht|keine automatische/i.test(e.text))
+      .map((e) => `${e.l} ${e.key}`)
+    expect(hits).toEqual([])
+  })
+  it('no seed or recovery words are shown to the user', () => {
+    const hits = ALL_TEXT.filter((e) => /seed|mnemonic|BIP-?39|frase de recupera|palavras de recupera|recovery phrase|(?:12|24) (?:palavras|words|palabras|mots|Wörter)/i.test(e.text)).map((e) => `${e.l} ${e.key}`)
+    expect(hits).toEqual([])
+  })
+  it('the planned backup format is never named in user copy', () => {
+    expect(ALL_TEXT.filter((e) => /SAILS-BACKUP/i.test(e.text)).map((e) => `${e.l} ${e.key}`)).toEqual([])
+  })
+  it('the demo backup screens read, write and derive nothing', () => {
+    const code = SOURCES.find((f) => f.path === 'components/settings/BackupDemo.tsx')!.code
+    expect(code).not.toMatch(/FileReader|\.text\(\)|arrayBuffer|localStorage|sessionStorage|crypto\.|createObjectURL|download=|keyEncryption|AuthContext/)
   })
 })
 

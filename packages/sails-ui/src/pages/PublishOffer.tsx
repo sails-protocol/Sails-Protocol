@@ -36,7 +36,7 @@
  * old mock filter, which ignored side entirely.
  */
 import { useEffect, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router'
 import { toast } from '../components/ui/toast'
 import { useAuth } from '../context/AuthContext'
 import { AssetPicker } from '../components/marketplace/AssetPicker'
@@ -61,7 +61,8 @@ import { formatByCurrency } from '../lib/currency'
 import { publicationPriceUsd } from '../lib/publicationPrice'
 import { PAYMENT_METHOD_LABELS } from '../lib/labels'
 import { sailsClient } from '../lib/sailsClient'
-import { isDemoMode } from '../lib/demoMarkers'
+import { isDemoMode, tagDemoOfferMarket } from '../lib/demoMarkers'
+import { selectablePairs } from '../lib/assetCatalog'
 import { MAX_PAYMENT_METHODS, isFuturePaymentMethod } from '../lib/paymentMethods'
 import type { AssetType, FiatCurrency, TradeSide } from '../types'
 import { t } from '../i18n'
@@ -84,8 +85,14 @@ export function PublishOffer() {
   const [searchParams] = useSearchParams()
   // Only an in-app markets path is a valid way back (never an external URL).
   const backTo = /^\/markets\/[\w%-]+(\?[\w=&%.-]*)?$/.test(searchParams.get('back') ?? '') ? searchParams.get('back')! : null
-  // Context from a market conversation, as plain text (escaped by React), short.
-  const context = (searchParams.get('ctx') ?? '').slice(0, 140)
+  // Came from a private conversation (?tab=chat) or from the market page itself.
+  const fromConversation = !!backTo && /[?&]tab=chat\b/.test(backTo)
+  // The market this offer is published in (demo: listed only there).
+  const marketId = searchParams.get('market')
+  // Context from a market conversation, in router state (never in the URL: it carries the counterparty's name), short.
+  const navState = useLocation().state as { ctx?: unknown; peerName?: unknown } | null
+  const context = (typeof navState?.ctx === 'string' ? navState.ctx : '').slice(0, 140)
+  const backState = typeof navState?.peerName === 'string' ? { peerName: navState.peerName } : undefined
   const [side, setSide] = useState<TradeSide>(() => (searchParams.get('side') === 'BUY' ? 'BUY' : 'SELL'))
   // Narrower than the UI's own `AssetType` on purpose — same reasoning
   // as `paymentMethod` below: this page submits straight to the real
@@ -94,7 +101,8 @@ export function PublishOffer() {
   // dev test rail), all enum values; this keeps the rest out of the type too.
   // Optional prefill from a market conversation ("Propor negociação"): only known values are taken; all editable.
   const qAsset = searchParams.get('asset')
-  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>(() => ((ASSETS as readonly string[]).includes(qAsset ?? '') ? (qAsset as (typeof ASSETS)[number]) : 'Todos'))
+  // A prefill never picks an "Em breve" pair: only what the picker itself would let the person choose.
+  const [asset, setAsset] = useState<(typeof ASSETS)[number] | 'Todos'>(() => ((ASSETS as readonly string[]).includes(qAsset ?? '') && selectablePairs(false).some((p) => p.assetType === qAsset) ? (qAsset as (typeof ASSETS)[number]) : 'Todos'))
   const [currency, setCurrency] = useState<FiatCurrency | 'Todas'>('USD')
   const [priceType, setPriceType] = useState<'FIXED' | 'FLOATING'>('FIXED')
   const [price, setPrice] = useState('')
@@ -208,7 +216,7 @@ export function PublishOffer() {
       // active session identity.authenticate() already established).
       // priceUsd/minAmount/maxAmount as decimal strings, never number
       // (RFC-009 — packages/sails-sdk/src/types.ts's own header comment).
-      await sailsClient.liquidity.publish({
+      const published = await sailsClient.liquidity.publish({
         asset,
         side,
         priceUsd,
@@ -223,8 +231,10 @@ export function PublishOffer() {
         idempotencyKey: offerIdempotencyKeyRef.current,
       })
       offerIdempotencyKeyRef.current = crypto.randomUUID() // this attempt is now settled — a new key for whatever comes next
+      if (marketId) tagDemoOfferMarket(published.id, marketId)
       toast.success(t('publish.published'))
-      navigate(TRADES_ROUTES.offers)
+      // Back where the person came from (the conversation or the market), else My offers.
+      navigate(backTo ?? TRADES_ROUTES.offers, { state: backTo ? backState : undefined })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('publish.failed'))
     } finally {
@@ -236,8 +246,8 @@ export function PublishOffer() {
     <Page width="form">
       <PageHeader
         back={
-          <Link to={backTo ?? TRADES_ROUTES.offers} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
-            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {backTo ? t('spaces.chat.backToConversation') : t('trades.offers.title')}
+          <Link to={backTo ?? TRADES_ROUTES.offers} state={backTo ? backState : undefined} className="touch:min-h-11 text-body-sm text-brand-text-secondary hover:text-brand-text inline-flex items-center gap-1 w-fit">
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {backTo ? t(fromConversation ? 'spaces.chat.backToConversation' : 'spaces.page.backToMarket') : t('trades.offers.title')}
           </Link>
         }
         title={t('trades.offers.publish')}
@@ -289,7 +299,7 @@ export function PublishOffer() {
             </div>
 
             {/* In a form, the pickers look like the other fields (bordered, field background), not like toolbar chips. */}
-            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">{t('trades.offers.col.asset')}</label>
                 <AssetPicker
@@ -330,7 +340,7 @@ export function PublishOffer() {
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">{t('publish.fixedPrice')}</label>
                 <div className="flex items-center input-field field-focus-within !p-0 h-9 touch:h-11">
-                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
+                  <button onClick={() => setPrice(String(Math.max(0, Number(price || 0) - 1)))} aria-label={t('publish.decreasePrice')} className="h-full touch:h-11 min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">−</button>
                   <input
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
@@ -339,7 +349,7 @@ export function PublishOffer() {
                     className="flex-1 min-w-0 bg-transparent text-center text-field font-medium tabular-nums outline-none text-brand-text [-moz-appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0"
                   />
-                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
+                  <button onClick={() => setPrice(String(Number(price || 0) + 1))} aria-label={t('publish.increasePrice')} className="h-full touch:h-11 min-w-11 px-3 rounded-lg text-brand-text-secondary hover:text-brand-text focus-visible:-outline-offset-2">+</button>
                 </div>
                 {loadingSuggestedRange && (
                   <p className="text-xs text-brand-text-muted mt-1.5">{t('publish.loadingRange')}</p>

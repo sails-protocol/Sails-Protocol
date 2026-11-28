@@ -185,6 +185,15 @@ describe('PaymentAccountService — signPaymentAccount() (RFC-021 D1 attestation
     expect(result.signed).toBe(true)
   })
 
+  it('refuses a signature by the account owner, signed or not: nothing is written', async () => {
+    const service = new PaymentAccountService()
+    for (const signed of [false, true]) {
+      mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', ownerId: 'owner-1', signed })
+      await expect(service.signPaymentAccount('hash-1', 'owner-1')).rejects.toMatchObject({ statusCode: 403 })
+    }
+    expect(mockPaymentAccountUpdate).not.toHaveBeenCalled()
+  })
+
   it('is a no-op on an already-signed account — a second attestation adds nothing', async () => {
     mockPaymentAccountFindUnique.mockResolvedValue({ accountHash: 'hash-1', signed: true, signedBy: 'someone-else' })
 

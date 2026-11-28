@@ -10,23 +10,24 @@
  * real; only the server round trips are fake. Every escrow is type MOCK
  * (single-call release, no PSBT, no escrow signatures).
  */
-import { SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
+import { SailsError, SailsForbiddenError, SailsNotFoundError, SailsValidationError } from '@satsails/p2p-trading-sdk'
 import type {
-  ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, Intent, IntentRiskAssessment, Message, Offer, Participant,
+  ChatMessageEvent, CounterProposal, Dispute, DisputeRuling, Escrow, EscrowPendingTransaction, Intent, IntentRiskAssessment, Message, Offer, Participant,
   PublicOfferDetail, ReputationScore, Trade, TradeIntentPayload, TradeProposal, Vouch, WebSocketChannel,
 } from '@satsails/p2p-trading-sdk'
 import { sailsClient } from '../lib/sailsClient'
 import { DEMO_FLAG_KEY, type DemoNoModelMarker } from '../lib/demoMarkers'
+import { setDemoHooks } from '../lib/demoHooks'
 import { MAX_PAYMENT_METHODS } from '../lib/paymentMethods'
 import type { DisputeAppealView } from '../lib/disputeAppeal'
 
 const FLAG_KEY = DEMO_FLAG_KEY
-const STATE_KEY = 'sails_demo_state_v6'
-// The encrypted identity/escrow keypairs AuthContext/useEscrowKey keep in
-// localStorage. In demo mode they are never stored or handed back, so every
-// login generates a fresh key and any passphrase works. Every other
-// localStorage key goes to sessionStorage, so real localStorage is untouched.
-const DISCARDED_KEYS = new Set(['sails_ui_keypair_secret_hex', 'sails_ui_escrow_keypair'])
+const STATE_KEY = 'sails_demo_state_v7'
+// The encrypted escrow keypair useEscrowKey keeps in localStorage: never stored in demo mode (MOCK escrows sign
+// nothing and the demo MULTISIG round is never signed here). Every other localStorage key, the passphrase-encrypted
+// identity key included, goes to sessionStorage, so the next sign-in unlocks the same key like the real app and real
+// localStorage is untouched.
+const DISCARDED_KEYS = new Set(['sails_ui_escrow_keypair'])
 const SHADOW_PREFIX = 'sails_demo_shadow:'
 /** Every demo login is this one fictional participant, whatever key the login generated. */
 const ME = 'demo-me'
@@ -88,6 +89,15 @@ function mockEscrow(t: Trade, status: Escrow['status'], at: string, disputes: Di
   }
 }
 
+// The one demo MULTISIG escrow (fictional address and outpoint): its refund round is the seller's exit with funds
+// locked ("Cancelar e devolver"). This interface never signs it (MULTISIG_SIGNING_HOLD); the simulated buyer does.
+function multisigEscrow(t: Trade, status: Escrow['status'], at: string): Escrow {
+  return {
+    ...mockEscrow(t, status, at), type: 'MULTISIG', multisigAddr: 'tb1q-exemplo-ficticio-demo', txLockId: 'de'.repeat(32), txLockVout: 0,
+    custodyModel: 'client-held-buyer-seller-keys-server-held-arbiter',
+  }
+}
+
 function seedTrade(id: string, o: Offer, buyerId: string, sellerId: string, amount: string, at: string, status: Trade['status']): Trade {
   return {
     id, offerId: o.id, buyerId, sellerId, asset: o.asset, amount, priceUsd: o.priceUsd,
@@ -105,6 +115,11 @@ function newDispute(tradeId: string, escrowId: string, openedBy: string, arbiter
     autoResolutionRecommendation: null, autoResolutionConfidence: null, autoResolutionReasoning: null,
     autoResolutionDeadline: null, autoResolved: false, createdAt: at, updatedAt: at, ...patch,
   }
+}
+
+/** Who a recorded ruling went against: RELEASE pays the buyer (seller loses), REFUND returns to the seller (buyer loses). */
+function loserOf(d: Pick<Dispute, 'ruling'>, t: Pick<Trade, 'buyerId' | 'sellerId'>): string | null {
+  return d.ruling === 'RELEASE' ? t.sellerId : d.ruling === 'REFUND' ? t.buyerId : null
 }
 
 /**
@@ -136,20 +151,31 @@ function seed(): DemoState {
   const o = (id: string) => offers.find((x) => x.id === id)!
   const trades: Trade[] = []
   const escrows: Escrow[] = []
-  const add = (t: Trade, status?: Escrow['status'], disputes?: (escrowId: string) => Dispute[]) => {
+  const add = (t: Trade, status?: Escrow['status'], disputes?: (escrowId: string) => Dispute[], escrow = mockEscrow) => {
     trades.push(t)
     if (!status) return
-    const e = mockEscrow(t, status, t.updatedAt)
+    const e = escrow(t, status, t.updatedAt)
     e.disputes = disputes ? disputes(e.id) : []
     t.escrowId = e.id
     escrows.push(e)
   }
 
-  // Demo user's own history.
+  // Demo user's own history: older completed trades first (fictional), so the profile, the stats and the Merchant
+  // path read one coherent person.
+  const older: [string, string, string][] = [['demo-offer-1', '0.004', 'b'], ['demo-offer-2', '0.01', 's'], ['demo-offer-3', '120', 'b'], ['demo-offer-4', '400', 's']]
+  for (let i = 0; i < 16; i++) {
+    const [offerId, amount, role] = older[i % older.length]
+    const of = o(offerId)
+    const [buyerId, sellerId] = role === 'b' ? [ME, of.userId] : [of.userId, ME]
+    add(seedTrade(`${(0x1000 + i).toString(16)}aa0-demo-o${i + 1}`, of, buyerId, sellerId, amount, daysAgo(60 + i * 18), 'COMPLETED'), 'COMPLETED')
+  }
   add(seedTrade('5c1e9a02-demo-h1', o('demo-offer-1'), ME, g, '0.01', daysAgo(20), 'COMPLETED'), 'COMPLETED')
   add(seedTrade('8b3d0f14-demo-h2', o('demo-offer-2'), f, ME, '0.02', daysAgo(12), 'COMPLETED'), 'COMPLETED')
   add(seedTrade('2e7a4c91-demo-h3', o('demo-offer-4'), a, ME, '250', daysAgo(45), 'COMPLETED'), 'COMPLETED')
   add(seedTrade('9d0b6e35-demo-h4', o('demo-offer-3'), ME, m, '300', daysAgo(8), 'CANCELLED'))
+  // Before any escrow: the seller has not created it yet, so either party may still cancel the trade.
+  add(seedTrade('e5a17c3b-demo-p1', o('demo-offer-6'), ME, g, '150', daysAgo(0.02), 'PENDING'))
+  add(seedTrade('a9c42e61-demo-p2', o('demo-offer-me-1'), f, ME, '0.002', daysAgo(0.03), 'PENDING'))
   add(seedTrade('4a8f2d60-demo-h5', o('demo-offer-5'), ME, a, '0.005', daysAgo(29), 'CANCELLED'), 'REFUNDED', (eid) => [
     newDispute('4a8f2d60-demo-h5', eid, ME, JUDGE, 'O vendedor diz que o TED não chegou (exemplo fictício).', daysAgo(30), {
       status: 'RESOLVED', ruling: 'REFUND', resolvedAt: daysAgo(29),
@@ -158,6 +184,8 @@ function seed(): DemoState {
   ])
   // Demo user's open trades: one waiting for the user's payment, one in dispute with an automatic suggestion to contest.
   add(seedTrade('7e2c5b18-demo-a1', o('demo-offer-3'), ME, m, '500', daysAgo(0.05), 'ACTIVE'), 'FUNDS_LOCKED')
+  // The one demo trade that shows the gated fee breakdown, with "—" amounts (CTO 38 complement 1).
+  Object.assign(escrows[escrows.length - 1], { demoFeeBreakdown: true })
   add(seedTrade('c41d9e73-demo-a2', o('demo-offer-6'), ME, g, '200', daysAgo(2), 'DISPUTED'), 'DISPUTED', (eid) => [
     newDispute('c41d9e73-demo-a2', eid, ME, JUDGE, 'Paguei em dinheiro no encontro e o vendedor não liberou (exemplo fictício).', daysAgo(2), {
       status: 'AUTO_PROPOSED', evidence: [evidence(ME, 'Recibo assinado no encontro (exemplo).', daysAgo(2))],
@@ -183,6 +211,8 @@ function seed(): DemoState {
       status: 'RESOLVED', ruling: 'SPLIT', resolvedAt: daysAgo(15), appealRound: 1, previousRuling: 'RELEASE', previousArbiterId: JUDGE, arbiterId: APPEAL_PANEL,
     }),
   ])
+  // Funds locked in a MULTISIG escrow, the demo user selling: "Cancelar e devolver" starts the refund round.
+  add(seedTrade('f2d84b17-demo-m1', o('demo-offer-me-1'), m, ME, '0.003', daysAgo(0.1), 'ACTIVE'), 'FUNDS_LOCKED', undefined, multisigEscrow)
   // Disputes between other fictional parties, assigned to the demo user as arbiter.
   add(seedTrade('b62f0a49-demo-x1', o('demo-offer-1'), f, g, '0.03', daysAgo(1), 'DISPUTED'), 'DISPUTED', (eid) => [
     newDispute('b62f0a49-demo-x1', eid, f, ME, 'Paguei via PIX e o vendedor não liberou os fundos (exemplo fictício).', daysAgo(1), {
@@ -197,6 +227,14 @@ function seed(): DemoState {
     }),
   ])
 
+  // The demo user's numbers follow the same rule as the server (+2 per completed trade, -5 per lost dispute;
+  // disputeCount counts every dispute, won or lost), from the trades above.
+  const mine = trades.filter((t) => t.buyerId === ME || t.sellerId === ME)
+  const completed = mine.filter((t) => t.status === 'COMPLETED')
+  const myDisputes = escrows.flatMap((e) => e.disputes ?? []).filter((d) => mine.some((t) => t.id === d.tradeId))
+  const lost = myDisputes.filter((d) => d.status === 'RESOLVED' && loserOf(d, trades.find((t) => t.id === d.tradeId)!) === ME).length
+  const btcVolume = completed.filter((t) => t.asset === 'BTC').reduce((sum, t) => sum + Number(t.amount), 0)
+
   const msg = (tradeId: string, senderId: string, content: string, at: string): Message => ({ id: `${tradeId}-${at}`, tradeId, senderId, content, msgType: 'TEXT', readAt: null, createdAt: at })
   return {
     participants: [
@@ -208,7 +246,7 @@ function seed(): DemoState {
       participant(a, 'Kestrel Câmbio', 614, 312, 3, true), // 312*2 - 2 lost*5 = 614
       participant(JUDGE, 'Frank', 80, 40, 0, true), // arbiter, 40*2
       participant(APPEAL_PANEL, 'Mediare Arbitragem', 110, 55, 0, true), // appeal panel, 55*2
-      { ...participant(ME, 'Erin', 6, 3, 1, false), totalVolumeBtc: '0.035' }, // 3*2, one dispute won
+      { ...participant(ME, 'Erin', completed.length * 2 - lost * 5, completed.length, myDisputes.length, false), totalVolumeBtc: btcVolume.toFixed(8) },
     ],
     offers, trades, escrows, vouches: [], intents: [],
     // The demo user already bought BTC (history above), so a BTC payout address exists; other assets show the registration flow.
@@ -254,8 +292,8 @@ export function demoRequested(): boolean {
 /** Clears demo trades, offers and the demo identity, then starts over logged out. */
 export function resetDemoAndReload() {
   try {
-    sessionStorage.removeItem(STATE_KEY)
-    for (const k of Object.keys(sessionStorage)) if (k.startsWith(SHADOW_PREFIX)) sessionStorage.removeItem(k)
+    // Every demo key (backend state, session, market state, shadowed localStorage) but the demo flag itself.
+    for (const k of Object.keys(sessionStorage)) if (k.startsWith('sails_demo_') && k !== FLAG_KEY) sessionStorage.removeItem(k)
   } catch { /* nothing persisted */ }
   window.location.href = '/?demo=1'
 }
@@ -344,7 +382,8 @@ function setEscrowStatus(e: Escrow, status: Escrow['status'], patch: Partial<Esc
   const t = findTrade(e.tradeId)
   const next = TRADE_FOR[status]
   if (next && next !== t.status) {
-    if (next === 'COMPLETED') for (const id of [t.buyerId, t.sellerId]) findParticipant(id).totalTrades += 1
+    // Same rule as reputation.service.ts: +2 per completed trade.
+    if (next === 'COMPLETED') for (const id of [t.buyerId, t.sellerId]) { const p = findParticipant(id); p.totalTrades += 1; p.reputationScore += 2 }
     Object.assign(t, { status: next, updatedAt: now() })
     if (next === 'COMPLETED') t.completedAt = now()
     if (next === 'CANCELLED') t.cancelledAt = now()
@@ -355,7 +394,8 @@ function setEscrowStatus(e: Escrow, status: Escrow['status'], patch: Partial<Esc
 
 function createEscrow(tradeId: string, actorId: string): Escrow {
   const t = findTrade(tradeId)
-  if (actorId !== t.sellerId) throw new Error('Somente o vendedor cria o escrow')
+  // Same refusal as the node with ESCROW_CREATE_SELLER_ONLY enforced (CTO D7).
+  if (actorId !== t.sellerId) throw new SailsError('Somente o vendedor cria o escrow', 'ESCROW_CREATE_SELLER_ONLY', 403)
   if (t.escrowId) return clone(findEscrow(t.escrowId))
   if (t.status !== 'PENDING') throw new Error(`Não é possível criar escrow com o trade em ${t.status}`)
   const e = mockEscrow(t, 'CREATED', now())
@@ -387,7 +427,8 @@ function step(escrowId: string, actorId: string, action: 'lock' | 'markPaymentSe
 /**
  * Demo-only contest rules per dispute (fictional): the real ones live on the backend and no route exposes them
  * yet (LOOSE_WIRES.disputeAppealView). `windowHours` is a fictional deadline counted from the decision; the
- * real contract has none today (appealDeadlineAt is always null, gap G1). Disputes not listed get no view.
+ * real contract has none today (appealDeadlineAt is always null, gap G1). Every other demo dispute, one opened
+ * during the demo included, gets the same fictional 48 h window, so any demo ruling can be contested.
  */
 const DEMO_APPEAL_RULES: Record<string, { supported: boolean; windowHours: number | null }> = {
   '4a8f2d60-demo-h5-dispute': { supported: false, windowHours: null },
@@ -398,8 +439,7 @@ const DEMO_APPEAL_RULES: Record<string, { supported: boolean; windowHours: numbe
 
 /** The DisputeAppealView the proposed endpoint would return for `viewer`, read by lib/demoMarkers.ts only. */
 function demoAppealViewFor(d: Dispute, viewer: string): DisputeAppealView | undefined {
-  const rules = DEMO_APPEAL_RULES[d.id]
-  if (!rules) return undefined
+  const rules = DEMO_APPEAL_RULES[d.id] ?? { supported: true, windowHours: 48 }
   const party = isParty(findTrade(d.tradeId), viewer)
   const deadline = rules.windowHours && d.resolvedAt ? new Date(Date.parse(d.resolvedAt) + rules.windowHours * 3_600_000).toISOString() : null
   const appealStatus: DisputeAppealView['appealStatus'] = !rules.supported ? 'not_available'
@@ -442,6 +482,8 @@ function autoPropose(d: Dispute) {
 function applyRuling(d: Dispute, ruling: DisputeRuling) {
   if (d.status === 'RESOLVED') throw new Error('Esta disputa já foi resolvida')
   const updated = touch(d, { status: 'RESOLVED', ruling, resolvedAt: now() })
+  const loser = loserOf({ ruling }, findTrade(d.tradeId))
+  if (loser) findParticipant(loser).reputationScore -= 5
   setEscrowStatus(findEscrow(d.escrowId), SETTLED_STATUS[ruling], { releasedAt: now() })
   return updated
 }
@@ -466,13 +508,29 @@ function disputeStep(d: Dispute, t: Trade, viewer: string) {
   if (d.status === 'RESOLVED') return null
   return d.status === 'APPEALED'
     ? { label: 'Painel de apelação decide (exemplo: liberar ao comprador)', run: () => applyRuling(d, 'RELEASE') }
-    : { label: 'Árbitro decide a disputa (exemplo: dividir 50/50)', run: () => applyRuling(d, 'SPLIT') }
+    : { label: 'Árbitro decide a disputa (exemplo: dividir entre as partes)', run: () => applyRuling(d, 'SPLIT') }
+}
+
+// The seller's refund round on the demo MULTISIG escrow (initiateRefund): the buyer is the one missing signature.
+const refundRound = (e: Escrow | undefined) => {
+  const tx = e ? state.pendingTxs?.[e.id] as EscrowPendingTransaction | undefined : undefined
+  return tx?.kind === 'refund' ? tx : undefined
 }
 
 function counterpartyStep(t: Trade, e: Escrow | undefined, viewer: string) {
   const buyerView = viewer === t.buyerId
   const d = e?.disputes?.[0]
   if (d) return disputeStep(d, t, viewer)
+  if (e && !buyerView && refundRound(e)) {
+    return {
+      label: 'Comprador assina a devolução',
+      run: () => {
+        delete state.pendingTxs![e.id]
+        return setEscrowStatus(e, 'REFUNDED', { releasedAt: now(), txReleaseId: 'ab'.repeat(32) })
+      },
+      frame: true,
+    }
+  }
   if (t.status === 'COMPLETED' || t.status === 'CANCELLED') return null
   if (!e) return buyerView ? { label: 'Vendedor cria o escrow', run: () => createEscrow(t.id, t.sellerId) } : null
   // `frame`: the real server broadcasts ESCROW_STATUS_UPDATE for these (chat.routes.ts).
@@ -510,6 +568,30 @@ export function simulateCounterparty(tradeId: string): { label: string; live: bo
   listeners?.forEach((h) => h({ type: 'ESCROW_STATUS_UPDATE', payload: { tradeId, escrowId: (e as Escrow).id } }))
   return { label: next.label, live: !!listeners?.size }
 }
+
+/** The demo user's first active offer (newest first), or null when signed out or none is active. */
+export function firstActiveOwnOffer(): string | null {
+  if (!currentId) return null
+  return [...state.offers].reverse().find((o) => o.userId === currentId && o.status === 'ACTIVE')?.id ?? null
+}
+
+/** Demo: a fictional counterparty opens a trade on one of the demo user's active offers (seller or buyer journey again). */
+export function simulateIncomingTrade(offerId: string): string {
+  const me = needMe()
+  const o = state.offers.find((x) => x.id === offerId && x.userId === me)
+  if (!o) throw notFound('Oferta', true)
+  if (o.status !== 'ACTIVE') throw new Error('Só uma oferta ativa recebe negociações (modo demonstração).')
+  const other = 'demo-0c33' // Bob
+  const [buyerId, sellerId] = o.side === 'SELL' ? [other, me] : [me, other]
+  const t = seedTrade(crypto.randomUUID(), o, buyerId, sellerId, o.minAmount, now(), 'PENDING')
+  state.trades.push(t)
+  state.messages.push({ id: crypto.randomUUID(), tradeId: t.id, senderId: other, content: 'Olá! Abri esta negociação na sua oferta (exemplo).', msgType: 'TEXT', readAt: null, createdAt: now() })
+  save()
+  return t.id
+}
+
+// Payment method picked before the next openp2p.trade() (demo only; the real trade-create has no such field).
+let stagedMethod: string | null = null
 
 // ---------- Sails Agent (deterministic stand-ins; no model is consulted) ----------
 
@@ -612,9 +694,17 @@ export function installDemoBackend() {
     },
   } satisfies Partial<typeof c.identity>)
 
-  // AuthContext.logout() clears the token; forget the demo session too.
   const setToken = c.setSessionToken.bind(c)
-  c.setSessionToken = (token) => { if (token === null) currentId = null; setToken(token) }
+  c.setSessionToken = (token) => {
+    if (token === null) {
+      currentId = null
+    }
+    setToken(token)
+  }
+  setDemoHooks({
+    simulateIncomingTrade: async (offerId) => simulateIncomingTrade(offerId),
+    stageTradePaymentMethod(method) { stagedMethod = method },
+  })
 
   Object.assign(c.capabilities, { async ensureCanonicalGrants() { return [] } } satisfies Partial<typeof c.capabilities>)
   Object.assign(c.reputation, {
@@ -732,7 +822,9 @@ export function installDemoBackend() {
       if (o.userId === me) throw new Error('Você não pode negociar com sua própria oferta')
       if (Number(amount) < Number(o.minAmount) || Number(amount) > Number(o.maxAmount)) throw new Error(`Quantidade fora dos limites da oferta (${o.minAmount}–${o.maxAmount})`)
       const [buyerId, sellerId] = o.side === 'SELL' ? [me, o.userId] : [o.userId, me]
-      const t: Trade = { ...seedTrade(crypto.randomUUID(), o, buyerId, sellerId, amount, now(), 'PENDING') }
+      const method = stagedMethod && [o.paymentMethod, ...(o.demoPaymentMethods ?? [])].includes(stagedMethod as Offer['paymentMethod']) ? stagedMethod : null
+      stagedMethod = null
+      const t: Trade = { ...seedTrade(crypto.randomUUID(), o, buyerId, sellerId, amount, now(), 'PENDING'), ...(method ? { demoPaymentMethod: method } : {}) }
       state.trades.push(t)
       save()
       return clone(t)
@@ -748,6 +840,16 @@ export function installDemoBackend() {
       const t = findTrade(id)
       // Same as the real route: trade parties only (an assigned arbiter reads the escrow/dispute, not the trade).
       if (!isParty(t, needMe())) throw notFound('Trade')
+      return clone(tradeWithOffer(t))
+    },
+    // Same rules as trade.service.ts updateStatus: parties only, from PENDING/ACTIVE, refused once an escrow governs the trade.
+    async updateTradeStatus(id, status) {
+      const t = findTrade(id)
+      if (!isParty(t, needMe())) throw notFound('Trade')
+      const allowed = t.status === 'PENDING' ? ['ACTIVE', 'CANCELLED'] : t.status === 'ACTIVE' ? ['CANCELLED'] : []
+      if (!allowed.includes(status) || t.escrowId) throw new Error('Esta negociação não pode mais ser alterada manualmente (exemplo).')
+      Object.assign(t, { status, updatedAt: now() }, status === 'CANCELLED' ? { cancelledAt: now() } : {})
+      save()
       return clone(tradeWithOffer(t))
     },
     async getMessages(tradeId) {
@@ -768,10 +870,18 @@ export function installDemoBackend() {
         leave: () => {},
         close: () => { eventHandlers.forEach((h) => frameListeners.get(tradeId)?.delete(h)) },
         send: ({ content, msgType = 'TEXT' }: { content: string; msgType?: string }) => {
-          const m: Message = { id: crypto.randomUUID(), tradeId, senderId: needMe(), content, msgType, readAt: null, createdAt: now() }
-          state.messages.push(m)
-          save()
-          handlers.forEach((h) => h({ messageId: m.id, tradeId, senderId: m.senderId, content, msgType, timestamp: m.createdAt }))
+          const push = (senderId: string, text: string, type: string) => {
+            const m: Message = { id: crypto.randomUUID(), tradeId, senderId, content: text, msgType: type, readAt: null, createdAt: now() }
+            state.messages.push(m)
+            save()
+            handlers.forEach((h) => h({ messageId: m.id, tradeId, senderId, content: text, msgType: type, timestamp: m.createdAt }))
+          }
+          const me = needMe()
+          push(me, content, msgType)
+          // A canned counterparty reply about 2 s later, marked as an example (there is nobody on the other end).
+          const t = state.trades.find((x) => x.id === tradeId)
+          const other = t && isParty(t, me) ? (me === t.buyerId ? t.sellerId : t.buyerId) : null
+          if (other) setTimeout(() => { if (handlers.length) push(other, 'Recebido, obrigado! (resposta automática de exemplo da demonstração)', 'TEXT') }, 2000)
         },
       }
       return channel as unknown as WebSocketChannel
@@ -791,6 +901,34 @@ export function installDemoBackend() {
       return out
     },
     async lock(id) { return step(id, needMe(), 'lock') },
+    // The demo MULTISIG escrow: the participant key is accepted (never used: nothing is signed here).
+    async submitKey(escrowId) { return { escrow: clone(findEscrow(escrowId)), buyerKeySubmitted: true, sellerKeySubmitted: true } },
+    // "Cancelar e devolver": the seller starts the refund round; only the buyer's signature is missing (fictional round).
+    async initiateRefund(id) {
+      const me = needMe()
+      const e = findEscrow(id)
+      const t = findTrade(e.tradeId)
+      if (me !== t.sellerId) throw new SailsForbiddenError('Somente o vendedor pode iniciar a devolução (modo demonstração)')
+      if (e.type !== 'MULTISIG' || !['FUNDS_LOCKED', 'PAYMENT_PENDING'].includes(e.status)) throw new SailsValidationError(`Não é possível iniciar a devolução com o escrow em ${e.status} (modo demonstração)`)
+      if (state.pendingTxs?.[id]) throw new SailsValidationError('Já existe uma rodada de assinaturas para este escrow (modo demonstração)')
+      const tx: EscrowPendingTransaction = {
+        id: crypto.randomUUID(), escrowId: id, kind: 'refund', toAddress: 'tb1q-exemplo-devolucao-vendedor', minerFeeSats: 300,
+        unsignedPsbtBase64: 'ZGVtbw==', requiredSigners: [t.buyerId], signedBy: [], triggeredBy: me, createdAt: now(),
+      }
+      ;(state.pendingTxs ??= {})[id] = tx
+      save()
+      return clone(tx)
+    },
+    // The seller may retire the round they started (same preconditions as the real route, simplified).
+    async cancelPendingTransaction(id, txId) {
+      const e = findEscrow(id)
+      if (needMe() !== findTrade(e.tradeId).sellerId) throw new SailsForbiddenError('Somente o vendedor pode cancelar a rodada (modo demonstração)')
+      const tx = state.pendingTxs?.[id] as EscrowPendingTransaction | undefined
+      if (!tx || tx.id !== txId) return { outcome: 'GONE' as const, pendingTransactionId: txId }
+      delete state.pendingTxs![id]
+      save()
+      return { outcome: 'CANCELLED' as const, pendingTransactionId: txId }
+    },
     async markPaymentSent(id) { return step(id, needMe(), 'markPaymentSent') },
     async release(id) { return step(id, needMe(), 'release') },
     // MOCK escrows have no signing round: the real "nothing pending" answer is a 404.
@@ -805,6 +943,8 @@ export function installDemoBackend() {
       if (!isParty(findTrade(e.tradeId), me)) throw notFound('Escrow')
       if (!['CREATED', 'FUNDS_LOCKED', 'PAYMENT_PENDING'].includes(e.status)) throw new Error(`Não é possível abrir disputa com o escrow em ${e.status}`)
       const d = newDispute(e.tradeId, id, me, JUDGE, reason, now(), { evidence: initialEvidence ?? [] })
+      const t = findTrade(e.tradeId)
+      for (const pid of [t.buyerId, t.sellerId]) findParticipant(pid).disputeCount += 1
       setEscrowStatus(e, 'DISPUTED', { disputes: [d] })
       return clone(d)
     },
@@ -847,6 +987,9 @@ export function installDemoBackend() {
       if (d.status !== 'RESOLVED') throw new SailsValidationError(`Só uma disputa com decisão registrada pode ser contestada (status: ${d.status})`)
       // Same refusal as the real route when the rules do not allow it (Day 0 rails, trusted-list mode).
       if (demoAppealViewFor(d, needMe())?.canCurrentUserAppeal !== true) throw new SailsValidationError('A contestação desta decisão não está disponível neste trade (modo demonstração)')
+      // A contested decision is not final: its -5 is taken back until the new decision.
+      const loser = loserOf(d, findTrade(d.tradeId))
+      if (loser) findParticipant(loser).reputationScore += 5
       const dispute = touch(d, {
         status: 'APPEALED', appealRound: d.appealRound + 1, previousRuling: d.ruling, previousArbiterId: d.arbiterId,
         arbiterId: APPEAL_PANEL, ruling: null, resolvedAt: null,

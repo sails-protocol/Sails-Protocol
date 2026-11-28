@@ -21,6 +21,8 @@
 
 ## 1. Identity and Transport Keys
 
+> Key separation, activation, recovery and persistence diagrams: [SYSTEM_DESIGN.md §14.5](SYSTEM_DESIGN.md#145-portable-identity-pears-and-social-recovery-diagrams).
+
 Every `Participant` (RFC-001) is identified economically by a client-controlled Ed25519 public key used for signing/authentication.
 
 The current Pears/HyperDHT transport identity is **separate** from that economic identity.
@@ -56,32 +58,69 @@ Multi-Protocol Identity UX" entry and
 
 ## 2. Authentication: Challenge-Response (Replay Protection)
 
-**Guarantee: an attacker who observes a past signed request cannot
-replay it to authenticate as that participant.**
+**Scoped guarantee:** a successfully consumed authentication challenge
+cannot mint a second session through replay of the same challenge proof.
+This is not per-request replay protection for bearer-authenticated calls.
 
 Flow (`common/middleware/auth.ts`):
 
 1. Client requests a challenge for their claimed `publicKey`
    (`POST /v1/identity/challenge`).
-2. Server generates a random 32-byte nonce (`crypto.randomBytes`),
-   stores it in Redis keyed by `publicKey` with a short TTL
-   (`config.auth.challengeTtlSeconds`).
-3. Client signs the nonce with their Ed25519 secret key, client-side.
-4. Client sends `{ publicKey, signature }`.
-5. Server verifies the signature against the stored nonce
-   (`nacl.sign.detached.verify`) — **then immediately deletes the
-   challenge from Redis**, before checking anything else. A captured
-   `{publicKey, signature}` pair cannot be reused, because the nonce it
-   was computed over no longer exists server-side after first use.
-6. On success, the server issues a short-lived opaque session token
-   (also random, also Redis-backed with its own TTL —
-   `config.auth.sessionTtlSeconds`) — every subsequent request in that
-   window authenticates via the session token (`Authorization: Bearer
-   ...`), not by re-signing per request.
+2. Server generates a random 32-byte nonce, stores it in Redis keyed by
+   `publicKey` with `config.auth.challengeTtlSeconds`.
+3. Client signs the challenge with their Ed25519 secret key.
+4. Server verifies the signature against the observed challenge using
+   `nacl.sign.detached.verify`.
+5. Only after successful verification, `atomicCompareAndConsume()`
+   claims the exact observed value (Issue #301). Concurrent consumers
+   cannot both win; a replaced challenge is not deleted, and an invalid
+   signature does not consume the challenge.
+6. After participant lookup succeeds, the server issues a random opaque
+   Redis-backed session token with `config.auth.sessionTtlSeconds`.
+   `requireAuth()` resolves the participant from that token, not from a
+   claimed body identity. Subsequent requests do not re-sign their
+   method, path or body through this middleware.
 
-**What this does not protect against:** a compromised secret key. Like
-any signature scheme, whoever holds the secret key can always
-authenticate as that identity — there is no second factor.
+**Limits:** possession of a valid bearer token permits session
+impersonation until it becomes invalid; a compromised identity secret
+key also permits authentication. Challenge consumption does not establish
+per-operation replay resistance, transaction authorization or economic
+idempotency. Those require separate controls. Registration proof uses a
+separate challenge domain (Issue #302), not the bare authentication
+challenge construction. Authentication, Capability Authority and Economic
+Disposition Authority are three separate controls: a valid session proves
+only who is calling.
+
+---
+
+## 2.1 Portable signed offers (ADR-001 / C9)
+
+`offer-envelope.ts` verifies Ed25519 signatures over the SHA-256 digest
+of domain-separated canonical content (`sails-offer-envelope-v1`). It
+validates field shape, canonical decimal and UTC timestamp encodings,
+revision bounds and signature/key encoding ranges before verification.
+Offer identity is `(ownerPublicKey, logicalOfferId)`; fact identity adds
+revision and content digest, not signature bytes.
+
+`offer-envelope-repository.ts` verifies on ingest and deduplicates facts
+through database uniqueness. `getLatest()` selects the highest locally
+observed revision and re-verifies every row at that revision, including
+its reconstructed digest (C9). Integrity failure throws rather than
+falling back to an older revision. Distinct digests at the highest
+revision yield `EQUIVOCATED`; the activity helper rejects that state,
+missing offers, cancelled offers and expired offers. A valid higher
+revision can resolve the current state; cancellation is not an irrevocable
+ban on subsequent owner-authorized revisions.
+
+These are local repository semantics, not proof of globally current
+state: the highest-revision lookup and subsequent row read are separate
+queries, and the ingest equivocation flag is advisory under concurrency.
+Signature validity alone does not establish economic liveness, inventory,
+rail eligibility, amount-bound ordering or cross-operator convergence.
+The envelope has no separate signed network field. Propagation,
+anti-entropy and tombstone retention require their own evidence under
+ADR-001 / Issue #105. See `PORTABLE_SIGNED_OFFERS_EVIDENCE.md` for the
+historical verification record.
 
 ---
 
@@ -115,14 +154,15 @@ Mechanics:
   `sendToPeer(targetParticipantId, payload)`'s existing shape (the
   sender already knows who they're sending to; no separate nonce
   management or key announcement needed).
-- **Sender authentication of a payload's origin is a different, already
-  solved problem** — the Ed25519 keypair that authenticated the
-  underlying Hyperswarm connection already tells the recipient who
-  they're connected to. This layer's only job is keeping the payload's
-  *contents* opaque to anything that isn't that specific peer — not
-  proving who sent it (the transport layer already does that) and not
-  hiding metadata (who is talking to whom is visible at the DHT layer;
-  this is content confidentiality, not traffic analysis resistance).
+- **Sender identity is transport-scoped, not end-to-end payload proof.**
+  The Hyperswarm handshake can authenticate the connected transport key,
+  but that key is distinct from the economic participant key and their
+  association is currently server-mediated (`TRUST_BOUNDARY.md` boundary
+  1b). Anonymous sealed boxes do not authenticate the sender or prevent
+  replay of an otherwise valid application message. The WebSocket relay
+  fallback also must not inherit Hyperswarm handshake guarantees by
+  implication. This layer protects payload confidentiality, not sender
+  attribution, message freshness, or traffic metadata.
 
 **What this does not protect against — stated explicitly, per this
 document's own discipline:**
@@ -150,7 +190,7 @@ document's own discipline:**
 **Guarantee (where implemented): a past event cannot be silently edited
 or deleted without the tamper being detectable.**
 
-Two related but *not identical* things exist under this name — worth
+Several related but *not identical* mechanisms exist under this name — worth
 being precise about, since conflating them would misstate what's
 actually protected:
 
@@ -170,16 +210,21 @@ makes tampering detectable at all (RFC-008's own point: a live-computed
 hash on every read would just re-derive an internally-consistent hash
 after a rewrite, defeating the purpose).
 
-### 4.2 The general cross-module `Timeline` (RFC-007 D5 / RFC-017) — no hash chain yet
+### 4.2 Cross-module `Timeline` — implemented over `DurableEvent`
 
-`core/timeline.ts`'s `TimelineEntry` (used by `SocialEngineeringAgent`
-and any future consumer needing a cross-module event history keyed by
-`correlationId`, not just one Intent) carries `eventId`/`occurredAt`/
-`payload` — **no `entryHash`/`prevHash`, no `verifyChain()`.** RFC-008
-designed the hash-chain mechanism generally, but only `IntentEvent`
-actually has it wired in. Extending it to the general `Timeline` is
-real, scoped future work, not done — described here so this document
-doesn't imply protection that doesn't exist yet at that layer.
+`core/timeline.ts` projects events from the EventStore, exposes
+`entryHash`/`prevHash`, and implements `verifyChain()` by recomputing
+stored event hashes and checking links from `GENESIS_HASH` per
+`correlationId`. `SailsEventBus` defaults to `PostgresEventStore`, not
+`InMemoryEventStore`. The Postgres implementation persists `DurableEvent`
+records and serializes writers per correlation using transaction-scoped
+advisory locks. RFC-008 D2's 2026-08-15 amendment records live Postgres
+integration tests of concurrency, rollback and chain verification.
+Redis Streams is another implemented adapter; in-memory storage is
+non-durable. These mechanisms are distinct from the `IntentEvent` and
+`EscrowEvent` chains. Hash verification does not itself deduplicate
+business operations or establish independent cross-operator recovery,
+external anchoring, or production homologation.
 
 ### 4.3 What hash-chaining does and doesn't give you
 
@@ -209,7 +254,7 @@ every fund-moving action; the server never holds a key capable of
 moving user funds (`PROTOCOL_INVARIANTS.md` Constitutional Invariant 2,
 `SECURITY_MODEL.md` Principle 2).**
 
-**What the one real, tested `SettlementProvider` — `WdkSettlementProvider`
+**What the server-seed EVM reference `SettlementProvider` — `WdkSettlementProvider`
 (`wdk-settlement.provider.ts`) — actually does: it does not meet that
 guarantee.** `getWallet()` constructs a `WalletManagerEvm` from a single
 seed phrase (`config.wdk.seedPhrase`, env var `WDK_SEED_PHRASE`) that
@@ -303,6 +348,8 @@ written. Deriving the real bech32m Taproot address and broadcasting a
 finalized transaction need a live network target and throw
 `SailsNotImplementedError`, the same boundary `MultisigProvider`'s own
 `fetchUtxos()`/`broadcast()` already has against testnet.
+
+> Note: Gen-2 Taproot/MuSig2 is a candidate, not homologated; Gen-1 P2WSH is the only real Bitcoin rail. See RFC-024 and `docs/architecture/SAILS_SIGNING_FEDERATION/`.
 
 Full detail, including the Solidity `Guard` these hashes and signatures
 feed into and the Threat Matrix, is in

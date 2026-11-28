@@ -57,6 +57,8 @@ export interface CreateMarketCopy {
     thresholdError: string
     provider: string
     providerHelp: string
+    providerName: string
+    providerNameHelp: string
     providerError: string
     socialLegend: string
     socialHelp: string
@@ -106,7 +108,7 @@ function Choice<T extends string>({ legend, name, options, value, onChange, note
   )
 }
 
-export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, flow, privateHostingSlot, brandingSlot, invitesSlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
+export function CreateMarketWizard({ copy, initial, simple = false, createLabel, retainUrl, flow, privateHostingSlot, brandingSlot, invitesSlot, recoverySlot, createAvailable, unavailableNote, participantsAvailable, participantsUnavailableNote, onCreate, primarySolid = true }: {
   copy: CreateMarketCopy
   /** Starting values (e.g. the kind of space bought in the demo); everything stays editable. */
   initial?: Partial<MarketDraft>
@@ -124,6 +126,8 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
   brandingSlot?: ReactNode
   /** Participants and invites for a private market (planned item until invites exist). */
   invitesSlot?: ReactNode
+  /** "Quem pode recuperar este mercado" in Opções avançadas (caller-owned: demo choice or planned item). */
+  recoverySlot?: ReactNode
   createAvailable: boolean
   unavailableNote?: ReactNode
   participantsAvailable: boolean
@@ -197,6 +201,16 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
               )}
               {draft.kyc !== 'none' && (
                 <div>
+                  <label htmlFor={`${id}-provider-name`} className="text-sm font-medium text-brand-text">{copy.entry.providerName}</label>
+                  <Input
+                    id={`${id}-provider-name`} name="kyc-provider-name" autoComplete="organization" className="mt-1" value={draft.kycProviderName}
+                    aria-describedby={`${id}-provider-name-help`} onChange={(e) => set('kycProviderName', e.target.value)}
+                  />
+                  <p id={`${id}-provider-name-help`} className="mt-1 text-caption text-brand-text-muted">{copy.entry.providerNameHelp}</p>
+                </div>
+              )}
+              {draft.kyc !== 'none' && (
+                <div>
                   <label htmlFor={`${id}-provider`} className="text-sm font-medium text-brand-text">{copy.entry.provider}</label>
                   <Input
                     id={`${id}-provider`} name="kyc-provider" type="url" inputMode="url" autoComplete="off" spellCheck={false} className="mt-1" value={draft.kycProviderUrl}
@@ -217,6 +231,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
                   ))}
                 </div>
               </fieldset>
+              {recoverySlot}
               <div className="space-y-1 rounded-lg bg-brand-elevated p-3 text-caption text-brand-text-secondary">
                 <p>{copy.entry.responsibility}</p>
                 <p>{copy.entry.limits}</p>
@@ -252,7 +267,7 @@ export function CreateMarketWizard({ copy, initial, simple = false, createLabel,
             {cover || draft.coverUrl ? (
               <ImagePicker kind="cover" url={draft.coverUrl} copy={copy.images.cover} onPick={pick('coverUrl')} />
             ) : (
-              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="touch:min-h-11">{copy.images.coverToggle}</Button>
+              <Button type="button" size="sm" variant="ghost" onClick={() => setCover(true)} className="h-auto min-h-8 touch:min-h-11 max-w-full whitespace-normal py-1.5 text-left">{copy.images.coverToggle}</Button>
             )}
             <p className="text-caption text-brand-text-muted">{copy.images.note}</p>
           </div>

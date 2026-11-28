@@ -1,5 +1,6 @@
 import { prisma } from '../../common/database'
-import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError } from '../../common/errors'
+import { NotFoundError, EscrowError, ForbiddenError, ValidationError, SettlementExecutedError, AppError } from '../../common/errors'
+import { assertRailOpen } from '../../common/day0-closed-rails'
 import { EscrowType } from '../../common/types/trade'
 import type { AssetType } from '../../common/types'
 import type { CreateEscrowInput } from '@satsails/p2p-schemas'
@@ -37,7 +38,8 @@ import {
   VALID_TRANSITIONS,
 } from './escrow-lifecycle'
 import { wdkTransferAttemptRepository } from './wdk-transfer-attempt-repository'
-import type { Prisma, WdkTransferOperationType } from '@prisma/client'
+import { Prisma } from '@prisma/client'
+import type { WdkTransferOperationType } from '@prisma/client'
 import { assertCircuitClosed, recordEscrowConflict } from './escrow-circuit-breaker'
 import { escrowFundingEvidenceService } from './escrow-funding-evidence.service'
 import * as dualApproval from './escrow-dual-approval'
@@ -63,6 +65,8 @@ import { tradeRepository } from '../open-p2p/trade-repository'
 import { lockPairForEffect } from '../open-p2p/commitment-pair.service'
 import { feeObligationService } from './fee-obligation.service'
 import { escrowFeeSnapshotService } from './escrow-fee-snapshot.service'
+import { parseBreakEven, assertPayoutTypeAllowed } from './fee-break-even'
+import { networkFor } from './multisig.provider'
 import { escrowFundingEvidenceRepository } from './escrow-funding-evidence-repository'
 import { assertKnownCapabilityProfile, findCapabilityCommitBlocker } from './capability-profile'
 
@@ -300,7 +304,9 @@ export type { CreateEscrowInput }
 // PROVIDERS` check means creation can never drift from the real
 // dispatch-time truth — they are now literally the same lookup.
 function resolveEscrowType(asset: AssetType, explicitType: EscrowType | undefined): EscrowType {
+  assertRailOpen({ asset }) // Despacho 064
   const resolved = resolveEscrowTypeCandidate(asset, explicitType)
+  assertRailOpen({ escrowType: resolved }) // Despacho 064: also an explicit LIGHTNING_HODL for a scope-less asset
   getSettlementProvider(resolved)
   return resolved
 }
@@ -444,7 +450,7 @@ export class EscrowService {
     // — so this has zero effect on any real deployment right now; any
     // OTHER failure here (a real active policy, but the lookup itself
     // errors) must propagate and fail this call, per CTO decision.
-    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+    // The fee snapshot is computed below, inside the transaction and under the pair lock, from the committed fee policy.
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
@@ -455,15 +461,21 @@ export class EscrowService {
     // (trades.tradeIntentId is the anchor), created in the same transaction that takes the pair lock FIRST (lock order: pair before
     // anything else, F4_AUDITORIA_ORDEM_DE_LOCKS). Every type but MOCK refuses without a ready pair; MOCK (exempt only where the database
     // has its deployment_mode row) takes the pair when there is one and otherwise leaves the decision to the database trigger.
+    assertEscrowMatchesTrade(input, trade)
+
     const escrow = await prisma.$transaction(async (tx) => {
       let commitmentPairId: string | undefined
+      let pairFeePolicyId: string | null = null
       if (trade.tradeIntentId) {
         const { row, readiness } = await lockPairForEffect(tx, { anchorRef: trade.tradeIntentId })
-        if (readiness.ok && row) commitmentPairId = row.id
+        if (row) assertEscrowMatchesCommitment(input, type, row) // under the pair's FOR UPDATE lock
+        if (readiness.ok && row) { commitmentPairId = row.id; pairFeePolicyId = row.feePolicyVersionId }
         else if (type !== 'MOCK') throw new EscrowError(`escrow refused: the trade has no executable commitment pair (${readiness.ok ? 'E25_COMMITMENT_MISSING' : readiness.code})`)
       } else if (type !== 'MOCK') {
         throw new EscrowError('escrow refused: the trade has no commitment anchor (E25_COMMITMENT_MISSING)')
       }
+      const feeSnapshot = await escrowFeeSnapshotService.computeCommittedSnapshotFields(type, input.lockedAmount, commitmentPairId ? pairFeePolicyId : null, tx)
+      await assertCommittedPayoutTypes(tx, feeSnapshot?.feePolicyVersionId ?? null, [trade.buyerId, trade.sellerId], input.asset)
       return this.repo.create({
         tradeId: input.tradeId,
         type,
@@ -745,10 +757,14 @@ export class EscrowService {
   // "AUTHORITY BOUNDARY" comment (M8-R2, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
   // settlement.routes.ts's `/release` always passes undefined here, so a
   // cooperative release resolves the buyer's own registered PayoutAddress.
-  // dispute.service.ts's legacy applyRuling() (LIGHTNING_HODL/
-  // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
-  // the arbiter's own releaseToAddress here — a disclosed residual gap,
-  // not fixed by M8-R2 (out of that mission's bounded scope).
+  // dispute.service.ts's applyRuling() (LIGHTNING_HODL/SAFE_GUARD_EVM/
+  // WDK_USDT_EVM/MOCK disputes) passes undefined here too: since M8-R2
+  // (2026-09-11) releaseToAddress/refundToAddress were removed from it,
+  // and resolveDispute() treats them as inert for every escrow type, so a
+  // disputed release also resolves the buyer's registered PayoutAddress.
+  // MULTISIG disputes snapshot that address into the durable Outcome
+  // (applyRulingCoreAuthoritative()). Only a trusted internal caller that
+  // has already verified the address may pass an explicit value.
   // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
   // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
   // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,
@@ -1281,3 +1297,29 @@ export class EscrowService {
 }
 
 export const escrowService = new EscrowService()
+
+// The escrow's economic terms are the trade's and its committed pair's, never the caller's own.
+function escrowTermsMismatch(detail: string) {
+  return new AppError('escrow refused: its terms do not match the trade (' + detail + ')', 409, 'ESCROW_TERMS_MISMATCH')
+}
+// CTO 38 §14 (break-even): a registered payout address of a type outside the COMMITTED policy's allowed types is refused
+// here, at creation; the address is registered before the trade. Without breakEven nothing is checked.
+async function assertCommittedPayoutTypes(tx: Prisma.TransactionClient, feePolicyVersionId: string | null, participantIds: string[], asset: CreateEscrowInput['asset']) {
+  if (!feePolicyVersionId) return
+  const policy = await tx.feePolicyVersion.findUnique({ where: { id: feePolicyVersionId }, select: { smallTradeRule: true } })
+  const breakEven = parseBreakEven(policy?.smallTradeRule)
+  if (!breakEven) return
+  const registered = await tx.payoutAddress.findMany({ where: { participantId: { in: participantIds }, asset: asset as AssetType }, select: { address: true } })
+  const network = networkFor(config.multisig.network)
+  for (const r of registered) assertPayoutTypeAllowed(breakEven, r.address, network)
+}
+function assertEscrowMatchesTrade(input: { asset: string; lockedAmount: string }, trade: { asset: string; amount: Prisma.Decimal | string }) {
+  if (input.asset !== trade.asset) throw escrowTermsMismatch('asset')
+  if (!new Prisma.Decimal(input.lockedAmount).equals(new Prisma.Decimal(trade.amount.toString()))) throw escrowTermsMismatch('amount')
+}
+function assertEscrowMatchesCommitment(input: { asset: string; lockedAmount: string }, type: string, pair: { trade: unknown; rail: string }) {
+  const terms = (pair.trade ?? {}) as { asset?: unknown; amount?: unknown }
+  if (terms.asset !== input.asset) throw escrowTermsMismatch('committed asset')
+  if (typeof terms.amount !== 'string' || !new Prisma.Decimal(terms.amount).equals(new Prisma.Decimal(input.lockedAmount))) throw escrowTermsMismatch('committed amount')
+  if (pair.rail !== type) throw escrowTermsMismatch('committed rail')
+}

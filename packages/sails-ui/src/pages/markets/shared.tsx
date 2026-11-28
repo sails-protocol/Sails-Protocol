@@ -11,7 +11,7 @@ import { Activity, KeyRound, Scale, Server, Ticket, UserMinus, Users } from 'luc
 import { Link } from 'react-router'
 import { Badge } from '../../components/ui/badge'
 import { Button, buttonVariants } from '../../components/ui/button'
-import { marketPath } from '../../components/layout/navMatch'
+import { MARKETS_ROUTES, marketPath } from '../../components/layout/navMatch'
 import { cn } from '../../lib/utils'
 import { PlannedItem } from '../../components/ui/PlannedItem'
 import { ExplanationPopover } from '../../components/ui/ExplanationPopover'
@@ -52,6 +52,24 @@ export function WirePlanned({ id, label, description, badge, className }: { id: 
   return <PlannedItem icon={wire.icon} label={label ?? wire.label} soonLabel={soon} description={description} className={className} />
 }
 
+/** The three roles (CTO 36 note): owning a market, trading as a merchant, running infrastructure. Each home links the other two. */
+export type SailsRole = 'market' | 'merchant' | 'node'
+const ROLE_LINKS: Record<SailsRole, { to: string; ask: () => string; link: () => string }> = {
+  market: { to: MARKETS_ROUTES.create, ask: () => t('spaces.roles.marketAsk'), link: () => t('spaces.roles.marketLink') },
+  merchant: { to: '/profile#merchant', ask: () => t('spaces.roles.merchantAsk'), link: () => t('spaces.roles.merchantLink') },
+  node: { to: '/settings?section=no-sails', ask: () => t('spaces.roles.nodeAsk'), link: () => t('spaces.roles.nodeLink') },
+}
+export function RoleLinks({ here, className }: { here: SailsRole; className?: string }) {
+  const others = (Object.keys(ROLE_LINKS) as SailsRole[]).filter((r) => r !== here)
+  return (
+    <p className={cn('flex flex-wrap gap-x-4 gap-y-1 text-caption text-brand-text-secondary', className)}>
+      {others.map((r) => (
+        <span key={r}>{ROLE_LINKS[r].ask()} <Link to={ROLE_LINKS[r].to} className="inline-flex min-h-8 touch:min-h-11 items-center font-medium text-brand-link underline-offset-2 hover:underline">{ROLE_LINKS[r].link()}</Link></span>
+      ))}
+    </p>
+  )
+}
+
 /** Every simulated action says so (PO, 2026-11-22). */
 export function simulatedToast(message?: string) {
   toast.info(message ?? t('spaces.simulated.toast'))
@@ -60,14 +78,15 @@ export function simulatedToast(message?: string) {
 // --- Market Spaces (Comunidades, Mercados privados): copy shared by Explore, Meus mercados and the market page. ---
 
 /**
- * Where a private market runs (PO 2026-11-22): the Satsails-managed Sails node is "Em breve" (never selectable, no
- * provisioning, no availability promise); the person's own node is the choice that exists. `own` is the caller's line.
+ * Where a private market runs (PO 2026-11-22, CTO 36): the white-label managed node (six-month or annual contract, price under
+ * evaluation, no right to fees) is "Em breve" in real mode and simulated in the demo, never provisioned; the person's own node
+ * is the other choice. `own` is the caller's line.
  */
 export function PrivateHostingNote({ own }: { own: ReactNode }) {
   return (
     <div className="space-y-2 rounded-lg bg-brand-elevated p-3">
       <p className="text-sm font-medium text-brand-text">{t('spaces.hosting.title')}</p>
-      <WirePlanned id="managedNode" label={t('spaces.hosting.managed')} description={t('spaces.hosting.managedNote')} />
+      <WirePlanned id="managedNode" label={t('markets.create.infrastructure.managedLabel')} description={t('markets.create.infrastructure.managedDescription')} />
       {own}
     </div>
   )
@@ -81,6 +100,20 @@ export const SOCIAL_OPTIONS = (Object.keys(SOCIAL_NAME) as SocialLogin[]).map((v
 
 export function kycText(k: KycSummary): string {
   return k.kind === 'none' ? t('spaces.kyc.none') : k.kind === 'all' ? t('spaces.kyc.all') : t('spaces.kyc.above', { amount: formatUsd(k.thresholdUsd) })
+}
+/**
+ * Who runs a required identity verification (CTO/PO 2026-11-23): the partner, never Sails Protocol. "Responsável" only
+ * when the policy names the partner (demo fixtures do, marked "Exemplo ilustrativo"; no backend field exists yet).
+ * Connecting a wallet, verifying identity and being allowed into a market stay three separate things.
+ */
+export function kycDetails(p: EntryPolicy | undefined, { dataHandling = false } = {}): string[] {
+  if (kycSummary(p).kind === 'none') return []
+  const name = p?.providerName?.trim()
+  return [
+    t('spaces.kyc.conductedBy'),
+    ...(name ? [t('spaces.kyc.responsible', { name }) + (isDemoMode() ? ` (${t('spaces.kyc.illustrative')})` : '')] : []),
+    ...(dataHandling ? [t('spaces.kyc.dataHandling')] : []),
+  ]
 }
 export const entryText = (p: EntryPolicy | undefined) => {
   const kyc = kycText(kycSummary(p))
@@ -101,7 +134,8 @@ export function marketCardCopy(): MarketCardCopy {
       if (m.activity30d !== undefined) parts.push(t('spaces.explore.activity', { count: m.activity30d }))
       return parts.join(' · ')
     },
-    entry: (m) => (m.entryType ? t(`spaces.entry.${m.entryType}`) : null),
+    // Identity verification is its own line, never implied by the entry type (a private market is not KYC).
+    entry: (m) => [m.entryType && t(`spaces.entry.${m.entryType}`), kycSummary(m.entryPolicy).kind !== 'none' && t('spaces.kyc.required')].filter(Boolean).join(' · ') || null,
   }
 }
 
@@ -109,8 +143,8 @@ export const adminImageCopy = (): AdminImageCopy => ({
   load: t('spaces.image.load'), privacy: t('spaces.image.privacy'), failed: t('spaces.image.failed'), linkLabel: t('spaces.adminLink'),
 })
 
-/** Demo only: the "Verificado" seal by fictional goals (DECISIONS.md "Perfil do mercado"); real mode never renders it. */
-export function DemoVerifiedSeal({ explain = false }: { explain?: boolean }) {
+/** Demo only: the "Mercado ativo" badge with the CTO 33 provisional criteria and its last computation; real mode never renders it. */
+export function DemoVerifiedSeal({ explain = false, calculatedAt }: { explain?: boolean; calculatedAt?: string }) {
   if (!isDemoMode()) return null
   const c = DEMO_VERIFIED_CRITERIA
   return (
@@ -124,11 +158,17 @@ export function DemoVerifiedSeal({ explain = false }: { explain?: boolean }) {
           explanation={{
             title: t('spaces.verified.title'),
             lines: [
-              t('spaces.verified.rating', { rating: c.minRating.toLocaleString(getLocale(), { minimumFractionDigits: 1 }), ratings: c.minRatings }),
-              t('spaces.verified.trades', { trades: c.minTrades }),
-              t('spaces.verified.volume', { volume: formatUsd(c.minVolumeUsd) }),
+              t('spaces.verified.trades', { trades: c.minTrades, days: c.windowDays }),
+              t('spaces.verified.volume', { volume: formatUsd(c.minVolumeUsd), days: c.windowDays }),
+              t('spaces.verified.activeDays', { activeDays: c.minActiveDays }),
+              t('spaces.verified.excluded'),
             ],
-            footer: t('spaces.verified.footer'),
+            footer: [
+              t('spaces.verified.provisional'),
+              t('spaces.verified.computedBy'),
+              t('spaces.verified.notIdentity'),
+              calculatedAt ? t('spaces.verified.calculatedAt', { date: new Date(calculatedAt).toLocaleDateString(getLocale(), { day: 'numeric', month: 'long', year: 'numeric' }) }) : '',
+            ].filter(Boolean).join(' '),
           }}
         />
       )}
@@ -139,6 +179,12 @@ export function DemoVerifiedSeal({ explain = false }: { explain?: boolean }) {
 /** The Sails default public market, "Mercado aberto" (DECISIONS.md "Modelo mundo aberto"): the only real one today. */
 export function defaultMarket(): MarketView {
   return { id: 'public', name: t('markets.default.name'), visibility: 'public', relation: 'default', infrastructure: 'network', description: t('markets.default.description') }
+}
+
+/** "Mercado que abre por padrão" (Configurações → Mercados), saved in this browser; null when unset or unreadable. */
+export const DEFAULT_MARKET_KEY = 'sails_ui_default_market'
+export function readDefaultMarketChoice(): string | null {
+  try { return localStorage.getItem(DEFAULT_MARKET_KEY) } catch { return null }
 }
 
 /** Default market first, then (demo only) fictional markets, including one joined by a fictional invite. */
@@ -161,7 +207,7 @@ export function marketListCopy(): MarketListCopy {
     presetLabel: t('markets.list.presetLabel'),
     preset: { vitrine: t('markets.list.preset.vitrine'), comunidade: t('markets.list.preset.comunidade'), personalizado: t('markets.list.preset.personalizado') },
     infrastructureLabel: t('markets.list.infrastructureLabel'),
-    infrastructure: { network: 'Rede Sails', own: t('markets.list.infrastructure.own') },
+    infrastructure: { network: t('markets.create.infrastructure.networkLabel'), own: t('markets.list.infrastructure.own'), managed: t('markets.create.infrastructure.managedLabel') },
     illustrative: t('markets.list.illustrative'),
     ownedByYou: t('spaces.ownedByYou'),
   }

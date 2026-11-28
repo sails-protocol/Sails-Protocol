@@ -25,6 +25,8 @@ import { DEMO_QUOTE_USD } from '../../demo/spaceShop'
 import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
 
+// Only pairs the enum can carry (available, or with a reference rail): never a pair that is only "Em breve".
+const PAYABLE_PAIRS = ASSET_CATALOG.filter((p) => p.assetType !== null)
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 export const spaceName = (id: SpaceProductId) => t(`shop.product.${id}`)
 
@@ -38,6 +40,7 @@ export function SpaceTypePicker({ value, onPick, disabled = false }: { value: Sp
             <span className="min-w-0">
               <span className="flex flex-wrap items-center gap-2">{spaceName(p.id)}{disabled && <Badge variant="outline" className={TAG}>{t('common.soon')}</Badge>}</span>
               <span className="mt-0.5 block text-caption font-normal text-brand-text-secondary">{t(`shop.product.${p.id}Description`)}</span>
+              <span className="mt-1 block text-caption font-normal text-brand-text-secondary">{t('spaces.hosting.cardLine')}</span>
               {!disabled && (
                 <>
                   <span className="mt-2 block text-caption font-normal text-brand-text-muted">{t('shop.priceLabel')}</span>
@@ -51,6 +54,7 @@ export function SpaceTypePicker({ value, onPick, disabled = false }: { value: Sp
       </RadioGroup>
       {!disabled && <p className="mt-2 text-caption text-brand-text-muted">{t('shop.notFinal')}</p>}
       <p className="mt-1 text-body-sm text-brand-text-secondary">{t('shop.developers')}</p>
+      <p className="mt-1 text-caption text-brand-text-secondary">{t('spaces.create.merchantNote')}</p>
     </div>
   )
 }
@@ -82,7 +86,7 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
   onPaid: () => void
 }) {
   const [asset, setAsset] = useState<PayAsset>('BTC')
-  const networks = checkoutNetworks(asset, ASSET_CATALOG)
+  const networks = checkoutNetworks(asset, PAYABLE_PAIRS)
   const [pairId, setPairId] = useState(networks[0]?.id ?? '')
   const [step, dispatch] = useReducer(nextCheckoutStep, 'payment' as CheckoutStep)
   const headingRef = useRef<HTMLHeadingElement>(null)
@@ -100,7 +104,7 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
   const pair = networks.find((p) => p.id === pairId) ?? networks[0]
   const amount = demoEquivalent(product.demoPriceUsd, asset, DEMO_QUOTE_USD[asset])
   const amountText = amount === null ? t('common.soon') : `${formatAmount(amount, asset === 'BTC' ? 8 : 2)} ${asset}`
-  const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, ASSET_CATALOG)[0]?.id ?? '') }
+  const pickAsset = (a: PayAsset) => { setAsset(a); setPairId(checkoutNetworks(a, PAYABLE_PAIRS)[0]?.id ?? '') }
   const title = t(step === 'payment' ? 'spaces.create.reviewAndPay' : step === 'confirmed' ? 'shop.status.confirmedShort' : 'shop.step.awaiting')
   const back = (label = t('markets.create.back')) => (
     <Button type="button" variant="ghost" onClick={() => dispatch({ type: 'back' })} className="touch:min-h-11"><ArrowLeft aria-hidden="true" />{label}</Button>
@@ -123,11 +127,16 @@ export function SpaceCheckout({ product, rows, images, primary, stepLabel, onBac
           )}
           <Facts rows={[...rows, [t('shop.receiptProduct'), spaceName(product.id)], [t('shop.priceLabel'), formatUsd(product.demoPriceUsd)]]} />
           <RadioGroup legend={t('shop.pay.assetLegend')} listClassName="grid gap-2 sm:grid-cols-3">
-            {FUTURE_PAYMENT_ASSETS.map((a) => (
-              <RadioCard key={a} name="pay-asset" value={a} checked={asset === a} onChange={() => pickAsset(a)}>
-                <AssetLogo assetSrc={ASSET_LOGO[a]} size="md" />{a}
-              </RadioCard>
-            ))}
+            {FUTURE_PAYMENT_ASSETS.map((a) => {
+              // An asset with no pair the enum can carry yet (USDC) is listed as "Em breve", as in the asset catalog.
+              const soon = checkoutNetworks(a, PAYABLE_PAIRS).length === 0
+              return (
+                <RadioCard key={a} name="pay-asset" value={a} checked={asset === a} disabled={soon} onChange={() => pickAsset(a)}>
+                  <AssetLogo assetSrc={ASSET_LOGO[a]} size="md" />{a}
+                  {soon && <span className="ml-auto text-caption font-normal text-brand-text-secondary">{t('common.soon')}</span>}
+                </RadioCard>
+              )
+            })}
           </RadioGroup>
           <RadioGroup legend={t('shop.pay.networkLegend')} listClassName="grid gap-2 sm:grid-cols-2">
             {networks.map((p) => (

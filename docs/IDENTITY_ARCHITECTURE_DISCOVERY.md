@@ -544,6 +544,8 @@ disclosed, not guessed.
 
 ## 5. Comparing the four models
 
+> **Naming note (2026-11-22).** "Model B" in this section means "Wallet Seed to Sails Identity Root" and is a discovery candidate only. It is not the identity direction chosen on 2026-10-26 (PR #543), which is also called "Model B" in later records: native Pubky recovery, a fresh Pear transport key and re-authorization, with wallet seeds always separate. Diagrams of the chosen direction: [SYSTEM_DESIGN.md §14.5](SYSTEM_DESIGN.md#145-portable-identity-pears-and-social-recovery-diagrams).
+
 ### Model A — One Seed, Direct Derivation
 
 ```

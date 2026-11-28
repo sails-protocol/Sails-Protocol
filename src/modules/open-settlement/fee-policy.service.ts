@@ -47,8 +47,20 @@ import {
   type CreateDraftFeePolicyVersionData,
 } from './fee-policy-repository'
 import { assertRailCanActivateFeeCollection } from './escrow-providers'
+import { networkFor } from './multisig.provider'
+import { config } from '../../config'
+import { parseBreakEven, assertCollectionDustCovered, collectionAddressDust } from './fee-break-even'
 
-// CTO 413 (P1) — structural only, never a ceiling (an economic decision). DECIMAL(24,8) would store NaN
+// The protocol fee ceiling (CTO 38, D-E6). PROPOSED value, pending governance: 0.50%, 1.25x the 0.40% reference, until
+// the signed global policy carries it. A node's SAILS_MAX_PROTOCOL_FEE_RATE can only TIGHTEN it, never widen it, so local
+// configuration never allows more than the protocol does. A rate above the effective ceiling is never accepted.
+export const PROTOCOL_MAX_FEE_RATE = '0.005'
+export function maxProtocolFeeRate(): string {
+  const local = config.settlement?.maxProtocolFeeRate
+  return local && new Prisma.Decimal(local).lessThan(PROTOCOL_MAX_FEE_RATE) ? local : PROTOCOL_MAX_FEE_RATE
+}
+
+// CTO 413 (P1) — structural checks plus the ceiling above. DECIMAL(24,8) would store NaN
 // (and order it above every number) and round a 9th decimal place silently, so both are refused, never coerced.
 function assertValidProtocolFeeRate(value: Prisma.Decimal | string): void {
   let rate: Prisma.Decimal
@@ -63,6 +75,10 @@ function assertValidProtocolFeeRate(value: Prisma.Decimal | string): void {
   if (rate.isNegative()) {
     throw new ValidationError('protocolFeeRate must be >= 0', { protocolFeeRate: rate.toString() })
   }
+  const ceiling = maxProtocolFeeRate()
+  if (rate.greaterThan(ceiling)) {
+    throw new ValidationError(`protocolFeeRate must be <= ${ceiling}`, { protocolFeeRate: rate.toString() })
+  }
   if (rate.decimalPlaces() > 8) {
     throw new ValidationError('protocolFeeRate must have at most 8 decimal places (it is never rounded)', { protocolFeeRate: rate.toString() })
   }
@@ -73,6 +89,9 @@ export class FeePolicyService {
 
   async createDraft(input: CreateDraftFeePolicyVersionData) {
     assertValidProtocolFeeRate(input.protocolFeeRate)
+    const breakEven = parseBreakEven(input.smallTradeRule)
+    const collection = config.settlement?.protocolFeeCollectionAddress
+    if (breakEven && collection) assertCollectionDustCovered(breakEven, collectionAddressDust(collection, networkFor(config.multisig.network)))
     return this.repo.create(input)
   }
 

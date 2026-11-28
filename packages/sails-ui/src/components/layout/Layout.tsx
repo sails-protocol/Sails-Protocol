@@ -14,6 +14,8 @@ import { hasSeenOnboarding, markOnboardingSeen } from '../../lib/onboarding'
 import { SailsLogo } from '../brand/SailsLogo'
 import { useNavPosition } from '../../lib/navPosition'
 import { t } from '../../i18n'
+import { isDemoMode } from '../../lib/demoMarkers'
+import { SkipLink } from './SkipLink'
 
 /** What Layout hands its pages via `useOutletContext` (Configurações' "Rever tour"). */
 export interface LayoutOutletContext {
@@ -65,21 +67,17 @@ export function Layout() {
     // Sidebar is a fixed-height flex sibling (own `h-screen sticky`),
     // not part of the scrolling document — the row layout below just
     // reserves its width. Mobile is completely untouched: same header +
-    // BottomNav as before, `md:hidden`-gated exactly as they already were.
-    <div className="min-h-screen bg-brand-bg md:flex">
-      {/* First stop for keyboard users in both menu positions: jump past the navigation. */}
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-[60] focus:rounded-md focus:bg-brand-surface focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-brand-text focus:shadow-elevation-2"
-      >
-        {t('shell.nav.skipToContent')}
-      </a>
+    // BottomNav, `medium:hidden`-gated (bottom nav below 600 px, the rail from 600: PO 2026-11-27).
+    <div className="min-h-screen bg-brand-bg medium:flex">
+      {/* First stop for keyboard users in both menu positions: jump past the navigation. In the demo the demo
+          root renders it before its banner (demo/install.tsx), so it stays first. */}
+      {!isDemoMode() && <SkipLink />}
       <Sidebar hideFromLg={topNav} />
       <div className="flex-1 min-w-0">
         <Topbar withNav={topNav} />
-        {/* Mobile-only bar: logo + session, nothing else. Theme and "Rever tour" live in Configurações at
+        {/* Phone-only bar (below 600 px): logo + session, nothing else. Theme and "Rever tour" live in Configurações at
             every width (reachable from BottomNav). */}
-        <header className="md:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
+        <header className="medium:hidden h-14 flex items-center justify-between gap-3 px-4 border-b border-brand-border-subtle sticky top-0 z-40 bg-brand-bg/90 backdrop-blur">
           <Link to="/" aria-label={t('shell.nav.home')} className="inline-flex items-center rounded-md touch:min-h-11">
             <SailsLogo size="sm" />
           </Link>
@@ -99,7 +97,7 @@ export function Layout() {
             spanning edge-to-edge. A modest widen, not full-bleed —
             dense market/table content still benefits from a line-length
             cap, just a less conservative one now that a sidebar exists. */}
-        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 md:px-6 xl:px-8 py-6 pb-20 md:pb-8">
+        <main id="main-content" tabIndex={-1} className="max-w-7xl mx-auto px-4 md:px-6 xl:px-8 py-6 pb-[calc(6rem+env(safe-area-inset-bottom))] medium:pb-8">
           <Outlet key={reloadKey} context={{ replayTour: () => setTourOpen(true) } satisfies LayoutOutletContext} />
         </main>
       </div>

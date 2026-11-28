@@ -110,7 +110,7 @@ await sails.settlement.release(escrow.id, buyerPayoutAddress)
 ```
 
 This is the step that turns a negotiation into money actually moving -
-non-custodially: Sails Protocol never holds the funds itself.
+under the normative non-custodial model: Sails Protocol does not hold the funds itself. What each rail demonstrates differs (on the Bitcoin Gen-1 MULTISIG rail the node operator holds the arbiter key of a 2-of-3 script; the server-seed EVM reference is not non-custodial); see `SECURITY_MODEL.md` section 1.1.
 
 ### Step 5 — Enable Reputation
 
@@ -129,7 +129,7 @@ your app (`ARCHITECTURE.md` section 3).
 ### Step 6 — Working Marketplace
 
 Five steps, one SDK, one keypair. What you have at this point is a wallet
-that can discover a counterparty, negotiate, settle non-custodially, and
+that can discover a counterparty, negotiate, settle under the normative non-custodial model (rail-specific; see `SECURITY_MODEL.md` section 1.1), and
 build portable reputation — the definition of a P2P Financial Marketplace
 used throughout this project (`PROJECT_CONTEXT.md` section 1). Everything
 past this — OpenAgents fraud detection, OpenFinance's future modules — is

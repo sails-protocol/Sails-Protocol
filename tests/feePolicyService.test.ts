@@ -213,6 +213,10 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['comma decimal', '0,5', /not a decimal number/],
     ['non-numeric', 'abc', /not a decimal number/],
     ['empty', '', /not a decimal number/],
+    // Protocol ceiling (PROTOCOL_MAX_FEE_RATE, proposed 0.50%, pending governance: CTO 38 D-E6).
+    ['above the protocol ceiling', '0.00500001', /must be <= 0.005/],
+    ['1%, the former placeholder', '0.01', /must be <= 0.005/],
+    ['above 100%', '1.5', /must be <= 0.005/],
   ]
 
   it.each(invalid)('createDraft refuses %s and writes nothing', async (_label, rate, message) => {
@@ -233,7 +237,7 @@ describe('FeePolicyService — protocolFeeRate strict validation (CTO 413)', () 
     ['exactly 8 decimal places', '0.00000001'],
     ['the fixture rate', '0.004'],
     ['trailing zeros past 8 places (value has 8 or fewer)', '0.0040000000'],
-    ['above 100% (no ceiling: an economic decision, not this check)', '1.5'],
+    ['exactly the protocol ceiling', '0.005'],
   ])('createDraft and publish accept %s, passing the value through unchanged', async (_label, rate) => {
     const repo = fakeRepo({ create: jest.fn().mockImplementation(async (input) => input) })
     await expect(new FeePolicyService(repo).createDraft(draftInput(rate))).resolves.toMatchObject({ protocolFeeRate: rate })
@@ -308,5 +312,50 @@ describe('FeePolicyService — PUBLISHED-only snapshotting (Test I)', () => {
     const service = new FeePolicyService(repo)
 
     await expect(service.assertPublished(published.id)).resolves.toEqual(published)
+  })
+})
+
+// CTO 38 (D-E6): a node's configuration can only tighten the protocol ceiling, never widen it.
+describe('protocol fee ceiling: local configuration only tightens it', () => {
+  const { config } = require('../src/config')
+  const { maxProtocolFeeRate, PROTOCOL_MAX_FEE_RATE } = require('../src/modules/open-settlement/fee-policy.service')
+  const original = config.settlement.maxProtocolFeeRate
+  afterEach(() => { config.settlement.maxProtocolFeeRate = original })
+  it.each([
+    ['unset', undefined, PROTOCOL_MAX_FEE_RATE],
+    ['a WIDER local value (1%) is ignored', '0.01', PROTOCOL_MAX_FEE_RATE],
+    ['an equal local value', PROTOCOL_MAX_FEE_RATE, PROTOCOL_MAX_FEE_RATE],
+    ['a TIGHTER local value applies', '0.003', '0.003'],
+  ])('%s', (_label, local, effective) => {
+    config.settlement.maxProtocolFeeRate = local
+    expect(maxProtocolFeeRate()).toBe(effective)
+  })
+})
+
+describe('createDraft: smallTradeRule.breakEven is validated strictly (CTO 38 §14)', () => {
+  const { config } = require('../src/config')
+  const original = config.settlement.protocolFeeCollectionAddress
+  afterEach(() => { config.settlement.protocolFeeCollectionAddress = original })
+  const breakEven = { fMaxSatPerVb: 25, vBytes: 43, dMaxSats: 330, collectionDustSats: 330, allowedPayoutTypes: ['P2WPKH', 'P2WSH', 'P2TR'] }
+  const draft = (rule: unknown) => ({ label: 'fixture-be', railScope: 'FIXTURE_RAIL', protocolFeeRate: '0.004', payerModel: 'SELLER_PAYS', economicBasis: 'SELLER_DELIVERED_VALUE', requiredConfirmations: 2, createdBy: 'test-fixture', smallTradeRule: rule } as any)
+
+  it('an invalid breakEven (dMaxSats 0) is refused and nothing is written', async () => {
+    const repo = fakeRepo()
+    await expect(new FeePolicyService(repo).createDraft(draft({ breakEven: { ...breakEven, dMaxSats: 0 } }))).rejects.toThrow(/dMaxSats must be a positive integer/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it("a collection address whose dust exceeds collectionDustSats is refused (P2PKH 546 > 330)", async () => {
+    config.settlement.protocolFeeCollectionAddress = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn'
+    const repo = fakeRepo()
+    await expect(new FeePolicyService(repo).createDraft(draft({ breakEven }))).rejects.toThrow(/below the collection address's dust 546/)
+    expect(repo.create).not.toHaveBeenCalled()
+  })
+
+  it('the Day-0 parameters with a P2WPKH collection address, together with fixtureOnlyMinimum, are written unchanged', async () => {
+    config.settlement.protocolFeeCollectionAddress = 'tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx'
+    const repo = fakeRepo({ create: jest.fn(async (input: any) => input) })
+    const rule = { fixtureOnlyMinimum: '0.001', breakEven }
+    await expect(new FeePolicyService(repo).createDraft(draft(rule))).resolves.toMatchObject({ smallTradeRule: rule })
   })
 })

@@ -100,8 +100,8 @@ describe('EscrowFeeSnapshotService.computeSnapshotFields() — Fase 4.1 pre-fund
 
   it('nonzero rate, MULTISIG, address configured but candidate Fmax is sub-dust: pre-funding waived', async () => {
     config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
-    // T=1000 sats (0.00001 BTC), rate=0.01 -> Fmax=10 sats, below any real dust threshold.
-    const policy = fixturePolicy({ protocolFeeRate: '0.01' })
+    // T=1000 sats (0.00001 BTC), rate=0.005 (the protocol ceiling) -> Fmax=5 sats, below any real dust threshold.
+    const policy = fixturePolicy({ protocolFeeRate: '0.005' })
     const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(policy)))
 
     const result = await service.computeSnapshotFields('MULTISIG', '0.00001')
@@ -204,5 +204,28 @@ describe('EscrowFeeSnapshotService.snapshotEscrowFeePolicy() — update-based pa
     const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(null)))
     const result = await service.snapshotEscrowFeePolicy('escrow-1', 'MULTISIG', '0.01')
     expect(result).toBeNull()
+  })
+})
+
+describe('break-even creation rule (CTO 38 §14.1): a reserve only from Fmax >= Dmax + V * fMax', () => {
+  const breakEven = { fMaxSatPerVb: 25, vBytes: 43, dMaxSats: 330, collectionDustSats: 330, allowedPayoutTypes: ['P2WPKH', 'P2WSH', 'P2TR'] }
+  const snapshot = (lockedAmount: string) =>
+    new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(fixturePolicy({ protocolFeeRate: '0.004', smallTradeRule: { breakEven } })))).computeSnapshotFields('MULTISIG', lockedAmount)
+
+  it('Fmax 1404 sats: waived before funding; 1405 sats: reserve required, destination frozen', async () => {
+    config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
+    expect(await snapshot('0.00351')).toMatchObject({ snapshotFeeCollectionWaivedPreFunding: true, snapshotFeeCollectionAddress: null })
+    expect(await snapshot('0.0035125')).toMatchObject({ snapshotFeeCollectionWaivedPreFunding: false, snapshotFeeCollectionAddress: COLLECTIBLE_ADDRESS })
+  })
+
+  it("a collection address whose dust is above the committed Dc (P2PKH, 546) is never reserved for, at any size", async () => {
+    config.settlement.protocolFeeCollectionAddress = 'mipcBbFg9gMiCh81Kj8tqqdgoZub1ZJRfn' // testnet P2PKH
+    expect(await snapshot('1')).toMatchObject({ snapshotFeeCollectionWaivedPreFunding: true, snapshotFeeCollectionAddress: null })
+  })
+
+  it('without breakEven the earlier rule is unchanged: Fmax 1404 sats is collectible', async () => {
+    config.settlement.protocolFeeCollectionAddress = COLLECTIBLE_ADDRESS
+    const service = new EscrowFeeSnapshotService(new FeePolicyService(fakePolicyRepo(fixturePolicy({ protocolFeeRate: '0.004', smallTradeRule: { fixtureOnlyMinimum: '0.001' } }))))
+    expect(await service.computeSnapshotFields('MULTISIG', '0.00351')).toMatchObject({ snapshotFeeCollectionWaivedPreFunding: false })
   })
 })

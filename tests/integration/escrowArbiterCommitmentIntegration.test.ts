@@ -95,7 +95,7 @@ describe('Escrow arbiter public-key commitment — real lifecycle + DB-native im
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const bound = await createBoundTrade(prisma, { amount: '0.00100000' }) // F4: real keys + an E21-admitted trade (the escrows below lock 0.001); bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
     const boundPairId = await bound.commit()
@@ -219,7 +219,7 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
 
   async function fixtureTrade() {
     const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-    const bound = await createBoundTrade(prisma) // F4: real keys + an E21-admitted trade; bound.commit() = its COMMITTED pair
+    const bound = await createBoundTrade(prisma, { amount: '0.00100000' }) // F4: real keys + an E21-admitted trade (the escrows below lock 0.001); bound.commit() = its COMMITTED pair
     const { buyer, seller, trade } = bound
     const offer = await prisma.offer.findUniqueOrThrow({ where: { id: trade.offerId } })
     const boundPairId = await bound.commit()
@@ -256,7 +256,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     const txid = createHash('sha256').update(escrow.id).digest('hex')
     await prisma.escrow.update({ where: { id: escrow.id }, data: { status: 'DISPUTED', txLockId: txid, txLockVout: 0 } })
     await prisma.dispute.create({
-      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute },
+      // A disputed round only executes a recorded ruling of the same kind (DISPUTE_RULING_REQUIRED): every case below initiates a release.
+      data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: arbiterIdForDispute, status: 'RESOLVED', ruling: 'RELEASE' },
     })
     return { escrow, buyer, seller, trade, txid }
   }
@@ -333,7 +334,8 @@ describe('Signature-collection path — real triggeredBy/arbiter-context defense
     })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'buyer', participantId: buyer.id, pubkey: buyerPubkeyHex } })
     await prisma.escrowParticipantKey.create({ data: { escrowId: escrow.id, role: 'seller', participantId: seller.id, pubkey: sellerPubkeyHex } })
-    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID } })
+    // A recorded RELEASE ruling, so the refusal under test is the missing arbiter commitment, not the ruling check.
+    await prisma.dispute.create({ data: { tradeId: trade.id, escrowId: escrow.id, openedBy: buyer.id, reason: 'fixture', arbiterId: DEFAULT_ARBITER_ID, status: 'RESOLVED', ruling: 'RELEASE', appealRound: 0 } })
 
     const arbiterRow = await prisma.escrowParticipantKey.findUnique({ where: { escrowId_role: { escrowId: escrow.id, role: 'arbiter' } } })
     expect(arbiterRow).toBeNull() // confirms this fixture is genuinely legacy-shaped

@@ -10,7 +10,8 @@ export type MarketVisibility = 'public' | 'private'
 /** How the person relates to the market: the default one, one they follow, administer or belong to, or none (discoverable only). */
 export type MarketRelation = 'default' | 'follows' | 'admin' | 'member' | 'none'
 /** Only two choices (a shared public node is part of Rede Sails). */
-export type MarketInfrastructure = 'network' | 'own'
+/** CTO 36: Sails Public Network (shared hosting, included), own node (self-hosted) or white-label managed node. */
+export type MarketInfrastructure = 'network' | 'own' | 'managed'
 /** Optional UX presets (DECISIONS.md "Modelos iniciais de experiência"), never protocol limits. */
 export type ParticipationPreset = 'vitrine' | 'comunidade' | 'personalizado'
 
@@ -74,4 +75,13 @@ export function composeMyMarkets(defaultMarket: MarketView, others: readonly Mar
 /** The person's own markets (portal, Meus mercados): everything except markets they only could discover. */
 export function ownMarkets(markets: readonly MarketView[]): MarketView[] {
   return markets.filter((m) => m.relation !== 'none')
+}
+
+/**
+ * "Mercado que abre por padrão" (Configurações → Mercados): the saved market's id while it still exists and the person
+ * still belongs to it; null means Mercado aberto (nothing saved, the default itself, gone, left or only discoverable).
+ */
+export function defaultMarketTarget(saved: string | null, markets: readonly MarketView[]): string | null {
+  const m = saved ? markets.find((x) => x.id === saved) : undefined
+  return m && (m.relation === 'member' || m.relation === 'admin' || m.relation === 'follows') ? m.id : null
 }

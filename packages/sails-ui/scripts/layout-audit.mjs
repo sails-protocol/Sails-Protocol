@@ -5,7 +5,8 @@
  *   - no horizontal page scroll;
  *   - no text cut by an ellipsis (except monospace identifiers, which truncate on purpose);
  *   - no text pushed off screen outside a scroll container;
- *   - below 768px, interactive controls at least 44px tall when the pointer is coarse (touch).
+ *   - up to 1366px (phones and tablets), interactive controls at least 44px tall when the pointer is coarse
+ *     (touch); an invisible ::after hit area (`hit-area` utility) counts.
  *
  * Usage (from the repository root, with the Sails UI dev server running):
  *   node packages/sails-ui/scripts/layout-audit.mjs [--base http://localhost:5173] [--quick] [--locales]
@@ -21,7 +22,7 @@ import { chromium } from '@playwright/test'
 const args = process.argv.slice(2)
 const arg = (name, fallback) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] ? args[i + 1] : fallback }
 const BASE = arg('--base', 'http://localhost:5173')
-const WIDTHS = arg('--widths', '') ? arg('--widths', '').split(',').map(Number) : args.includes('--quick') ? [1440, 834, 375, 320] : [1440, 1366, 1280, 1152, 1024, 900, 768, 640, 414, 375, 320]
+const WIDTHS = arg('--widths', '') ? arg('--widths', '').split(',').map(Number) : args.includes('--quick') ? [1440, 834, 375, 320] : [1440, 1366, 1280, 1152, 1024, 900, 768, 744, 640, 600, 414, 375, 320]
 const LOCALES = args.includes('--locales') ? ['pt-BR', 'en', 'es', 'fr', 'de'] : ['pt-BR']
 const THEMES = ['dark', 'light']
 const MENUS = ['side', 'top']
@@ -29,10 +30,12 @@ const MENUS = ['side', 'top']
 // Main screens reachable by URL. Flows with steps (wizards, dialogs) are covered by each lot's own audit.
 const ROUTES = [
   '/', '/trades', '/trades/history', '/trades/offers', '/trades/disputes', '/profile',
-  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/new?space=private',
+  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/demo-market-meu?tab=dashboard', '/markets/new?space=private',
+  // A demo trade in FUNDS_LOCKED where the demo user is the buyer ("Marcar pagamento como enviado").
+  '/trade/7e2c5b18-demo-a1',
   '/settings?section=wallet', '/settings?section=aparencia', '/settings?section=idioma',
-  '/settings?section=notificacoes', '/settings?section=seguranca', '/settings?section=no-sails',
-  '/settings?section=comunidades', '/settings?section=ajuda',
+  '/settings?section=notificacoes', '/settings?section=seguranca', '/settings?section=identidade', '/settings?section=no-sails',
+  '/settings?section=comunidades', '/settings?section=ajuda', '/settings/help/faq',
 ].filter((r) => !arg('--only', '') || arg('--only', '').split(',').some((o) => r.startsWith(o)))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -75,10 +78,11 @@ async function check(page) {
         if (!inScroller) out.offscreen.push(txt)
       }
     }
-    if (vw < 768 && coarse) for (const el of document.querySelectorAll('button, a[href], input:not([type=hidden]), textarea, [role=tab]')) {
+    if (vw <= 1366 && coarse) for (const el of document.querySelectorAll('button, a[href], input:not([type=hidden]), textarea, [role=tab]')) {
       if (!visible(el)) continue
       if (el.matches('input[type=radio], input[type=checkbox]') && el.closest('label')) continue // the label is the target
-      const h = el.getBoundingClientRect().height
+      const after = getComputedStyle(el, '::after')
+      const h = Math.max(el.getBoundingClientRect().height, after.position === 'absolute' ? parseFloat(after.height) || 0 : 0)
       if (h < 44) out.small.push(`${(el.getAttribute('aria-label') || el.innerText || el.tagName).trim().slice(0, 24)}:${Math.round(h)}`)
     }
     for (const k of ['truncated', 'offscreen', 'small']) out[k] = [...new Set(out[k])].slice(0, 6)
@@ -92,7 +96,7 @@ const browser = await chromium.launch()
 try {
   for (const locale of LOCALES) for (const theme of THEMES) for (const menu of MENUS) {
     for (const touch of [false, true]) {
-      const widths = touch ? WIDTHS.filter((w) => w < 768) : WIDTHS
+      const widths = touch ? WIDTHS.filter((w) => w <= 1366) : WIDTHS
       if (!widths.length) continue
       const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: theme, hasTouch: touch, isMobile: touch })
       await ctx.addInitScript(([m, t, l]) => {

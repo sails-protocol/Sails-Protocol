@@ -15,6 +15,11 @@
    newer CSS-native `@theme` block, out of scope for a dependency bump. */
 @import "tailwindcss";
 @config "../tailwind.config.js";
+/* Material 3 medium window class (PO 2026-11-27): from 600 px the shell uses the navigation rail instead of
+   the bottom nav (`medium:`). Phone layouts below; `md` (768) still decides the page layouts. */
+@theme {
+  --breakpoint-medium: 37.5rem;
+}
 
 /**
  * Satsails brand identity — black + orange, light and dark. Orange
@@ -275,6 +280,13 @@
      (Arbitrum, Liquid) read on the dark surface; the logo itself is never recolored. */
   --color-asset-chip: 255 255 255;
 
+  /* Chart series (dashboards, PO 2026-11-23): one slot per asset in a fixed order (BTC, USDT, USDC), never orange,
+     buy/sell or status. Validated with the dataviz palette script, all pairs, on the surface: light #2a78d6 #d55181
+     #8a6d00 (CVD worst 12.2, normal 21.7, each >= 3:1); dark #3987e5 #d55181 #a88a14 (CVD 11.1, normal 21.7). */
+  --color-chart-1: 42 120 214;
+  --color-chart-2: 213 81 129;
+  --color-chart-3: 138 109 0;
+
   /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
      mobile. Icons 14/16/20/24 (14 only beside 12px text: badges, chips, meta lines). Avatars (UserAvatar SIZES) 28/36/48/64. */
   --control-h-sm: 36px;
@@ -292,6 +304,9 @@
 }
 
 :root.dark {
+  --color-chart-1: 57 135 229;
+  --color-chart-2: 213 81 129;
+  --color-chart-3: 168 138 20;
   /* Palette 2026-11-19 (CTO 437 / PM): graphite surfaces, contrast-checked
      (WCAG 2.1 AA: text >= 4.5:1, functional borders >= 3:1 on every surface). */
   --color-bg: 17 19 24;              /* #111318 */
@@ -461,6 +476,21 @@ body {
   @media (max-width: 767.98px) { @slot; }
 }
 
+/* A control that keeps a small look (the 44x24 switch, the thin demo banner's links) gets a 44 px hit
+   area from an invisible ::after centered on it. Use as `touch:hit-area`. */
+@utility hit-area {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, var(--control-h-touch));
+    height: max(100%, var(--control-h-touch));
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* Enter/exit motion for overlays (no plugin): the shadcn-style classes
    animate-in/out, fade-*, zoom-*, slide-* set per-element variables these
    two keyframes read. Variables do not inherit, so nested overlays start clean. */
@@ -576,6 +606,12 @@ body {
   :root.dark { color-scheme: dark; }
   /* The 56px sticky top bar (both menu layouts) must never cover a focused or anchored element. */
   html { scroll-padding-top: 3.5rem; }
+  /* WCAG 2.4.11: below 600 px (`medium`) the fixed bottom nav (3.5rem + its 1px border + the safe area, plus
+     1.25rem of margin) must not
+     cover a focused or anchored element either. */
+  @media (max-width: 37.49rem) {
+    html { scroll-padding-bottom: calc(4.75rem + 1px + env(safe-area-inset-bottom)); }
+  }
   /* No double-tap zoom delay on controls. */
   a, button, [role="button"], label, input, select, textarea { touch-action: manipulation; }
   :focus-visible {
@@ -590,6 +626,30 @@ body {
       animation-iteration-count: 1 !important;
       transition-duration: 0.01ms !important;
       scroll-behavior: auto !important;
+    }
+  }
+}
+
+/* Windows high contrast (forced colors): the system drops box-shadow and every background tone, so the
+   field focus (border + inset shadow) and borderless controls and surfaces vanish. Normal colors unchanged.
+   Focus: a real outline, unlayered and !important so it beats `field-focus`'s outline: none.
+   Boundaries: a 1px border on controls and toned surfaces; forced colors paint it in the system color.
+   In the base layer, so a control's own border utility (border-2, border-0) still wins. */
+@media (forced-colors: active) {
+  :focus-visible {
+    outline-style: solid !important;
+    outline-width: 2px !important;
+    outline-color: Highlight !important;
+  }
+}
+@layer base {
+  @media (forced-colors: active) {
+    button, [role=button], [role=tab], select, textarea,
+    input:not([type="radio"]):not([type="checkbox"]):not([type="range"]),
+    a[class*="inline-flex"][class*="rounded"],
+    [class*="bg-brand-surface"], [class*="bg-brand-elevated"], [class*="bg-brand-tonal"] {
+      border-width: 1px;
+      border-style: solid;
     }
   }
 }
@@ -737,7 +797,8 @@ body {
   }
   .money-hero {
     @apply font-semibold tabular-nums;
-    font-size: var(--t-money-hero);
+    /* Never wider than a phone at 200% text: the price shrinks before it overflows (11vw = 41px at 375). */
+    font-size: min(var(--t-money-hero), 11vw);
     line-height: 1.15;
     letter-spacing: -0.01em;
   }
