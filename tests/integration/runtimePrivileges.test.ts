@@ -413,6 +413,27 @@ describe('CTO 225 - runtime role cannot bypass write-once guarantees (disposable
     }
   })
 
+  it('B3 preflight (npm run db:check-runtime): read-only, accepts the runtime, refuses a wrong role and reports findings', () => {
+    const { spawnSync } = require('child_process')
+    const preflight = (url: string, expectRole?: string) => {
+      const r = spawnSync(process.execPath, [require.resolve('ts-node/dist/bin.js'), '--transpile-only', 'scripts/db/check-runtime-privileges.ts'], {
+        cwd: ROOT, encoding: 'utf8',
+        env: { ...process.env, DATABASE_URL: url, ...(expectRole ? { EXPECT_ROLE: expectRole } : { EXPECT_ROLE: '' }) },
+      })
+      return { code: r.status, out: `${r.stdout}${r.stderr}` }
+    }
+    const ok = preflight(runtimeUrl)
+    expect(ok).toMatchObject({ code: 0 })
+    expect(ok.out).toMatch(/OK - sails_runtime holds no privilege beyond its classification \(read-only session\)/)
+    const wrongRole = preflight(migratorUrl)
+    expect(wrongRole).toMatchObject({ code: 5 })
+    expect(wrongRole.out).toMatch(/connected as sails_migrator, expected sails_runtime; refusing to run/)
+    const findings = preflight(migratorUrl, 'sails_migrator')
+    expect(findings.code).toBe(3)
+    expect(findings.out).toMatch(/database role sails_migrator owns \d+ relation\(s\) in schema public/)
+    expect(preflight(withUser(runtimeUrl, null, 'wrong-password', dbName))).toMatchObject({ code: 4 })
+  }, 120_000)
+
   it('boot check: PUBLIC grant, TRUNCATE, owned routine, TEMP (MG3), unreadable classification and an unclassified table are each refused', async () => {
     const check = () => app.privileges.inspectRuntimePrivileges()
     expect(await check()).toEqual([])

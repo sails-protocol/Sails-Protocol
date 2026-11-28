@@ -439,6 +439,12 @@ until it is classified, and the grant step fails while any table is unclassified
    schema or any relation in it (it would otherwise rewrite its own class). Run
    migrations through `npm run db:migrate` (= `scripts/migrate-deploy-safe.sh`),
    never `npx prisma migrate deploy` alone: that skips the grants.
+   Preflight before a cutover (read-only, B3): `DATABASE_URL=<runtime credential> npm run db:check-runtime`
+   runs the same check without starting the app (exit 0 OK, 3 findings, 4 connection/read-only error,
+   5 connected as a role other than `EXPECT_ROLE`, default `sails_runtime`). Its session is opened with
+   `default_transaction_read_only=on`. It loads the app configuration, so with `NODE_ENV=production` the
+   production variables must be set (otherwise exit 4). It needs dev dependencies (ts-node): run it from a
+   repository checkout (operator workstation or CI job that reaches the database), not from the production image.
 
 Shell requirement: `scripts/migrate-deploy-safe.sh` (and therefore `npm run
 db:migrate`) needs a POSIX-compatible `sh` (Linux, macOS, the Docker images,
