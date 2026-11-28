@@ -145,6 +145,8 @@ endpoint (`POST /v1/openp2p/trades/:id/reconcile`) where the client
 supplies its own last-seen cursor and gets back the true delta instead of
 full recent history.
 
+**Implementation status (2026-11-28):** the authenticated `POST /v1/openp2p/trades/:id/reconcile` route now exposes client-driven reconciliation, checks trade participation and accepts `sinceMessageCreatedAt`. The original paragraph above is historical. This remains shared-database catch-up, not independent-node replication.
+
 **Wired in `handlers.ts`** — a new `peer.connected` reaction, guarded on
 `localUserId` being present:
 
