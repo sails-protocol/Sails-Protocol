@@ -121,11 +121,13 @@ Event Bus             → namespaced {module}.{entity}.{action} events.
                         Event itself never being a primitive
                         (PROTOCOL_SPECIFICATION.md section 1.11).
                         RFC-008 (rfcs/RFC-008-verifiable-timestamps-and-
-                        chained-timeline.md) hash-chains each
-                        TimelineEntry (entryHash/prevHash, persisted on
-                        EscrowEvent/ReputationEvent) so tampering is
-                        detectable — this is the one place D5's original
-                        "no new write path" claim was later corrected.
+                        chained-timeline.md) specifies hash-chain integrity.
+                        Timeline projects DurableEvent hash links and
+                        implements verifyChain() per correlationId.
+                        Postgres is the default durable backend (RFC-008
+                        D2 amendment, 2026-08-15); Redis Streams and
+                        in-memory adapters also exist. IntentEvent and
+                        EscrowEvent have separate integrity boundaries.
                         RFC-010 (rfcs/RFC-010-durable-event-store.md)
                         makes durability pluggable via a new EventStore
                         Adapter (protocol says "must be durable and
@@ -254,7 +256,7 @@ full technical detail and is unchanged.
 
 | Module | Marketplace role | Responsibility | Status |
 |---|---|---|---|
-| **Sails OpenP2P** | Coordinates negotiation between participants. | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles against Postgres on peer reconnect (RFC-011) — a dropped HyperDHT/Pears message never actually lost data (every send already persists to `Message` first), it only lost real-time notification, which `ReconciliationService` catches back up on `peer.connected`. | ✅ Proven |
+| **Sails OpenP2P** | Coordinates negotiation between participants. | Orchestrates the Trade Lifecycle (9 states, see `PROTOCOL_SPECIFICATION.md`) using the five cross-module services above. Owns the Secretstream chat / negotiation channel. Reconciles persisted messages against Postgres on peer reconnect (RFC-011): `Message` persistence before send and `ReconciliationService` on `peer.connected` mitigate missed real-time delivery within the reference node's available database. This is not proof of cross-operator replication, recovery after loss of that database, or shared-market availability; those require separate Day-0 evidence (ADR-001 / #105). | ✅ Proven |
 | **Sails OpenAgents** | Runs automation, fraud prevention, risk analysis, and mediation assistance. | QVAC integration as a cross-cutting SDK — a **Crypto-Native Agent** (RFC-016): only ever acts on digital assets via WDK (negotiate, create/accept offers, lock/release escrow), never on fiat or banking rails. Any module can request matching, fraud detection, or risk analysis locally, without cloud dependency. **Social Engineering Agent real as of RFC-017** (`social-engineering-agent.ts`) — watches real chat messages (via the real `Timeline` read-model, RFC-007 D5/RFC-017) for two of RFC-007 D7's three named fraud-precursor patterns (off-channel migration, payment-instruction changes) using QVAC, and raises a real `RISK_WARNING` in the trade's chat — detection only, never unilateral action; the third pattern (unexpected flow deviation) and full Policy Engine integration remain future work (RFC-017's own scope note). Off by default (`config.features.socialEngineeringDetection`). | 🟡 First real capabilities |
 | **Sails OpenFinance** | Stays ready for future expansion, out of scope for the MVP. | Future financial modules: `LoanIntent`, `SwapIntent`, `EarnIntent`. Reuses OpenSettlement, OpenLiquidity, OpenReputation without duplicating logic. | 📋 Aspirational |
 | **Sails SDK** (MVP release: **Sails P2P Trading SDK**) | The single interface a wallet integrates to get the whole Marketplace. | `@satsails/p2p-trading-sdk` — a TypeScript wrapper (`SailsClient`) around every module's API, for integrators. Adds no new logic — pure interface encapsulation. | **Corrected (2026-09-10, Product Truth Sweep, F12):** this row previously read "📋 Aspirational (spec only, see `SDK_GUIDE.md`)" — stale. The SDK is real, versioned (`v1.0.0-rc1` per the whitepapers' own Proven-vs-Designed table), and tested; it is not spec-only. See `SDK_GUIDE.md` for real usage. |
@@ -373,7 +375,25 @@ src/
 │       │                                 RFC-010 — delegates to EventStore)
 │       ├── event-store.ts              (EventStore/DurableEvent, RFC-010 —
 │       │                                 InMemoryEventStore real,
-│       │                                 RedisStreamsEventStore a stub)
+│       │                                 RedisStreamsEventStore implemented
+│       │                                 and integration-tested per RFC-010
+│       │                                 (2026-08-04); PostgresEventStore
+│       │                                 is the wired default; in-memory
+│       │                                 store non-durable. Redis delivery
+│       │                                 at least once, not exactly once;
+│       │                                 startup subscription race disclosed.
+│       │                                 No production or cross-operator
+│       │                                 recovery guarantee follows.
+│       │                                 Economic replay protection is
+│       │                                 separate: INV-OP-5 in
+│       │                                 PROTOCOL_INVARIANTS.md defines
+│       │                                 source-transition projection
+│       │                                 claims, write-once settlement
+│       │                                 results and reconciliation;
+│       │                                 duplicate durable events may
+│       │                                 exist without duplicate effects.
+│       │                                 This is not a universal exactly-
+│       │                                 once execution guarantee)
 │       └── handlers.ts                 (Coordination Protocol — cross-module
 │                                         reactions to events)
 ├── core/                                (6 formal Core components, §1B —
@@ -450,8 +470,14 @@ src/
 │       │                                 each PearNode's real identity
 │       │                                 keypair, `sodium-native`)
 │       └── websocket-relay.service.ts  (WebSocketRelayTransportProvider —
-│                                         blind relay, CISO Privacy Rule;
-│                                         real, not yet wired to a route)
+│                                         relay implementation exposed via
+│                                         /ws/relay; "blind" is a design
+│                                         privacy boundary, not proof of
+│                                         end-to-end confidentiality or
+│                                         operator independence. Token auth,
+│                                         payload encryption, replay defenses,
+│                                         relay availability and failure
+│                                         behavior require separate evidence)
 └── modules/
     ├── open-settlement/
     │   ├── escrow.service.ts           (Escrow state machine, SettlementProvider)

@@ -19,11 +19,13 @@ interface Props {
   children?: ReactNode
   /** Lets the host return focus to "Abrir disputa" after the dispute form is cancelled. */
   disputeTriggerRef?: Ref<HTMLButtonElement>
+  /** Shown only when given: the host decides whether the trade itself may be cancelled (canCancelTrade). */
+  onCancelTrade?: () => void
 }
 
 const ICONS = { createEscrow: Unlock, lock: Lock, markPaymentSent: Banknote, release: CheckCircle2 }
 
-export function CurrentActionCard({ view, acting, onAction, onOpenDispute, children, disputeTriggerRef }: Props) {
+export function CurrentActionCard({ view, acting, onAction, onOpenDispute, children, disputeTriggerRef, onCancelTrade }: Props) {
   const ActorIcon = view.tone === 'waiting' ? Hourglass : view.tone === 'action' ? AlertTriangle : Info
   const titleId = useId()
   const PrimaryIcon = view.primary ? ICONS[view.primary.action] : null
@@ -51,7 +53,7 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
 
       {children}
 
-      {(view.primary || view.canDispute) && (
+      {(view.primary || view.canDispute || onCancelTrade) && (
         <div className="mt-4 flex flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between">
           {view.primary && PrimaryIcon && (
             <Button onClick={() => onAction(view.primary!.action)} loading={acting} className="w-full sm:w-auto min-h-11 px-5 py-2.5 text-sm">
@@ -69,6 +71,17 @@ export function CurrentActionCard({ view, acting, onAction, onOpenDispute, child
               className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:text-brand-disabled-content disabled:no-underline rounded-sm sm:ml-auto"
             >
               {t('trade.action.openDispute')}
+            </button>
+          )}
+          {onCancelTrade && (
+            // Tertiary like the dispute link: a way out, never competing with "Criar escrow".
+            <button
+              type="button"
+              onClick={onCancelTrade}
+              disabled={acting}
+              className="min-h-11 px-1 text-sm text-brand-text-secondary underline underline-offset-4 hover:text-brand-text disabled:text-brand-disabled-content disabled:no-underline rounded-sm sm:ml-auto"
+            >
+              {t('trade.action.cancelTrade')}
             </button>
           )}
         </div>

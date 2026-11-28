@@ -50,6 +50,11 @@ export function demoMemberSinceOf(raw: unknown): string | undefined {
   return typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? v : undefined
 }
 
+/** Demo-only flag on one raw escrow: show the gated fee breakdown with "—" amounts (CTO 38 complement 1); false for real data. */
+export function demoFeeBreakdownOf(raw: unknown): boolean {
+  return isDemoMode() && (raw as { demoFeeBreakdown?: unknown } | null)?.demoFeeBreakdown === true
+}
+
 /**
  * Demo-only contest view on a raw dispute from the demo backend (no endpoint yet, LOOSE_WIRES.disputeAppealView);
  * undefined for real data, so real mode never sees a fictional deadline or permission.
@@ -162,8 +167,10 @@ export interface DemoMarketPage {
   createdAt: string
   /** Lists offers (picked from the demo backend's, lib/marketSpaces.ts offersForMarket); a just-created market has none. */
   hasOffers: boolean
-  /** Fictional "Verificado" criteria met (lib/marketSpaces.ts); demo only. */
+  /** "Mercado ativo" criteria met on the fixture stats (lib/marketSpaces.ts, CTO 33); demo only. */
   verified: boolean
+  /** Last computation of the badge (fixture date), when it is shown. */
+  verifiedAt?: string
   /** Admin view only: members as public keys. */
   memberKeys: readonly string[]
 }
@@ -180,6 +187,7 @@ export function demoMarketPage(id: string, snapshot: readonly MarketView[] = dem
     createdAt: fixture.market.createdAt,
     hasOffers: true,
     verified: meetsDemoVerifiedCriteria(fixture.stats),
+    verifiedAt: meetsDemoVerifiedCriteria(fixture.stats) ? fixture.stats?.calculatedAt : undefined,
     memberKeys: market.relation === 'admin' ? members : [],
     // The administered community counts its (demo) members, so approve and remove change the number.
     ...(id === 'demo-market-meu' ? { market: { ...market, participants: members.length } } : {}),

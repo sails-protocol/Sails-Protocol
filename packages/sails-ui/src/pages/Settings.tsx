@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useOutletContext, useSearchParams } from 'react-router'
 import {
   Activity, Award, Bell, HelpCircle, KeyRound, Languages, LogOut, Monitor, Moon, Link2, Network, Server, Shield, ShieldCheck, Sun, SunMoon,
-  Globe, LayoutGrid, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
+  Globe, LayoutGrid, MessageCircleQuestion, Ticket, UsersRound, Wallet, ArrowLeft, type LucideIcon,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { useTheme } from '../context/ThemeContext'
@@ -40,6 +40,9 @@ import { BASE_URL } from '../lib/sailsClient'
 import { useNodeConnection } from '../hooks/useNodeConnection'
 import type { NodeConnectionStatus } from '../lib/nodeConnection'
 import { t } from '../i18n'
+import { safetyCenterHref, safetyCenterLanguageNote } from '../components/safety/SafetyCenterLink'
+import { FAQ_ROUTE } from '../lib/faq'
+import { FaqTextLink } from '../components/faq/FaqLink'
 
 // Option lists are built at render so their labels follow the interface language.
 const avatarStyleOptions = (): ReadonlyArray<{ value: IdentityAvatarStyle; label: string }> => [
@@ -366,7 +369,10 @@ export function Settings() {
           </SettingsGroup>
 
           <SettingsGroup {...panel('seguranca')} title={t('settings.section.security')} icon={Shield}>
-            <Planned id="keyBackup" />
+            {/* CTO R1 (2026-11-23): what is true today, in both modes; the backup itself is "Em breve". */}
+            <SettingsRow icon={LOOSE_WIRES.keyBackup.icon} label={LOOSE_WIRES.keyBackup.label} description={t('settings.security.recovery')} plannedLabel={t('common.soon')} />
+            <Planned id="keyBackupExport" />
+            <Planned id="keyBackupImport" />
             <Planned id="sessionLock" />
           </SettingsGroup>
 
@@ -382,12 +388,22 @@ export function Settings() {
           </SettingsGroup>
 
           <SettingsGroup {...panel('ajuda')} title={t('settings.section.help')} icon={HelpCircle}>
+            {/* External, live Safety Center (PO 2026-11-23): first in Ajuda e Sobre, in demo and real mode alike. */}
+            <SettingsRow
+              icon={ShieldCheck}
+              label={t('shell.safetyCenter.label')}
+              description={t('shell.safetyCenter.description') + safetyCenterLanguageNote()}
+              href={safetyCenterHref()}
+              newTabLabel={t('shell.safetyCenter.newTab')}
+            />
+            {/* Real content (CTO/PO 2026-11-23): second in Ajuda e Sobre, no "Simulado" marker. */}
+            <SettingsRow icon={MessageCircleQuestion} label={t('faq.title')} description={t('faq.rowDescription')} to={FAQ_ROUTE} />
             <SettingsRow icon={HelpCircle} label={t('settings.help.tour')} description={t('settings.help.tourDescription')} onClick={replayTour} />
             <SettingsRow
               icon={Award}
               label={REPUTATION_EXPLANATION.title}
               description={t('settings.help.reputationDescription')}
-              control={<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={t('settings.help.details')} variant="text" className="shrink-0" />}
+              control={<ExplanationPopover explanation={REPUTATION_EXPLANATION} label={t('settings.help.details')} variant="text" className="shrink-0" more={<FaqTextLink slug="reputacao">{t('faq.reputationLink')}</FaqTextLink>} />}
             />
             <Planned id="helpCenter" />
           </SettingsGroup>

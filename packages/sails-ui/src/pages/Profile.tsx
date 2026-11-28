@@ -28,6 +28,8 @@ import { TRADES_ROUTES } from '../components/layout/navMatch'
 import { MyOffersSection } from './MyOffers'
 import { MarketsCallToAction } from './markets/MarketsEntry'
 import { marketsValueLine } from './markets/shared'
+import { MerchantProgramSection } from './markets/MerchantProgram'
+import { MyStatsSection } from './stats/MyStats'
 import { t } from '../i18n'
 
 export function Profile() {
@@ -178,6 +180,11 @@ export function Profile() {
         <p className="mt-1 text-body-sm text-brand-text-secondary">{marketsValueLine()}</p>
         <MarketsCallToAction className="mt-2 -ml-3 justify-start" />
       </section>
+
+      {/* "Minhas estatísticas" sits above the Merchant program (PO 2026-11-23); "Seu caminho" links here. */}
+      <MyStatsSection user={user} className="mt-8" />
+
+      <MerchantProgramSection user={user} className="mt-8" />
 
     </Page>
   )

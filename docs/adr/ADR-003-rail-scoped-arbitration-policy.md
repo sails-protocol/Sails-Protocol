@@ -4,6 +4,7 @@
 - **Date:** 2026-09-18
 - **Owner:** Issue #207
 - **Related:** #165, #206, RFC-021, ADR-002
+- **Note:** Declaring a Gen-2 rail depends on RFC-024 and Delivery A (candidates, not homologated).
 
 ## Context
 

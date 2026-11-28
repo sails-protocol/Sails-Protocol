@@ -55,7 +55,11 @@ A future response-time commitment should be documented only after an actively mo
 - Ed25519 challenge-response — the client signs a server-issued nonce with
   their own keypair; no password ever exists to authenticate with
 - Session token (a random 32-byte value, not a JWT) issued on successful
-  verification, stored server-side in Redis, default 1-hour TTL
+  verification, stored server-side in Redis, default 1-hour TTL. It is a
+  bearer credential: whoever holds it acts as that participant until it
+  expires. The challenge-response proof is made once per session; later
+  requests are not individually signed, so the challenge gives no
+  per-operation replay protection
 - No logout/session-revocation endpoint exists yet — a session ends only
   by expiring; tracked as a real gap, not implemented
 

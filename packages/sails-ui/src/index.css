@@ -275,6 +275,13 @@
      (Arbitrum, Liquid) read on the dark surface; the logo itself is never recolored. */
   --color-asset-chip: 255 255 255;
 
+  /* Chart series (dashboards, PO 2026-11-23): one slot per asset in a fixed order (BTC, USDT, USDC), never orange,
+     buy/sell or status. Validated with the dataviz palette script, all pairs, on the surface: light #2a78d6 #d55181
+     #8a6d00 (CVD worst 12.2, normal 21.7, each >= 3:1); dark #3987e5 #d55181 #a88a14 (CVD 11.1, normal 21.7). */
+  --color-chart-1: 42 120 214;
+  --color-chart-2: 213 81 129;
+  --color-chart-3: 138 109 0;
+
   /* Sizes. Controls: 36 compact / 40 default on desktop, 44 touch on
      mobile. Icons 14/16/20/24 (14 only beside 12px text: badges, chips, meta lines). Avatars (UserAvatar SIZES) 28/36/48/64. */
   --control-h-sm: 36px;
@@ -292,6 +299,9 @@
 }
 
 :root.dark {
+  --color-chart-1: 57 135 229;
+  --color-chart-2: 213 81 129;
+  --color-chart-3: 168 138 20;
   /* Palette 2026-11-19 (CTO 437 / PM): graphite surfaces, contrast-checked
      (WCAG 2.1 AA: text >= 4.5:1, functional borders >= 3:1 on every surface). */
   --color-bg: 17 19 24;              /* #111318 */

@@ -8,7 +8,7 @@
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router'
-import { ArrowLeft, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
+import { ArrowLeft, ChartColumn, ExternalLink, MessageCircle, SearchX, Ticket, UserMinus } from 'lucide-react'
 import { Page, PageHeader } from '../components/layout/PageHeader'
 import { MARKETS_ROUTES, TRADES_ROUTES, marketPath } from '../components/layout/navMatch'
 import { Badge } from '../components/ui/badge'
@@ -22,6 +22,7 @@ import { AdminImage } from '../components/markets/AdminImage'
 import { IconButton } from '../components/ui/icon-button'
 import { MarketChats, type OpenPrivateRequest } from './markets/MarketChats'
 import { Tabs, tabPanelProps } from '../components/ui/tabs'
+import { MarketDashboard } from './stats/MarketDashboard'
 import { SegmentedControl } from '../components/ui/SegmentedControl'
 import { FilterChip } from '../components/ui/filter-chip'
 import { Button } from '../components/ui/button'
@@ -41,10 +42,10 @@ import { formatPrice } from '../lib/currency'
 import type { Offer } from '../types'
 import { formatMonthYear } from '../lib/format'
 import { cn } from '../lib/utils'
-import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
+import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycDetails, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
 import { t } from '../i18n'
 
-const SECTION = 'rounded-lg bg-brand-surface p-4'
+const SECTION = 'rounded-lg bg-brand-surface p-3 sm:p-4'
 const TAG = 'border-transparent bg-brand-tonal font-medium text-brand-text-secondary'
 // The community's house rules (demo), cited when the admin removes someone.
 const RULES = ['spaces.rules.inTrade', 'spaces.rules.respect', 'spaces.rules.noSpam'] as const
@@ -100,7 +101,11 @@ export function MarketPage() {
   const idBase = useId()
   // ?tab=chat&peer=…&name=… ("Voltar à conversa"): reopen Conversas › Privadas on that thread.
   const [params] = useSearchParams()
-  const [tab, setTab] = useState<'offers' | 'chat' | 'about'>(() => (params.get('tab') === 'chat' ? 'chat' : 'offers'))
+  // ?tab=dashboard opens "Painel" (owner only; anyone else lands on Ofertas).
+  const [tab, setTab] = useState<'offers' | 'chat' | 'about' | 'dashboard'>(() => { const p = params.get('tab'); return p === 'chat' || p === 'dashboard' ? p : 'offers' })
+  // Same page, new ?tab= (a link to ?tab=dashboard from this market): follow it.
+  const tabParam = params.get('tab')
+  useEffect(() => { if (tabParam === 'chat' || tabParam === 'dashboard') setTab(tabParam) }, [tabParam])
   const [side, setSide] = useState<'all' | 'BUY' | 'SELL'>('all')
   const [asset, setAsset] = useState<string | null>(null)
   const [chatRequest, setChatRequest] = useState<OpenPrivateRequest | null>(() => {
@@ -159,6 +164,9 @@ export function MarketPage() {
   }
 
   const m = page.market
+  // "Painel do espaço": the person who administers or owns this market only (PO 2026-11-23).
+  const owner = m.relation === 'admin' || !!m.ownedByYou
+  const shownTab = tab === 'dashboard' && !owner ? 'offers' : tab
   const requests = m.relation === 'admin' ? demoJoinRequests(m.id) : []
   const list = marketListCopy()
   const kyc = kycSummary(m.entryPolicy)
@@ -186,10 +194,21 @@ export function MarketPage() {
     setTab('chat')
   }
 
+  // Join action: inline with the title on phones (so the first offer is above the fold), under the description from sm.
+  const join = m.relation !== 'none' || m.visibility !== 'public' ? null : m.joinPending ? (
+    <>
+      <Badge variant="outline" className={TAG}>{t('spaces.join.pending')}</Badge>
+      <Button type="button" size="sm" variant="ghost" onClick={() => { demoJoin(m.id, 'cancel'); simulatedToast() }} className="touch:min-h-11">{t('spaces.join.cancel')}</Button>
+      <Button type="button" size="sm" variant="secondary" onClick={() => { demoJoin(m.id, 'approved'); simulatedToast(t('spaces.join.approvedToast')) }} className="touch:min-h-11">{t('spaces.join.simulateApprove')}</Button>
+    </>
+  ) : (
+    <Button type="button" size="sm" variant="secondary" onClick={() => { remember(); setRulesOpen(true) }} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
+  )
+
   return (
     <Page width="detail">
-      <PageHeader title={m.name} meta={m.visibility === 'private' ? list.visibility.private : list.visibility.public} back={back} />
-      <div className="space-y-4">
+      <PageHeader className="max-sm:mb-4" title={m.name} titleAside={join && <div className="flex flex-wrap items-center gap-2 sm:hidden">{join}</div>} meta={m.visibility === 'private' ? list.visibility.private : list.visibility.public} back={back} />
+      <div className="space-y-3 sm:space-y-4">
         <section aria-label={m.name} className={SECTION}>
           {/* Phones (< 640 px): a compact hero without the banner, so the first offers fit above the fold. */}
           <div className="hidden sm:block">{m.remoteBanner ? <AdminImage url={m.remoteBanner} placeholder={banner} copy={adminImageCopy()} alt="" /> : banner}</div>
@@ -198,24 +217,12 @@ export function MarketPage() {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] sm:flex-wrap [&>*]:shrink-0 [&>*]:whitespace-nowrap">
                 {profile && <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text">{profile}</Badge>}
-                {page.verified && <DemoVerifiedSeal explain />}
+                {page.verified && <DemoVerifiedSeal explain calculatedAt={page.verifiedAt} />}
                 {m.ownedByYou ? <Badge variant="outline" className={TAG}>{t('spaces.ownedByYou')}</Badge> : m.illustrative && <Badge variant="outline" className={TAG}>{list.illustrative}</Badge>}
               </div>
               {m.description && <p className="mt-1 line-clamp-1 break-words text-body-sm text-brand-text-secondary sm:line-clamp-none">{m.description}</p>}
               <p className="mt-1 tabular-nums text-caption text-brand-text-muted">{m.participants !== undefined ? t('spaces.participants', { count: m.participants }) : ''}{m.relation !== 'none' ? ` · ${list.relation[m.relation]}` : ''}</p>
-              {m.relation === 'none' && m.visibility === 'public' && (
-                <div className="mt-2 flex flex-wrap items-center gap-2">
-                  {m.joinPending ? (
-                    <>
-                      <Badge variant="outline" className={TAG}>{t('spaces.join.pending')}</Badge>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => { demoJoin(m.id, 'cancel'); simulatedToast() }} className="touch:min-h-11">{t('spaces.join.cancel')}</Button>
-                      <Button type="button" size="sm" variant="secondary" onClick={() => { demoJoin(m.id, 'approved'); simulatedToast(t('spaces.join.approvedToast')) }} className="touch:min-h-11">{t('spaces.join.simulateApprove')}</Button>
-                    </>
-                  ) : (
-                    <Button type="button" size="sm" variant="secondary" onClick={() => { remember(); setRulesOpen(true) }} className="touch:min-h-11">{m.entryType === 'approval' ? t('spaces.join.request') : t('spaces.join.join')}</Button>
-                  )}
-                </div>
-              )}
+              {join && <div className="mt-2 hidden flex-wrap items-center gap-2 sm:flex">{join}</div>}
             </div>
           </div>
         </section>
@@ -224,12 +231,14 @@ export function MarketPage() {
         <Tabs
           idBase={idBase}
           label={m.name}
-          value={tab}
+          value={shownTab}
           onChange={setTab}
-          items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.page.tabChats') }, { value: 'about', label: t('spaces.page.tabAbout') }]}
+          // Four tabs for the owner: at 320 px the row scrolls sideways instead of pushing the page wider.
+          className={owner ? 'overflow-x-auto [scrollbar-width:none] [&>button]:shrink-0 [&>button]:whitespace-nowrap' : undefined}
+          items={[{ value: 'offers', label: t('spaces.page.tabOffers') }, { value: 'chat', label: t('spaces.page.tabChats') }, { value: 'about', label: t('spaces.page.tabAbout') }, ...(owner ? [{ value: 'dashboard' as const, label: t('stats.space.tab') }] : [])]}
         />
 
-        <div {...tabPanelProps(idBase, 'offers')} hidden={tab !== 'offers'} className={cn(SECTION, 'space-y-3 outline-none')}>
+        <div {...tabPanelProps(idBase, 'offers')} hidden={shownTab !== 'offers'} className={cn(SECTION, 'space-y-3')}>
           {page.hasOffers && demoOffers === null && !offersError ? <ListSkeleton label={t('spaces.offers.loading')} rows={3} /> : offersError ? (
             <StateBlock kind="error" bare title={t('spaces.offers.error')} />
           ) : all.length === 0 ? (
@@ -255,7 +264,7 @@ export function MarketPage() {
                     <li key={o.id}>
                       <OfferCard offer={o} />
                       <div className="flex justify-end pb-2">
-                        <Button type="button" size="sm" variant="ghost" onClick={() => talk(o)} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.offers.talk')}</Button>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => talk(o)} aria-label={t('spaces.chat.privateWith', { name: sellerTrust(o).name ?? t('market.offer.seller') })} className="touch:min-h-11"><MessageCircle aria-hidden="true" />{t('spaces.offers.talk')}</Button>
                       </div>
                     </li>
                   ))}
@@ -265,11 +274,17 @@ export function MarketPage() {
           )}
         </div>
 
-        <div {...tabPanelProps(idBase, 'chat')} hidden={tab !== 'chat'} className={cn(SECTION, 'outline-none')}>
+        <div {...tabPanelProps(idBase, 'chat')} hidden={shownTab !== 'chat'} className={SECTION}>
           <MarketChats openWith={chatRequest} backTo={marketPath(m.id)} canPin={m.relation === 'admin'} />
         </div>
 
-        <div {...tabPanelProps(idBase, 'about')} hidden={tab !== 'about'} className="space-y-4 outline-none">
+        {owner && (
+          <div {...tabPanelProps(idBase, 'dashboard')} hidden={shownTab !== 'dashboard'}>
+            {shownTab === 'dashboard' && <MarketDashboard marketId={m.id} activity30d={m.activity30d} participants={m.participants} activeOffers={page.hasOffers && demoOffers === null ? null : all.length} />}
+          </div>
+        )}
+
+        <div {...tabPanelProps(idBase, 'about')} hidden={shownTab !== 'about'} className="space-y-4">
           <section aria-labelledby="market-facts" className={SECTION}>
             <h2 id="market-facts" className="sr-only">{t('spaces.page.tabAbout')}</h2>
             <dl className="divide-y divide-brand-border-subtle">
@@ -280,6 +295,11 @@ export function MarketPage() {
               <Fact k={list.infrastructureLabel.replace(/:$/, '')}>{list.infrastructure[m.infrastructure]}</Fact>
             </dl>
             {m.visibility === 'private' && <p className="mt-2 text-caption text-brand-text-secondary">{t('spaces.page.singleNode')}</p>}
+            {owner && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setTab('dashboard')} className="mt-2 -ml-2 touch:min-h-11">
+                <ChartColumn aria-hidden="true" />{t('stats.space.open')}
+              </Button>
+            )}
           </section>
 
           <section aria-labelledby="market-rules" className={SECTION}>
@@ -289,6 +309,7 @@ export function MarketPage() {
               <Fact k={t('markets.preview.trades')}>{presetRules.trades}</Fact>
               <Fact k={t('spaces.page.kyc')}>
                 {kycText(kyc)}
+                {kycDetails(m.entryPolicy).map((line) => <span key={line} className="block text-caption text-brand-text-secondary">{line}</span>)}
                 {kyc.kind !== 'none' && kyc.formUrl && <div><ExternalAdminLink href={kyc.formUrl} label={t('spaces.page.kycForm')} /></div>}
               </Fact>
               <Fact k={t('spaces.page.social')}>{social.length > 0 ? socialNames(social) : t('spaces.page.socialNone')}</Fact>
@@ -363,6 +384,7 @@ export function MarketPage() {
           <ul className="space-y-1.5 text-body-sm text-brand-text">
             <li>{presetRules.publishes}</li>
             <li>{kycText(kyc)}</li>
+            {kycDetails(m.entryPolicy, { dataHandling: true }).map((line) => <li key={line}>{line}</li>)}
             {RULES.map((r) => <li key={r}>{t(r)}</li>)}
           </ul>
           <p className="text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>

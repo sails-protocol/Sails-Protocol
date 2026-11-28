@@ -448,7 +448,7 @@ export class EscrowService {
     // — so this has zero effect on any real deployment right now; any
     // OTHER failure here (a real active policy, but the lookup itself
     // errors) must propagate and fail this call, per CTO decision.
-    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+    // The fee snapshot is computed below, inside the transaction and under the pair lock, from the committed fee policy.
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
@@ -463,14 +463,16 @@ export class EscrowService {
 
     const escrow = await prisma.$transaction(async (tx) => {
       let commitmentPairId: string | undefined
+      let pairFeePolicyId: string | null = null
       if (trade.tradeIntentId) {
         const { row, readiness } = await lockPairForEffect(tx, { anchorRef: trade.tradeIntentId })
         if (row) assertEscrowMatchesCommitment(input, type, row) // under the pair's FOR UPDATE lock
-        if (readiness.ok && row) commitmentPairId = row.id
+        if (readiness.ok && row) { commitmentPairId = row.id; pairFeePolicyId = row.feePolicyVersionId }
         else if (type !== 'MOCK') throw new EscrowError(`escrow refused: the trade has no executable commitment pair (${readiness.ok ? 'E25_COMMITMENT_MISSING' : readiness.code})`)
       } else if (type !== 'MOCK') {
         throw new EscrowError('escrow refused: the trade has no commitment anchor (E25_COMMITMENT_MISSING)')
       }
+      const feeSnapshot = await escrowFeeSnapshotService.computeCommittedSnapshotFields(type, input.lockedAmount, commitmentPairId ? pairFeePolicyId : null, tx)
       return this.repo.create({
         tradeId: input.tradeId,
         type,
@@ -752,10 +754,14 @@ export class EscrowService {
   // "AUTHORITY BOUNDARY" comment (M8-R2, docs/DESTINATION_AUTHORITY_ARCHITECTURE.md).
   // settlement.routes.ts's `/release` always passes undefined here, so a
   // cooperative release resolves the buyer's own registered PayoutAddress.
-  // dispute.service.ts's legacy applyRuling() (LIGHTNING_HODL/
-  // SAFE_GUARD_EVM/WDK_USDT_EVM/MOCK disputes, unmigrated) still passes
-  // the arbiter's own releaseToAddress here — a disclosed residual gap,
-  // not fixed by M8-R2 (out of that mission's bounded scope).
+  // dispute.service.ts's applyRuling() (LIGHTNING_HODL/SAFE_GUARD_EVM/
+  // WDK_USDT_EVM/MOCK disputes) passes undefined here too: since M8-R2
+  // (2026-09-11) releaseToAddress/refundToAddress were removed from it,
+  // and resolveDispute() treats them as inert for every escrow type, so a
+  // disputed release also resolves the buyer's registered PayoutAddress.
+  // MULTISIG disputes snapshot that address into the durable Outcome
+  // (applyRulingCoreAuthoritative()). Only a trusted internal caller that
+  // has already verified the address may pass an explicit value.
   // Issue #254 - disputeId (additive, optional) is set ONLY by dispute.service.ts's applyRuling() for a
   // real RELEASE ruling - captured into the settlement.escrow.released event's own payload (below) so
   // common/events/handlers.ts's reputation-outcome derivation never needs to re-query CURRENT (mutable,

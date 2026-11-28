@@ -54,6 +54,17 @@ function requiredDecimalInRange(name: string, fallback: number, min: number, max
   return parsed
 }
 
+// Optional fee rate (a fraction, e.g. 0.004): unset or empty means none; otherwise a finite decimal >= 0 with at most 8
+// places, refused at boot rather than failing every later fee computation.
+function optionalFeeRate(name: string): string | undefined {
+  const raw = process.env[name]
+  if (raw === undefined || raw === '') return undefined
+  if (!/^\d+(\.\d{1,8})?$/.test(raw)) {
+    throw new Error(`Environment variable ${name} must be a decimal >= 0 with at most 8 decimal places, got: ${raw}`)
+  }
+  return raw
+}
+
 // Strict positive integer: decimal digits only, > 0. Unlike requiredPositiveInt()
 // (parseInt: "1.5" -> 1, "100abc" -> 100) it refuses anything that is not
 // exactly a positive integer, capped at the Node timer limit (a larger delay
@@ -628,6 +639,8 @@ export const config = {
     // set this cannot construct a fee-collecting transaction at all,
     // by construction, not by convention.
     protocolFeeCollectionAddress: process.env.SAILS_PROTOCOL_FEE_COLLECTION_ADDRESS || undefined,
+    // Optional, can only LOWER the protocol fee ceiling (FeePolicyService.PROTOCOL_MAX_FEE_RATE); never widens it.
+    maxProtocolFeeRate: optionalFeeRate('SAILS_MAX_PROTOCOL_FEE_RATE'),
     // RFC-021 D2 — which ArbitrationProvider settlement.routes.ts's
     // getDisputeService() constructs. 'trusted-list' (default) preserves
     // RFC-007 D4's exact original behavior for every existing deployment;

@@ -14,7 +14,7 @@ jest.mock('../src/common/database', () => ({
 
 const mockFindById = jest.fn()
 jest.mock('../src/modules/open-p2p/trade-repository', () => ({ tradeRepository: { findById: (...a: unknown[]) => mockFindById(...a) } }))
-jest.mock('../src/modules/open-settlement/escrow-fee-snapshot.service', () => ({ escrowFeeSnapshotService: { computeSnapshotFields: jest.fn(async () => null) } }))
+jest.mock('../src/modules/open-settlement/escrow-fee-snapshot.service', () => ({ escrowFeeSnapshotService: { computeSnapshotFields: jest.fn(async () => null), computeCommittedSnapshotFields: jest.fn(async () => null) } }))
 jest.mock('../src/common/events/event-bus', () => ({ eventBus: { emit: jest.fn(async () => undefined) } }))
 jest.mock('../src/config', () => ({ get config() { return { isProduction: false, features: { mockEscrow: false, enforceCapabilities: false, requireDualApprovalForRelease: false }, trade: { defaultTimelockHours: 24 }, settlement: { trustedArbitrators: [] }, arkade: { seed: '' } } } }))
 jest.mock('@tetherto/wdk-wallet-evm', () => ({ __esModule: true, default: class FakeWalletManagerEvm {} }))

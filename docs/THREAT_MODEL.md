@@ -14,16 +14,16 @@
 | Threat | Severity | Mitigation |
 |---|---|---|
 | **Fake Liquidity** | High | QVAC (once implemented) detects offers with zero completion history. Trust limits: new peers have low trade caps until volume is proven (see `SECURITY_MODEL.md` section on trust limits). |
-| **Sybil Attack** | High | Reputation requires real Bitcoin volume — zero volume means low score means low trust limits. Creating many fake identities has real economic cost, not just effort. |
+| **Sybil Attack** | High | Volume-linked reputation and trade limits are intended to raise attack cost, but do not prove that volume is independent or economically genuine. Colluding identities may generate circular trades; resistance to capital-funded Sybil activity remains a residual risk (RFC-021). |
 | **PIX / Fiat Proof Fraud** | High | QVAC image analysis + pattern matching (future). Repeated fake receipts from the same keypair get auto-flagged. Today, this relies on the counterparty's own judgment plus dispute resolution. |
 | **Chat Phishing** | Medium | URL detection in Secretstream messages (future QVAC capability). Suspicious patterns — links, urgency, requests to pay outside the agreed method — should be flagged. |
-| **Reputation Manipulation** | Medium | Anti-double-rating enforced at the database level (`@@unique([tradeId, raterId])`). QVAC (future) detects coordinated rating groups: same IP, same timing, circular trades between colluding accounts. |
+| **Reputation Manipulation** | Medium | The database constraint (`@@unique([tradeId, raterId])`) limits duplicate ratings by the same rater for a trade; it does not prevent coordinated distinct identities or circular trades. QVAC-based detection of rating rings (IP/timing/circular patterns) is future work, not an active control. |
 | **Escrow Exploit** | High | Escrow is always architecturally separate from the application (see `ARCHITECTURE.md` layer-violation fix). Multisig 2-of-3 — no single entity controls funds alone. Third-party security audit required before mainnet (see `ROADMAP.md`). |
 | **API Abuse / DDoS** | Low | Rate limiting per IP is real (`@fastify/rate-limit`, resolved 2026-07-18 — see §4 below for the exact config and its still-open gaps). Per-keypair/API-key limiting and "API keys carrying their own reputation score" remain design intentions, not built. Sandbox environment kept separate from production. |
 | **Custody Creep** | High | Normative target: Sails economic coordination must remain non-custodial. Reference/provider implementations are independently classified and may violate or only partially satisfy that target until remediated; RFC-019/RFC-020 and production-eligibility gates own those distinctions. Interface conformance alone does not prove non-custody. |
-| **Malicious Arbiter Collusion** *(v7.4 — CTO review finding; updated 2026-07-29, RFC-021)* | High | An arbiter colluding with one counterparty to rule unfairly. Under `ARBITRATION_MODE=trusted-list` (default), mitigated by the Reputation-as-bond mechanism (`SECURITY_MODEL.md` §3) — a bad ruling damages the arbiter's `ReputationScore` publicly and permanently. Under `ARBITRATION_MODE=market` (`docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`), the mitigation is real, not just reputational: an appealed-and-overturned ruling triggers `MarketArbitrationProvider.slash()` — a real forfeit of posted collateral plus a reputation penalty, and the appeal panel that overturns the ruling is drawn weighted 70% toward reputation (not stake), so the same deep-capital arbiter who won first-instance selection doesn't also dominate the panel judging them. **Honestly disclosed residual risk, not closed by either mode:** capital-based Sybil collusion (an attacker funding both a colluding arbiter and the counterparty) has no closed-form solution here — RFC-021's own "Known Risks — Mitigated, Not Solved" section states this explicitly; slashing raises the real cost of collusion, it does not make it impossible. **A sharper variant — self-dealing, not collusion — found and closed 2026-08-15 (Missão 04 hardening):** under `market` mode, neither `assign()` nor `assignAppealPanel()` excluded the disputed trade's own buyer/seller from the eligible arbiter pool, so a trade party who registered enough collateral had a real chance of being assigned to arbitrate their own dispute — no collusion needed, since the arbiter and the interested party were the same identity. Fixed at the source (`eligibleFor()`'s new `excludeParticipantIds`); see RFC-021 D2's own dated note for the full writeup. Not live by default (`market` mode is opt-in), so no deployment was ever exposed. |
-| **Fabricated Dispute Evidence** *(v7.4, updated 2026-08-02 — RFC-021 D8)* | Medium | A party submits falsified `Proof` (`PROTOCOL_SPECIFICATION.md` §1.8) to win a dispute. Mitigated by requiring `Proof.verifiedBy` from an independent party where possible, and — no longer purely future — by real, config-gated QVAC evidence analysis (`assessDisputeEvidence()`, off by default, `QVAC_AUTO_RESOLUTION_ENABLED`). This does not stop fabrication itself: a low-confidence or `INCONCLUSIVE` read from QVAC changes nothing (the dispute falls straight through to its assigned human arbiter, exactly today's behavior), and QVAC's own recommendation is never final on its own — either trade party can contest it within a window, forcing human review. QVAC being fooled by a convincing fabrication is a real, undiscovered-until-contested residual risk, not eliminated by this mitigation — see RFC-021's own "Known Risks" §D8 entries. |
-| **Arbitration Griefing** *(v7.4)* | Low | A party opens disputes in bad faith purely to delay settlement. Mitigated by the Dispute primitive's `openedBy` field feeding directly into Reputation's dispute-rate component (`PROTOCOL_SPECIFICATION.md` §1.6) — frequent bad-faith disputes are visible and penalized. |
+| **Malicious Arbiter Collusion** *(v7.4 — CTO review finding; updated 2026-07-29, RFC-021)* | High | An arbiter colluding with one counterparty to rule unfairly. Under `ARBITRATION_MODE=trusted-list` (default), arbiter reputation is an accountability incentive (`SECURITY_MODEL.md` §3), not a guaranteed automatic penalty: detection, attribution, publication, and score mutation depend on their respective implemented paths. Under `ARBITRATION_MODE=market` (`docs/rfcs/RFC-021-market-based-arbitration-and-payment-trust.md`), the mitigation is real, not just reputational: an appealed-and-overturned ruling can invoke `MarketArbitrationProvider.slash()` in the opt-in implementation — a collateral forfeit plus a reputation penalty, subject to the configured execution path, and the appeal panel that overturns the ruling is drawn weighted 70% toward reputation (not stake), so the same deep-capital arbiter who won first-instance selection doesn't also dominate the panel judging them. **Honestly disclosed residual risk, not closed by either mode:** capital-based Sybil collusion (an attacker funding both a colluding arbiter and the counterparty) has no closed-form solution here — RFC-021's own "Known Risks — Mitigated, Not Solved" section states this explicitly; slashing raises the real cost of collusion, it does not make it impossible. **A sharper variant — self-dealing, not collusion — found and closed 2026-08-15 (Missão 04 hardening):** under `market` mode, neither `assign()` nor `assignAppealPanel()` excluded the disputed trade's own buyer/seller from the eligible arbiter pool, so a trade party who registered enough collateral had a real chance of being assigned to arbitrate their own dispute — no collusion needed, since the arbiter and the interested party were the same identity. Fixed at the source (`eligibleFor()`'s new `excludeParticipantIds`); see RFC-021 D2's own dated note for the full writeup. Not live by default (`market` mode is opt-in), so no deployment was ever exposed. |
+| **Fabricated Dispute Evidence** *(v7.4, updated 2026-08-02 — RFC-021 D8)* | Medium | A party submits falsified `Proof` (`PROTOCOL_SPECIFICATION.md` §1.8) to win a dispute. Mitigated by requiring `Proof.verifiedBy` from an independent party where possible, and — no longer purely future — by real, config-gated QVAC evidence analysis (`assessDisputeEvidence()`, off by default, `QVAC_AUTO_RESOLUTION_ENABLED`). This does not stop fabrication itself: a low-confidence or `INCONCLUSIVE` read from QVAC changes nothing (the dispute falls straight through to its assigned human arbiter, exactly today's behavior), and QVAC's recommendation is advisory only: it never executes a settlement, either trade party can contest it within a window, and an uncontested recommendation expires back to human review, where a signed arbiter decision is still required (updated 2026-11-27; see the supersession note in RFC-021 D8). QVAC being fooled by a convincing fabrication is a real, undiscovered-until-contested residual risk, not eliminated by this mitigation — see RFC-021's own "Known Risks" §D8 entries. |
+| **Arbitration Griefing** *(v7.4)* | Low | A party opens disputes in bad faith purely to delay settlement. The `Dispute.openedBy` field supports attribution and dispute-rate analysis (`PROTOCOL_SPECIFICATION.md` §1.6), but does not by itself prove bad faith or guarantee a reputation penalty; outcome/event processing must be verified separately. |
 
 ---
 
@@ -41,10 +41,10 @@ failure modes:
 - **Non-custodial protocol target** — removes a major attack surface when correctly implemented, but custody properties must be verified per settlement provider/reference implementation; they are not guaranteed by prose or interface shape alone
 - **Escrow isolation as an architectural goal** — module separation reduces coupling, but compromise impact depends on the concrete provider/custody model; architectural separation alone is not proof that funds cannot be exposed
 - **Multi-party authorization where the selected rail/provider actually implements it** — do not generalize MULTISIG semantics to WDK/EVM or other rails without rail-specific evidence
-- **QVAC-assisted fraud detection runs locally** — no cloud dependency, no
-  centralized honeypot of user financial intent data
-- **Anti-Sybil reputation tied to real volume** — much more expensive to
-  attack than a simple account-creation-based reputation system
+- **QVAC-assisted fraud detection is a local-first design goal**, not a generally active protection: most detectors remain future work; the dispute-evidence assessment is implemented but opt-in and advisory only (see §4).
+- **Volume-linked reputation and trust limits** may raise Sybil attack cost,
+  but do not establish verified economic independence or eliminate circular
+  trading and capital-funded collusion (RFC-021).
 
 ---
 
@@ -61,6 +61,30 @@ failure modes:
 ---
 
 ## 4. What Is NOT Yet Mitigated (be honest about current gaps)
+
+### Network topology and resource safety (ADR-001 §26.4–26.5)
+
+The inspected reference branch configures an HTTP rate limiter and a
+WebSocket `maxPayload` of 1 MiB (`app.ts`). Chat `SEND_MESSAGE` has a
+process-local participant budget; selected HTTP routes also use a
+Redis-backed limiter. These controls do not establish a common ingress
+budget across transports. The inspected `/ws/relay` handler dispatches
+post-upgrade frames without a route-level message/byte budget, and the
+Pears message handler does not establish equivalent application-level
+peer-count, ingress or backpressure bounds. This is a scoped source
+observation, not an assertion about every dependency or deployment.
+
+Handshake identity checks and signed-offer verification constrain
+identity claims and content authenticity, not peer diversity, selective
+forwarding, eclipse resistance or resource consumption by valid signed
+facts. Local reconnect reconciliation does not demonstrate recovery of
+an independent operator's market view. ADR-001 requires adversarial
+topology evidence, alternate honest paths and explicit gossip resource
+bounds; formal Sybil resistance remains separately tracked. Do not
+interpret these reference controls as network-wide availability or
+production readiness evidence (Issue #105).
+
+### Historical findings and scoped mitigations
 
 - ~~No rate limiting exists in the current code fragment~~ **Resolved**
   *(2026-07-18)* — `@fastify/rate-limit` is real, registered globally
@@ -149,8 +173,8 @@ failure modes:
   exist. The one exception: **Fabricated Dispute Evidence**'s row above
   is real, working, tested code (`qvac-agent.provider.ts`'s
   `assessDisputeEvidence()`, RFC-021 D8) — off by default
-  (`QVAC_AUTO_RESOLUTION_ENABLED=false`), bounded (never final without a
-  contest window either party can invoke), and deliberately
+  (`QVAC_AUTO_RESOLUTION_ENABLED=false`), advisory only (it never executes a
+  settlement; an uncontested recommendation expires back to human review; updated 2026-11-27), and deliberately
   payment-method-agnostic (not scoped to PIX specifically, this being a
   worldwide protocol).
 - **The `PearPeerManager` singleton bug** (documented and fixed in

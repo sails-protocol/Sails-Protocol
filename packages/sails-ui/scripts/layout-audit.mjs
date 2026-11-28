@@ -29,10 +29,10 @@ const MENUS = ['side', 'top']
 // Main screens reachable by URL. Flows with steps (wizards, dialogs) are covered by each lot's own audit.
 const ROUTES = [
   '/', '/trades', '/trades/history', '/trades/offers', '/trades/disputes', '/profile',
-  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/new?space=private',
+  '/markets', '/markets/mine', '/markets/new', '/markets/join', '/markets/demo-market-boreal', '/markets/demo-market-meu', '/markets/demo-market-meu?tab=dashboard', '/markets/new?space=private',
   '/settings?section=wallet', '/settings?section=aparencia', '/settings?section=idioma',
   '/settings?section=notificacoes', '/settings?section=seguranca', '/settings?section=no-sails',
-  '/settings?section=comunidades', '/settings?section=ajuda',
+  '/settings?section=comunidades', '/settings?section=ajuda', '/settings/help/faq',
 ].filter((r) => !arg('--only', '') || arg('--only', '').split(',').some((o) => r.startsWith(o)))
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))

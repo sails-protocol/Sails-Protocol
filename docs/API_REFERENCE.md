@@ -138,6 +138,7 @@ left undocumented once it was corrected.
 | GET | `/v1/identity/participants/:id` | Fetch a participant's profile |
 | POST | `/v1/identity/challenge` | Issue an auth challenge |
 | POST | `/v1/identity/authenticate` | Verify the signed challenge, issue session token |
+| POST | `/v1/identity/ws-ticket` | Authenticated bearer request; issue a short-lived, single-use WebSocket ticket |
 
 Legacy equivalents (pre-namespacing): `POST /identity/create`, `GET
 /identity/:id`, `POST /identity/challenge`, `POST /identity/authenticate`,
@@ -211,8 +212,8 @@ environment. See `rfcs/RFC-020-non-custodial-evm-settlement.md` and
 | GET | `/v1/settlement/disputes/:id` | Requires authentication and is scoped to the trade parties or assigned arbiter. `404` for an unknown id. |
 | POST | `/v1/settlement/disputes/:id/resolve` | Only the assigned arbiter (RFC-007 D4) may call this. `ruling`: `RELEASE` (releases to `releaseToAddress`), `REFUND`, or `SPLIT` (RFC-021 D9, 2026-08-02 — also takes `refundToAddress`/`splitBuyerBps`; real for `MOCK`/`WDK_USDT_EVM`/`MULTISIG`, rejected with a specific error for `SAFE_GUARD_EVM`/`LIGHTNING_HODL` — see that RFC's own D9 section). **`releaseToAddress`/`refundToAddress` are optional as of 2026-08-04** — if omitted, `escrow.service.ts` falls back to the buyer's/seller's own registered `PayoutAddress` (`POST /v1/settlement/payout-addresses` below) for the escrow's asset, throwing a clear error only if neither an explicit address nor a registered one exists. `splitBuyerBps` has no such fallback and is still required up front for `SPLIT`. Requires `TRUSTED_ARBITRATORS` configured (`.env.example`) — returns a config error otherwise, not a boot failure. **`authoritySignature`/`authorityIssuedAt` are now REQUIRED (Missão 13 Fase 2, INV-12, 2026-08-29)** — an Ed25519 signature (hex) over the canonical decision (`disputeId`, `escrowId`, `appealRound`, the caller's own `authorityId`, `ruling`, the SPLIT `buyerBps` or `null`, and `authorityIssuedAt` itself), verified server-side against the caller's own registered `User.publicKey` before any settlement action runs — a request with a matching `arbiterId` but no valid signature is rejected (`403`), never falling back to trusting the request body alone. The SDK's `resolveDisputeWithWallet()` builds and signs this automatically; see `docs/API_STABLE.md` and `src/modules/open-settlement/arbitration-authority.ts` for the full construction. |
 | POST | `/v1/settlement/disputes/:id/appeal` | RFC-021 D6. Either trade party may reopen a `RESOLVED` dispute for a larger, more reputation-weighted appeal panel — only meaningful under `ARBITRATION_MODE=market`. Response includes `appealFeeRequired` (real, collected — `DisputeAppealFee`, settled FORFEITED/REFUNDED once the appeal panel rules). |
-| POST | `/v1/settlement/disputes/:id/evidence` | RFC-021 D8, added 2026-08-02. Either trade party attaches more evidence (`{ type, uri?, note? }`) to their own open dispute — `raiseDispute()`'s own initial `evidence` param only covers what existed at open time. Transitions `OPENED`/`EVIDENCE_SUBMITTED` → `EVIDENCE_SUBMITTED`. May trigger a QVAC auto-resolution attempt server-side (`QVAC_AUTO_RESOLUTION_ENABLED`, off by default) — this call itself only ever returns the updated `Dispute` row, never a ruling. |
-| POST | `/v1/settlement/disputes/:id/contest` | RFC-021 D8. Either trade party rejects a proposed automated ruling (`status: AUTO_PROPOSED`) before its `autoResolutionDeadline`, reverting to `EVIDENCE_SUBMITTED` and falling back to the already-assigned human arbiter — no new arbiter assignment happens. `400` once the window has closed or if there is no pending automated resolution. |
+| POST | `/v1/settlement/disputes/:id/evidence` | RFC-021 D8, added 2026-08-02. Either trade party attaches more evidence (`{ type, uri?, note? }`) to their own open dispute — `raiseDispute()`'s own initial `evidence` param only covers what existed at open time. Transitions `OPENED`/`EVIDENCE_SUBMITTED` → `EVIDENCE_SUBMITTED`. May trigger a QVAC advisory recommendation server-side (`QVAC_AUTO_RESOLUTION_ENABLED`, off by default; the recommendation never executes a settlement) — this call itself only ever returns the updated `Dispute` row, never a ruling. |
+| POST | `/v1/settlement/disputes/:id/contest` | RFC-021 D8. Either trade party rejects a proposed QVAC recommendation (`status: AUTO_PROPOSED`; advisory only, never executed) before its `autoResolutionDeadline`, reverting to `EVIDENCE_SUBMITTED` (an uncontested proposal also returns there when the window expires) and falling back to the already-assigned human arbiter — no new arbiter assignment happens. `400` once the window has closed or if there is no pending automated resolution. |
 | POST | `/v1/settlement/payout-addresses` | BACKLOG.md's own "Participant payout address" gap, closed 2026-08-04. Body: `{ asset, address }` — registers/overwrites (idempotent upsert) the caller's own payout address for that asset. One row per (participant, asset); a BTC address and an EVM address are unrelated values, not one field. |
 | GET | `/v1/settlement/payout-addresses/:participantId/:asset` | Requires auth, self-scoped — `403` unless the caller's own id matches `:participantId` (corrected 2026-09-13, F-06/System Coherence & Integration Audit; was public/no-session, which described no real caller). `404` if the caller has never registered an address for that asset. |
 
@@ -250,6 +251,46 @@ tracked; see that file's "Resolved Items" section.
 Legacy equivalents: `POST /trade/create`, `GET /trade/:id`, `PATCH
 /trade/:id/status`, `WS /ws`, `GET /chat/:tradeId/messages`, `GET
 /chat/online`.
+
+### Trade admission and accepted offer revision (E21 R1)
+
+`TradeService.createTrade()` supports an optional `acceptedEnvelopeId`
+that is fixed at creation and references an append-only offer-envelope
+row. Migration `20261121120000_trade_accepted_envelope` checks owner,
+active status, database-clock expiry, absence of a locally known higher
+or conflicting revision, asset, side, price, payment method and amount
+bounds. The foreign key restricts deletion of the referenced row. The
+trigger does not reverify signatures (repository ingestion performs
+verification), compare network/rail semantics, or establish global
+revision convergence. Its owner/terms checks do not independently prove
+a logical-offer-to-legacy-Offer mapping.
+
+This is a service/database capability: the current canonical HTTP trade
+creation route does not expose or forward `acceptedEnvelopeId`. Omission
+retains legacy Offer-only admission with a NULL reference. The service's
+optional idempotency key binds the offer ID, amount and accepted envelope
+ID when supplied; this is not cross-node inventory reservation or
+bilateral signed acceptance. See `tests/integration/tradeAcceptedEnvelope.test.ts`
+for the scoped database/admission test cases and Issue #105 for remaining
+Day-0 evidence requirements.
+
+### WebSocket authentication
+
+Obtain a ticket from `POST /v1/identity/ws-ticket` using the HTTP bearer
+session, then connect to `/v1/openp2p/chat?ticket=...` or
+`/ws/relay?ticket=...`. Do not put the HTTP session token in the URL.
+Both routes resolve the ticket through `atomicConsume()` in Redis
+(Issue #301), binding the connection to the stored participant ID.
+Each connection attempt requires a fresh ticket. A leaked unused ticket
+can still be consumed by another party before its expiry; single-use
+consumption is not proof of possession of the original identity key.
+The ticket is participant-bound, not route-bound. Its TTL governs
+connection admission, not the lifetime of an established socket;
+these handlers do not continuously revalidate the HTTP session.
+Chat checks trade participation on JOIN_TRADE and SEND_MESSAGE and
+assigns the sender from the authenticated connection. Ticket authentication
+does not establish message-level signatures, replay protection, relay
+confidentiality or economic authorization.
 
 ### WebSocket protocol (client → server)
 
