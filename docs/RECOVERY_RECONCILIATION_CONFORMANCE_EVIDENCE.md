@@ -98,7 +98,7 @@ recovery to ever find. `escrow-settlement-reconciliation.service.ts`'s
 own header states PASS 1 "asks the chain, for MULTISIG only ... every
 every other rail fails closed" verbatim. See §16 BACKLOG DELTA.
 
-**Recovery limits by rail (Corrected/Implemented 2026-11-27).** Summary of what this record, the WDK evidence documents and the reconciler in `escrow-settlement-reconciliation.service.ts` establish (the evidence documents predate the WDK, LIGHTNING_HODL and SAFE_GUARD_EVM restart convergence listed below); a durable store of events is not a recovery guarantee, and an external result that is unknown stays unknown until a reconciler asks the external system.
+**Recovery limits by rail (Corrected/Implemented 2026-11-27).** Summary of what this record, the WDK evidence documents and the reconciler in `escrow-settlement-reconciliation.service.ts` establish (the evidence documents predate the WDK, LIGHTNING_HODL and SAFE_GUARD_EVM restart convergence listed below); a durable store of events is not a recovery guarantee, and an external result that is unknown stays unknown until a reconciler asks the external system. Two different mechanisms appear below and must not be confused: recovery that asks an external system (the chain for `MULTISIG`, a read-only receipt check for `WDK_USDT_EVM`), and recovery based only on persisted pre- and post-submission finalization evidence, with no external query (`LIGHTNING_HODL` and `SAFE_GUARD_EVM`, which do not make an automatic external query on this path).
 
 | Rail | What recovers after a crash or an unknown external result | Limits |
 |---|---|---|
