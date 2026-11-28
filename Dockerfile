@@ -95,7 +95,7 @@ FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00
 # operator might actually filter on.
 LABEL org.opencontainers.image.title="sails-p2p-protocol" \
       org.opencontainers.image.description="Sails Protocol reference implementation - P2P marketplace server; self-custody escrow on the MULTISIG rail, server-custodial reference rails are production-ineligible" \
-      org.opencontainers.image.source="https://github.com/alan-schramm/Sails-Protocol" \
+      org.opencontainers.image.source="https://github.com/sails-protocol/Sails-Protocol" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 ENV NODE_ENV=production
