@@ -36,6 +36,7 @@ import { recordLiveCorrespondenceIfApplicable } from './dispute-correspondence'
 import { authorizePendingExecution } from './capability-execution-authorization'
 import { authorizeDisputedPendingExecution, economicDispositionLockKey } from './economic-disposition-authority'
 import { childLogger } from '../../common/logger'
+import { committedBreakEven } from './fee-break-even'
 
 const log = childLogger('escrow-pending-tx')
 
@@ -173,7 +174,9 @@ async function initiateSignatureCollectionCore(
   // only path MULTISIG actually uses for a real disputed release/refund/
   // split. Not a new authorization mechanism — the check itself already
   // existed; only its input was missing.
-  const escrowRecord = { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey, triggeredBy }
+  // CTO 38 §14 — break-even parameters come from the escrow's own fee policy, the committed one (immutable row).
+  const feeBreakEven = await committedBreakEven(prisma, escrow.feePolicyVersionId)
+  const escrowRecord = { ...escrow, buyerId: trade.buyerId, sellerId: trade.sellerId, buyerPubkey, sellerPubkey, arbiterPubkey, triggeredBy, feeBreakEven }
 
   const result = await buildProvider(provider, escrowRecord)
 
