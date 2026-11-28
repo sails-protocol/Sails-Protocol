@@ -448,7 +448,7 @@ export class EscrowService {
     // — so this has zero effect on any real deployment right now; any
     // OTHER failure here (a real active policy, but the lookup itself
     // errors) must propagate and fail this call, per CTO decision.
-    const feeSnapshot = await escrowFeeSnapshotService.computeSnapshotFields(type, input.lockedAmount)
+    // The fee snapshot is computed below, inside the transaction and under the pair lock, from the committed fee policy.
 
     // MULTISIG/LIGHTNING_HODL's buyer/seller keys are now client-held
     // (each provider's own header comment) — the deposit address
@@ -463,14 +463,16 @@ export class EscrowService {
 
     const escrow = await prisma.$transaction(async (tx) => {
       let commitmentPairId: string | undefined
+      let pairFeePolicyId: string | null = null
       if (trade.tradeIntentId) {
         const { row, readiness } = await lockPairForEffect(tx, { anchorRef: trade.tradeIntentId })
         if (row) assertEscrowMatchesCommitment(input, type, row) // under the pair's FOR UPDATE lock
-        if (readiness.ok && row) commitmentPairId = row.id
+        if (readiness.ok && row) { commitmentPairId = row.id; pairFeePolicyId = row.feePolicyVersionId }
         else if (type !== 'MOCK') throw new EscrowError(`escrow refused: the trade has no executable commitment pair (${readiness.ok ? 'E25_COMMITMENT_MISSING' : readiness.code})`)
       } else if (type !== 'MOCK') {
         throw new EscrowError('escrow refused: the trade has no commitment anchor (E25_COMMITMENT_MISSING)')
       }
+      const feeSnapshot = await escrowFeeSnapshotService.computeCommittedSnapshotFields(type, input.lockedAmount, commitmentPairId ? pairFeePolicyId : null, tx)
       return this.repo.create({
         tradeId: input.tradeId,
         type,

@@ -45,6 +45,8 @@ describe('Distribution & Entitlement Accounting Foundation (Missão 11 Fase 6.3A
   })
 
   afterAll(async () => {
+    // Isolation: a live MULTISIG policy left PUBLISHED would be the rail's live policy for every later suite in this database.
+    if (dbAvailable) await retireAnyLiveMultisigFeePolicy()
     if (dbAvailable) await prisma.$disconnect()
   })
 
