@@ -255,7 +255,7 @@ verified against the real code before implementing, not assumed:
 computed anywhere in `escrow.service.ts`. Real fee collection needed to
 be built first (**Phase 0**, resolving that stub) before this floor
 could be anything but a formula — `config.settlement.protocolFeeRate`
-(**Corrected/Implemented 2026-11-27:** this setting and Phase 0's `FeeDistribution` split were retired; the current mechanism is a published `FeePolicyVersion` (global, versioned) -> `FeeObligation` -> a frozen `DistributionPolicyVersion` -> `EntitlementLedgerEntry`, which is accounting attribution and not a payment, and none of it is economically activated. Original text follows) (code default `0` for safety — no production env should ever charge a
+(**Corrected/Implemented 2026-11-27:** this setting and Phase 0's `FeeDistribution` split were retired; the current mechanism is a published `FeePolicyVersion` (versioned locally on each node today; a signed global economic authority is the approved direction and is still being implemented) -> `FeeObligation` -> a frozen `DistributionPolicyVersion` -> `EntitlementLedgerEntry`, which is accounting attribution and not a payment, and none of it is economically activated. Original text follows) (code default `0` for safety — no production env should ever charge a
 fee by silent fallback; see the 2026-08-11 note below for what the real
 production value is), `Escrow.feeCharged`, and a `FeeDistribution` row
 recording the same Node Operator/Treasury/Wallet Rebate/Arbitrator

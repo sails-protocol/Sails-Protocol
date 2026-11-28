@@ -138,7 +138,7 @@ computed from Sails' own report.
 
 ## Sails Protocol fee
 
-> **Corrected/Implemented 2026-11-27:** this paragraph is a historical record of the rehearsal. `chargeProtocolFee()` and the `PROTOCOL_FEE_RATE` setting were retired later (Missao 11 Fase 6.5.2); fees are now a global `FeePolicyVersion` that is not economically activated. The conclusion below (no Sails Protocol fee in this settlement) is unchanged.
+> **Corrected/Implemented 2026-11-27:** this paragraph is a historical record of the rehearsal. `chargeProtocolFee()` and the `PROTOCOL_FEE_RATE` setting were retired later (Missao 11 Fase 6.5.2); fees are now a `FeePolicyVersion` (versioned locally on each node today) that is not economically activated. The conclusion below (no Sails Protocol fee in this settlement) is unchanged.
 
 Audited directly against the real code (`escrow-lifecycle.ts`'s
 `chargeProtocolFee()`, called unconditionally from `escrow.service.ts`'s

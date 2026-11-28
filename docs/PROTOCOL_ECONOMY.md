@@ -138,7 +138,7 @@ fiat — never a protocol-native token:
 
 | Mechanism | Description | Who pays |
 |---|---|---|
-| **Protocol Fee** | A fee on successful settlement (trade, future loan/swap), set by one global, versioned fee policy rather than per node or integrator; percentages and economic activation are not decided | Split between the two counterparties |
+| **Protocol Fee** | A fee on successful settlement (trade, future loan/swap), defined by the protocol's economic authority and not by the node operator or an individual integrator (approved direction; the signed global authority is still being implemented, and the policy implemented today is versioned locally on each node); percentages and economic activation are not decided, and no fee is active | Split between the two counterparties |
 | **API / SDK Usage Tiers** | Free sandbox + low-volume tier; paid tier for high-volume integrators needing SLA | Integrators above the free tier |
 | **Enterprise Licensing** | White-label protocol access with dedicated support for OTCs, fintechs, exchanges | Enterprise licensees |
 | **Premium Reputation Services** | Optional advanced verification, analytics, badges for high-volume participants | Opt-in participants |
@@ -780,7 +780,7 @@ Four concrete mechanisms:
    10-12), changes to the fee rate or the bucket-split percentages require
    the multi-stakeholder governance process, not a unilateral decision by
    whichever company happens to run the most-used reference implementation.
-4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** there is no per-integrator or per-node fee setting; the fee is one global policy, versioned and not decided yet (the percentages are on hold), and a Merchant discount at collection is a proposed direction under the global policy; no fee or discount is approved. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
+4. **The fee is not mandatory rent extraction.** The original design here said each integrator could configure a 0% Protocol Fee for its own users. **Corrected/Implemented 2026-11-27:** this point is superseded (see the note below): there is no per-integrator fee setting, the percentages are not decided, and a Merchant discount at collection is only a proposed direction; no fee or discount is approved. The principle that the protocol must not become a mandatory rent-extraction layer stays, and is protected by the governance process in the previous point.
 
    > **SUPERADO (Decisão CTO 38, 2026-11-22):** o ponto 4 (integrador escolher 0% para seus usuários) conflita com a direção econômica vigente: a taxa do protocolo deve ser global, definida pela autoridade econômica do Sails (direção vigente; a imposição técnica está em implementação), e nem o operador de nó nem o integrador a definem unilateralmente. O texto acima é mantido como registro histórico, sem reescrita. Ver o bloco "Decisão CTO 36" no topo e a Decisão CTO 38 sobre a autoridade econômica.
 
