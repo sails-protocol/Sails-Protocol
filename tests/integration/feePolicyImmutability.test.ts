@@ -163,23 +163,11 @@ describe('FeePolicyVersion / Escrow fee-snapshot immutability (Missão 11 Fase 2
     expect(unchanged.requiredConfirmations).toBe(2)
   })
 
-  // G3 (Despacho 069, migration 20261128160000): the signed document is stored with the row, published only with it,
-  // frozen with it, and a published policy never goes back nor disappears. The database does not check the signature
+  // G3 (Despacho 069, migration 20261128160000): the signed document is stored with the row and frozen with it, and a
+  // published policy never goes back nor disappears. The database does not check the signature
   // (the application does, against the pinned authority); here the document is a placeholder.
-  // shortcut: placeholder document, replace with a real signed fixture when the new-use verification (S2/S3) lands.
+  // shortcut: placeholder document, replace with a real signed fixture in the D-E1 package (new-use verification).
   const DOC = { placeholder: 'signed-fee-policy-fixture' }
-
-  it("G3: a policy is published only with its signed document (transition and direct insert)", async () => {
-    requirePostgres('G3 publish requires document')
-    const draft = await prisma.feePolicyVersion.create({ data: fixturePolicyData() })
-    await expect(prisma.feePolicyVersion.update({ where: { id: draft.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } }))
-      .rejects.toThrow(/published only with its signed document/)
-    await expect(prisma.feePolicyVersion.create({ data: fixturePolicyData({ status: 'PUBLISHED', publishedAt: new Date() }) }))
-      .rejects.toThrow(/published only with its signed document/)
-    const withDoc = await prisma.feePolicyVersion.create({ data: fixturePolicyData({ signedDocument: DOC }) })
-    await prisma.feePolicyVersion.update({ where: { id: withDoc.id }, data: { status: 'PUBLISHED', publishedAt: new Date() } })
-    expect((await prisma.feePolicyVersion.findUniqueOrThrow({ where: { id: withDoc.id } })).status).toBe('PUBLISHED')
-  })
 
   it("G3: the signed document of a PUBLISHED policy cannot be swapped", async () => {
     requirePostgres('G3 document frozen')

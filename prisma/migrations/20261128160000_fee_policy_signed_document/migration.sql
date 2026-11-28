@@ -1,7 +1,6 @@
 -- G3 (CTO 38, Despacho 069): the fee policy document signed by the economic authority (2-of-3 Ed25519), stored next to
--- its own row. Additive: a new nullable column; existing rows are not rewritten. Legacy PUBLISHED rows keep a NULL
--- document and are refused for any NEW use by the application (fail closed); open escrows settle from their frozen
--- snapshot, untouched.
+-- its own row. Additive: a new nullable column; existing rows are not rewritten. Requiring the document on PUBLISHED and
+-- refusing unsigned rows for new use belong to the D-E1 package (Despacho 069, option O3), not to this migration.
 ALTER TABLE "fee_policy_versions" ADD COLUMN "signedDocument" JSONB;
 
 -- The document is frozen with the other economic/identity fields once the row leaves DRAFT, so an operator cannot swap
@@ -39,24 +38,6 @@ BEGIN
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
-
--- A row becomes PUBLISHED only with a document: on the DRAFT -> PUBLISHED transition and on a row inserted already
--- PUBLISHED (closes the raw-insert bypass). Legacy PUBLISHED rows are never updated into this state, so they stay as
--- they are. The signature itself is verified by the application (the pinned authority keys live in the release).
-CREATE OR REPLACE FUNCTION fee_policy_versions_require_signed_document()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF NEW.status = 'PUBLISHED' AND NEW."signedDocument" IS NULL
-     AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'PUBLISHED') THEN
-    RAISE EXCEPTION 'fee_policy_versions: a policy is published only with its signed document (id=%)', NEW.id;
-  END IF;
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER fee_policy_versions_require_signed_document
-BEFORE INSERT OR UPDATE ON "fee_policy_versions"
-FOR EACH ROW EXECUTE FUNCTION fee_policy_versions_require_signed_document();
 
 -- Only a DRAFT row can be deleted. A published or retired policy is history even when nothing references it yet (the
 -- foreign keys protect only referenced rows).
