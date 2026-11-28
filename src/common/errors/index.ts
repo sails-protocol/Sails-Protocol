@@ -10,7 +10,7 @@
 // than fabricating anchors that don't exist. Real, checked repo URL, not
 // a guessed one — this is the same GitHub path every other doc link in
 // this codebase already uses.
-export const ERROR_DOCS_URL = 'https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape'
+export const ERROR_DOCS_URL = 'https://github.com/sails-protocol/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape'
 
 // CROSS-LAYER-SEMANTIC-CORRECTIVE-1 (item 39, 2026-09-13) — closes
 // `docs/BACKLOG.md` item 39, registered by
