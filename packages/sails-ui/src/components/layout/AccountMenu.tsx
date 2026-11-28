@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
+import { ConfirmActionDialog } from '../ui/ConfirmActionDialog'
 import { toast } from '../ui/toast'
 import { ChevronDown, Copy, ExternalLink, LogOut, Settings, ShieldCheck, User as UserIcon } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
@@ -21,13 +23,28 @@ export function useDisconnect() {
   }
 }
 
+/** "Desconectar" asks first, and says the key stays in this browser (only the session ends). */
+export function DisconnectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const disconnect = useDisconnect()
+  return (
+    <ConfirmActionDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={t('settings.disconnect.title')}
+      consequence={t('settings.disconnect.body')}
+      confirmLabel={t('shell.account.disconnect')}
+      onConfirm={() => { onOpenChange(false); disconnect() }}
+    />
+  )
+}
+
 /**
  * Connected-account chip + menu (common DeFi pattern): short identity on
  * the trigger; copy public key, profile, settings, disconnect inside. `compact` shows
  * only the avatar, for the mobile header.
  */
 export function AccountMenu({ user, compact = false }: { user: User; compact?: boolean }) {
-  const disconnectWallet = useDisconnect()
+  const [confirming, setConfirming] = useState(false)
 
   const copyKey = async () => {
     try {
@@ -40,6 +57,7 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
 
   // Menu primitive (DESIGN_SYSTEM.md 5.3): role=menu, arrow keys, typeahead, Esc; picking an item closes it.
   return (
+    <>
     <Menu>
       <MenuTrigger
         aria-label={t('shell.account.menu')}
@@ -77,10 +95,12 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
         </MenuItem>
         {/* Session exit kept apart from the navigation items. */}
         <MenuSeparator />
-        <MenuItem onSelect={disconnectWallet}>
+        <MenuItem onSelect={() => setConfirming(true)}>
           <LogOut aria-hidden="true" /> {t('shell.account.disconnect')}
         </MenuItem>
       </MenuContent>
     </Menu>
+    <DisconnectDialog open={confirming} onOpenChange={setConfirming} />
+    </>
   )
 }

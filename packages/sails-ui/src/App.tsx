@@ -22,6 +22,7 @@ import { FAQ_ROUTE } from './lib/faq'
 import { Login } from './pages/Login'
 import { NotFound } from './pages/NotFound'
 const Marketplace = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.Marketplace })))
+const MarketHome = lazy(() => import('./pages/Marketplace').then((m) => ({ default: m.MarketHome })))
 const OfferDetail = lazy(() => import('./pages/OfferDetail').then((m) => ({ default: m.OfferDetail })))
 const Trade = lazy(() => import('./pages/Trade').then((m) => ({ default: m.Trade })))
 const Profile = lazy(() => import('./pages/Profile').then((m) => ({ default: m.Profile })))
@@ -108,7 +109,7 @@ export default function App() {
               <Route element={<Layout />}>
                 {/* Connect-wallet dialog over the Market: the app stays open without a session */}
                 <Route path="/login" element={<><Suspense fallback={<RouteFallback />}><Marketplace /></Suspense><Login /></>} />
-                <Route path="/" element={<Suspense fallback={<RouteFallback />}><Marketplace /></Suspense>} />
+                <Route path="/" element={<Suspense fallback={<RouteFallback />}><MarketHome /></Suspense>} />
                 <Route path="/offer/:id" element={<Suspense fallback={<RouteFallback />}><OfferDetail /></Suspense>} />
                 <Route path="/trade/:id" element={<Suspense fallback={<RouteFallback />}><Trade /></Suspense>} />
                 <Route path="/profile" element={<Suspense fallback={<RouteFallback />}><Profile /></Suspense>} />

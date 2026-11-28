@@ -15,8 +15,8 @@ describe('errorMessage', () => {
     expect(errorMessage(new FakeSailsError('Ambiguous', 'AMBIGUOUS_INTENT'), 'x')).toMatch(/mais de um trade/)
   })
 
-  it('maps ESCROW_CREATE_SELLER_ONLY (403 from settlement.create, CTO D7) to its own message', () => {
-    expect(errorMessage(new FakeSailsError('Forbidden', 'ESCROW_CREATE_SELLER_ONLY'), 'x')).toBe('Só o vendedor pode criar o escrow desta negociação. Aguarde o vendedor.')
+  it('maps ESCROW_CREATE_SELLER_ONLY (403 from settlement.create, CTO D7) to the buyer waiting line, never a generic error', () => {
+    expect(errorMessage(new FakeSailsError('Forbidden', 'ESCROW_CREATE_SELLER_ONLY'), 'x')).toBe('Aguardando o vendedor criar o escrow')
   })
 
   it('keeps the error message for unknown codes and plain errors', () => {

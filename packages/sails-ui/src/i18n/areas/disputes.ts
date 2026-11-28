@@ -11,7 +11,7 @@ const pt = {
   'disputes.col.where': 'Onde acompanhar',
   'disputes.followOnTrade': 'Acompanhe a disputa na página do trade',
 
-  'disputes.evidenceType.text': 'Texto',
+  'disputes.evidenceType.text': 'Nota escrita',
   'disputes.evidenceType.payment_receipt': 'Comprovante de pagamento',
   'disputes.evidenceType.chat_log': 'Registro de conversa',
   'disputes.evidenceType.screenshot': 'Captura de tela',
@@ -110,7 +110,7 @@ export default defineArea(
       'disputes.col.where': 'Where to follow',
       'disputes.followOnTrade': 'Follow the dispute on the trade page',
 
-      'disputes.evidenceType.text': 'Text',
+      'disputes.evidenceType.text': 'Written note',
       'disputes.evidenceType.payment_receipt': 'Payment receipt',
       'disputes.evidenceType.chat_log': 'Chat log',
       'disputes.evidenceType.screenshot': 'Screenshot',
@@ -203,7 +203,7 @@ export default defineArea(
       'disputes.col.where': 'Dónde seguirla',
       'disputes.followOnTrade': 'Sigue la disputa en la página del trade',
 
-      'disputes.evidenceType.text': 'Texto',
+      'disputes.evidenceType.text': 'Nota escrita',
       'disputes.evidenceType.payment_receipt': 'Comprobante de pago',
       'disputes.evidenceType.chat_log': 'Registro de conversación',
       'disputes.evidenceType.screenshot': 'Captura de pantalla',
@@ -296,7 +296,7 @@ export default defineArea(
       'disputes.col.where': 'Où suivre',
       'disputes.followOnTrade': 'Suivez le litige sur la page du trade',
 
-      'disputes.evidenceType.text': 'Texte',
+      'disputes.evidenceType.text': 'Note écrite',
       'disputes.evidenceType.payment_receipt': 'Justificatif de paiement',
       'disputes.evidenceType.chat_log': 'Historique de conversation',
       'disputes.evidenceType.screenshot': 'Capture d’écran',
@@ -389,7 +389,7 @@ export default defineArea(
       'disputes.col.where': 'Wo verfolgen',
       'disputes.followOnTrade': 'Verfolge den Streitfall auf der Trade-Seite',
 
-      'disputes.evidenceType.text': 'Text',
+      'disputes.evidenceType.text': 'Schriftliche Notiz',
       'disputes.evidenceType.payment_receipt': 'Zahlungsbeleg',
       'disputes.evidenceType.chat_log': 'Chatverlauf',
       'disputes.evidenceType.screenshot': 'Screenshot',

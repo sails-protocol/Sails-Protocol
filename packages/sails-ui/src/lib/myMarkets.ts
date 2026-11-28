@@ -76,3 +76,12 @@ export function composeMyMarkets(defaultMarket: MarketView, others: readonly Mar
 export function ownMarkets(markets: readonly MarketView[]): MarketView[] {
   return markets.filter((m) => m.relation !== 'none')
 }
+
+/**
+ * "Mercado que abre por padrão" (Configurações → Mercados): the saved market's id while it still exists and the person
+ * still belongs to it; null means Mercado aberto (nothing saved, the default itself, gone, left or only discoverable).
+ */
+export function defaultMarketTarget(saved: string | null, markets: readonly MarketView[]): string | null {
+  const m = saved ? markets.find((x) => x.id === saved) : undefined
+  return m && (m.relation === 'member' || m.relation === 'admin' || m.relation === 'follows') ? m.id : null
+}

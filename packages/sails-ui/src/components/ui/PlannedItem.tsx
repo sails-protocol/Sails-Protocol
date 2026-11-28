@@ -28,7 +28,7 @@ export function PlannedItem({ icon: Icon, label, soonLabel, description, explana
           <Badge variant="outline" className="border-transparent bg-brand-tonal font-medium text-brand-text-secondary">{soonLabel}</Badge>
           {explanation && <ExplanationPopover explanation={explanation} label={explanationLabel ?? explanation.title} />}
         </div>
-        {description && <p className="mt-0.5 text-xs text-brand-text-muted">{description}</p>}
+        {description && <p className="mt-0.5 max-w-[68ch] text-xs text-brand-text-muted">{description}</p>}
       </div>
     </div>
   )

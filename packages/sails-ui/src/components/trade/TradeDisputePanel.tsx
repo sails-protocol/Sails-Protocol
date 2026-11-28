@@ -27,7 +27,7 @@ import { DISPUTE_RULING_LABEL, DISPUTE_STATUS_LABEL } from '../../lib/labels'
 import { busyProps } from '../../lib/busy'
 import { AlertTriangle, Scale } from 'lucide-react'
 import { Alert } from '../ui/alert'
-import { parseEvidence } from '../../lib/disputeCase'
+import { evidenceTypeLabel, parseEvidence } from '../../lib/disputeCase'
 import { t, type MessageKey } from '../../i18n'
 import { DisputeAppealBlock, type DisputeNotice } from './DisputeAppealBlock'
 import type { AppealViewState } from '../../lib/disputeAppeal'
@@ -133,7 +133,7 @@ export function TradeDisputePanel({
             {evidence.map((ev, i) => (
               <li key={i} className="rounded-md bg-brand-elevated px-3 py-2">
                 <p className="text-xs text-brand-text-secondary">
-                  {[t('trade.dispute.evidenceType', { type: ev.type }), ev.submittedBy ? t('trade.dispute.evidenceBy', { party: partyLabel(ev.submittedBy) }) : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
+                  {[evidenceTypeLabel(ev.type), ev.submittedBy ? t('trade.dispute.evidenceBy', { party: partyLabel(ev.submittedBy) }) : null, ev.submittedAt ? formatDateTime(ev.submittedAt) : null].filter(Boolean).join(' · ')}
                 </p>
                 {ev.note && <p className="mt-0.5 whitespace-pre-line [overflow-wrap:anywhere]">{ev.note}</p>}
                 {ev.uri && (ev.href

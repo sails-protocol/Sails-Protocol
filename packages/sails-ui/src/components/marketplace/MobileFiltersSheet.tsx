@@ -4,7 +4,7 @@
  * switching it to this component is a pure refactor deferred while the real Market page must stay untouched.
  * Copy comes from the caller; the trigger is the caller's plain button, so focus is returned to it explicitly.
  */
-import type { ReactNode, RefObject } from 'react'
+import { useRef, type ReactNode, type RefObject } from 'react'
 import { X } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle } from '../ui/sheet'
 import { IconButton } from '../ui/icon-button'
@@ -22,19 +22,22 @@ export interface MobileFiltersSheetProps {
 }
 
 export function MobileFiltersSheet({ open, onOpenChange, triggerRef, title, closeLabel, children, footer }: MobileFiltersSheetProps) {
+  // Opening focuses the title, not the close icon button: its focus tooltip took the first Esc.
+  const titleRef = useRef<HTMLHeadingElement>(null)
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         hideDefaultClose
         aria-describedby={undefined}
+        onOpenAutoFocus={(e) => { e.preventDefault(); titleRef.current?.focus() }}
         onCloseAutoFocus={(e) => {
           e.preventDefault()
           triggerRef.current?.focus()
         }}
         className="max-h-[85vh] p-0 gap-0 flex flex-col rounded-t-2xl border-brand-border-subtle bg-brand-surface">
         <div className="flex items-center justify-between gap-3 px-4 py-1 border-b border-brand-border-subtle shrink-0">
-          <SheetTitle className="text-heading">{title}</SheetTitle>
+          <SheetTitle ref={titleRef} tabIndex={-1} className="text-heading outline-none">{title}</SheetTitle>
           <IconButton label={closeLabel} onClick={() => onOpenChange(false)} className="-mr-2">
             <X aria-hidden="true" />
           </IconButton>

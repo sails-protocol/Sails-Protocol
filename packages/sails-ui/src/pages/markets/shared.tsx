@@ -181,6 +181,12 @@ export function defaultMarket(): MarketView {
   return { id: 'public', name: t('markets.default.name'), visibility: 'public', relation: 'default', infrastructure: 'network', description: t('markets.default.description') }
 }
 
+/** "Mercado que abre por padrão" (Configurações → Mercados), saved in this browser; null when unset or unreadable. */
+export const DEFAULT_MARKET_KEY = 'sails_ui_default_market'
+export function readDefaultMarketChoice(): string | null {
+  try { return localStorage.getItem(DEFAULT_MARKET_KEY) } catch { return null }
+}
+
 /** Default market first, then (demo only) fictional markets, including one joined by a fictional invite. */
 export function useVisibleMarkets(): MarketView[] {
   const demo = useSyncExternalStore(subscribeDemoMarkets, demoMarkets)
