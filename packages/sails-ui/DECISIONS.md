@@ -57,9 +57,17 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
 - **Trilho de navegação a partir de 600 px** (Product Owner, 2026-11-27; classe média do Material 3, 600 a 839 px): de 600 px para cima a navegação é o trilho lateral (64 px; expandir abre por cima do conteúdo abaixo de 1280 px), nunca a barra inferior; abaixo de 600 px fica a barra inferior. Vale para o iPad mini em pé (744 px) e para o celular deitado (667×375, 832×384); o trilho rola quando não cabe na altura. A posição do menu continua valendo: "Superior" só a partir de 1024 px. Breakpoint `medium` (600 px) no tema do Tailwind (`index.css`), usado pelo Layout, pela barra inferior, pelo trilho e pelo `scroll-padding-bottom`. As páginas com duas colunas a partir de `md` continuam em `md`: a 600 px, com o trilho, sobram 488 px de conteúdo, e nenhuma delas cabe.
 - **Nó não é mercado** (2026-11-20; ADR-001 e issues #147 e #361):
   - O nó Sails mantém a rede: é infraestrutura e serviço. O mercado público é da rede inteira, e trocar de nó nunca troca as ofertas.
+    - **Revisado 2026-11-28 (CTO 30, com o PO):** o Mercado Sails não é "a rede inteira". A Rede Sails é a infraestrutura de comunicação, descoberta e propagação; o mercado é a experiência econômica construída sobre ela. Nenhum texto afirma disponibilidade da rede com vários operadores antes das evidências e da homologação. O texto acima fica como registro.
   - Mercado privado (grupo, empresa, família, OTC) é um conceito separado. Pode rodar num nó compartilhado ou num nó próprio, porque "quem hospeda o nó não define quem pertence ao mercado".
   - Na interface (versão final, 2026-11-21): os nós ficam em Configurações → Rede e nós, com a lista na área Avançado. Os mercados ficam no Market: seletor no topo (protótipo D1, PR #727), Explorar mercados, Meus mercados, Criar mercado e Entrar com convite. Ver "Decisão final" abaixo.
   - O nome oficial de mercados e servidores públicos e privados ainda está em aberto no backlog. Até decidir, a tela usa "Mercado público" e o nome dado pelo grupo.
+    - **Decidido 2026-11-28 (CTO 30, com o PO): nomenclatura oficial.** Só nome e posicionamento de produto; arquitetura, governança, autoridade e contratos do protocolo não mudam.
+      - **Mercado Sails:** nome próprio da experiência de mercado padrão do ecossistema (en "Sails Market", es "Mercado Sails", fr "Marché Sails", de "Sails-Markt"). Não é um terceiro tipo arquitetural de mercado.
+      - **Mercado público:** classificação do mercado criado por uma empresa, comunidade ou operador, com visibilidade pública e regras próprias.
+      - **Mercado privado:** classificação do mercado com acesso controlado, por convite ou autorização.
+      - **Rede Sails:** a infraestrutura de comunicação, descoberta e propagação.
+      - Na lista, a linha de baixo diz a classificação: "Mercado Sails · Mercado padrão", "Bitcoin Paraguay · Mercado público", "OTC Partners · Mercado privado" (antes "Padrão da Rede Sails" e "Comunidade"). O ícone do mercado privado continua o de grupo de pessoas, sem cadeado, para não sugerir garantia de segurança.
+      - "Mercado aberto" e "sala privada" não são usados (motivos: "sala" lembra chat; "aberto" confunde visibilidade com permissão de publicar). Trava: `tests/truthGuard.test.ts` (nomes aposentados, 5 línguas) e o glossário "Mercado Sails".
   - **Orientação do CTO (2026-11-20, issue #147):**
     - nó privado **não é obrigatório** para um mercado fechado, e os dois modelos continuam (nó compartilhado ou próprio);
     - a experiência prioriza a combinação natural nó privado + mercado fechado: o nó privado aparece junto dos mercados que hospeda;
@@ -153,6 +161,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
       - **Ícones obrigatórios:** cada tipo de mercado e cada ação do portal tem o seu ícone (lucide, dos tokens): mercado aberto, mercado público com marca, mercado privado, explorar, convite e criar. A marca de um mercado público, quando existir, substitui o ícone genérico.
       - **Promoção futura:** se os mercados específicos virarem hábito, "Mercados" pode subir para o menu principal. Por enquanto fica no portal, para não haver mudança brusca.
       - **Nome:** "**Mercado aberto**" é a proposta do Product Owner para o mercado público padrão do Sails, junto com "sala privada". O nome oficial ainda está em aberto; a tela já usa "Mercado aberto".
+        - **Revisado 2026-11-28 (CTO 30, com o PO):** nome oficial decidido: "Mercado Sails" (padrão), "Mercado público" e "Mercado privado" (classificações). Ver "Decidido 2026-11-28" no início deste arquivo. O texto acima fica como registro.
     - **Seletor de mercados, no topo do Market:**
       - o mercado público padrão do Sails ("Mercado aberto"), primeiro;
       - outros mercados públicos que a pessoa acompanha ou administra;
@@ -161,6 +170,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
     - **Sem exagero:** "nós independentes" ou "descentralizada" só com o dado de operadores independentes (issue #361). Nada afirma sincronização entre nós, disponibilidade ou garantias de segurança não homologadas. A sincronização entre nós ainda não foi especificada (Pears, UX-046).
     - **Distribuições oficiais do Sails Node:** um só software com os perfis Public Node e Private Node, pré-configurado e white-label. O Sails controla instalação, atualizações verificáveis, compatibilidade, identificação, diagnóstico e templates, mas nunca autoriza operadores centralmente nem desliga mercados (UX-047). Selo de "distribuição oficial" só com verificação real.
     - **Nome:** "sala privada" é a proposta do Product Owner. O nome oficial ainda está em aberto; até lá, a tela usa "mercado privado".
+      - **Revisado 2026-11-28 (CTO 30, com o PO):** nome oficial decidido: "Mercado Sails" (padrão), "Mercado público" e "Mercado privado" (classificações). Ver "Decidido 2026-11-28" no início deste arquivo. O texto acima fica como registro.
     - **Portabilidade:** estados preparados para reconhecer os mercados ligados à identidade portátil, mesmo depois de trocar de aplicativo ou de nó, quando houver suporte verificável. Nunca prometer recuperação automática antes da especificação.
     - **Entregável da UI:** Explorar mercados, Meus mercados, Criar mercado (fluxo completo) e Entrar com convite (estados), mais Configurações → Rede e nós (estado, adicionar manualmente, Avançado). Tudo com as dependências de backend explícitas e os controles "Em breve" até os contratos existirem; dados de demonstração marcados como fictícios.
   - **Autorizado:** layouts, componentes, textos, estados e protótipos. Implementação e ativação seguem os gates técnicos e de segurança.

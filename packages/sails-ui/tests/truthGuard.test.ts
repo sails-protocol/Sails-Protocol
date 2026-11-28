@@ -89,6 +89,8 @@ const CATALOG_RULES: { name: string; re: RegExp; skipKey?: RegExp }[] = [
   { name: 'invented reputation metric', re: /%\s*(?:positiv|positive|positivo|positif)|Power Trader|Alta reputação|High reputation|Alta reputación|Haute réputation|Hohe Reputation/i },
   { name: 'misleading rail label', re: /Lightning HODL/ },
   { name: 'Nostr copy', re: /npub|nostr/i },
+  // CTO 30 (2026-11-28): the default market is "Mercado Sails"; "Mercado aberto" and "sala privada" are not used.
+  { name: 'retired market names (Mercado aberto, sala privada)', re: /Mercado aberto|Open market|Mercado abierto|Marché ouvert|Offene[nrs]? Markt|sala privada|private room|sala privada|salle privée|privater Raum/ },
   { name: 'cash payment copy outside legacy labels', re: /Dinheiro em espécie|Dinheiro (?:por|pelo) correio|Depósito em lotérica|\bcash\b(?! App)|efectivo|espèces|Bargeld/i, skipKey: LEGACY_KEYS },
 ]
 
@@ -108,7 +110,7 @@ describe('truth guard: forbidden copy in every language', () => {
   // Glossary (DESIGN_SYSTEM.md 7.3): when the pt-BR source says it, every translation says it the same way.
   const GLOSSARY: { pt: RegExp; en: RegExp; es: RegExp; fr: RegExp; de: RegExp }[] = [
     { pt: /nó Sails|nós Sails/i, en: /Sails nodes?/i, es: /nodos? Sails/i, fr: /nœuds? Sails/i, de: /Sails-Knoten/i },
-    { pt: /Mercado aberto/i, en: /Open market/i, es: /Mercado abierto/i, fr: /Marché ouvert/i, de: /Offene[nrs]? Markt/i },
+    { pt: /Mercado Sails/, en: /Sails Market/, es: /Mercado Sails/, fr: /Marché Sails/, de: /Sails-Markt/ },
     { pt: /marcad[oa]s? como enviad/i, en: /marked as sent/i, es: /marc(?:ad[oa]s?|ó|ara|a) como enviad/i, fr: /marqu[ée]e?s? comme envoy/i, de: /als (?:gesendet|versendet) markiert/i },
     { pt: /marcado como concluído/i, en: /marked as completed/i, es: /marcado como completado/i, fr: /marqué comme terminé/i, de: /als abgeschlossen markiert/i },
   ]

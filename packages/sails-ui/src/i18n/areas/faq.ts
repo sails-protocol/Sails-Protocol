@@ -115,7 +115,7 @@ export default defineArea(
     'faq.loseAll.a': 'Com a identidade portátil e o backup, que estão em preparação: sem a recuperação do app de identidade e sem o backup, você perde a identidade, os mercados (a não ser que tenha escolhido um grupo de confiança), os contatos e a reputação. A reputação fica registrada no nó onde você negocia, ligada à sua identidade; levá-la para outro nó ainda não está disponível. Os fundos continuam com a sua carteira e o backup dela. Escrows só por disputa, sem garantia.',
 
     'faq.markets.q': 'O que são mercados e comunidades? Preciso entrar em um?',
-    'faq.markets.a': 'O Mercado aberto é o padrão e não exige nada. Comunidades e mercados privados têm regras de entrada definidas pelo administrador. O administrador nunca altera um trade já em escrow nem toma fundos.',
+    'faq.markets.a': 'O Mercado Sails é o padrão e não exige nada. Mercados públicos e privados têm regras de entrada definidas pelo administrador. O administrador nunca altera um trade já em escrow nem toma fundos.',
     'faq.kyc.q': 'Preciso de cadastro ou KYC?',
     'faq.kyc.a': 'O Sails Protocol não exige verificação de identidade para utilizar sua infraestrutura aberta. Entretanto, determinados mercados, parceiros ou serviços integrados podem solicitar cadastro ou KYC, conforme suas próprias regras. Quando necessário, a verificação será conduzida pelo parceiro ou provedor responsável, e os requisitos deverão ser informados antes de você utilizar o serviço.',
     'faq.merchantHow.q': 'Como me torno Merchant?',
@@ -239,7 +239,7 @@ export default defineArea(
       'faq.loseAll.a': 'With the portable identity and the backup, both being prepared: without the identity app’s recovery and without the backup, you lose the identity, the markets (unless you chose a trusted group), the contacts and the reputation. Reputation is recorded on the node where you trade, tied to your identity; moving it to another node is not available yet. Funds stay with your wallet and its backup. Escrows only through a dispute, with no guarantee.',
 
       'faq.markets.q': 'What are markets and communities? Do I need to join one?',
-      'faq.markets.a': 'The Open market is the default and requires nothing. Communities and private markets have entry rules set by the market administrator. The market administrator never changes a trade already in escrow or takes funds.',
+      'faq.markets.a': 'The Sails Market is the default and requires nothing. Public and private markets have entry rules set by the market administrator. The market administrator never changes a trade already in escrow or takes funds.',
       'faq.kyc.q': 'Do I need to sign up or do KYC?',
       'faq.kyc.a': 'Sails Protocol does not require identity verification to use its open infrastructure. However, some markets, partners or integrated services may ask for sign-up or KYC under their own rules. When needed, the verification is carried out by the responsible partner or provider, and the requirements must be stated before you use the service.',
       'faq.merchantHow.q': 'How do I become a Merchant?',
@@ -362,7 +362,7 @@ export default defineArea(
       'faq.loseAll.a': 'Con la identidad portátil y la copia de respaldo, que están en preparación: sin la recuperación de la app de identidad y sin la copia de respaldo, pierdes la identidad, los mercados (salvo que hayas elegido un grupo de confianza), los contactos y la reputación. La reputación queda registrada en el nodo donde negocias, ligada a tu identidad; llevarla a otro nodo todavía no está disponible. Los fondos siguen con tu billetera y su copia de respaldo. Los escrows solo por disputa, sin garantía.',
 
       'faq.markets.q': '¿Qué son los mercados y las comunidades? ¿Tengo que entrar en uno?',
-      'faq.markets.a': 'El Mercado abierto es el predeterminado y no exige nada. Las comunidades y los mercados privados tienen reglas de entrada definidas por el administrador. El administrador nunca modifica un trade ya en escrow ni toma fondos.',
+      'faq.markets.a': 'El Mercado Sails es el predeterminado y no exige nada. Los mercados públicos y privados tienen reglas de entrada definidas por el administrador. El administrador nunca modifica un trade ya en escrow ni toma fondos.',
       'faq.kyc.q': '¿Necesito registrarme o hacer KYC?',
       'faq.kyc.a': 'Sails Protocol no exige verificación de identidad para usar su infraestructura abierta. Sin embargo, algunos mercados, socios o servicios integrados pueden pedir registro o KYC según sus propias reglas. Cuando sea necesario, la verificación la realiza el socio o proveedor responsable, y los requisitos deben informarse antes de que uses el servicio.',
       'faq.merchantHow.q': '¿Cómo me convierto en Merchant?',
@@ -485,7 +485,7 @@ export default defineArea(
       'faq.loseAll.a': 'Avec l’identité portable et la sauvegarde, toutes deux en préparation : sans la récupération de l’app d’identité et sans la sauvegarde, vous perdez l’identité, les marchés (sauf si vous avez choisi un groupe de confiance), les contacts et la réputation. La réputation reste enregistrée sur le nœud où vous négociez, liée à votre identité ; la transférer vers un autre nœud n’est pas encore disponible. Les fonds restent avec votre portefeuille et sa sauvegarde. Les escrows seulement par un litige, sans garantie.',
 
       'faq.markets.q': 'Que sont les marchés et les communautés ? Dois-je en rejoindre un ?',
-      'faq.markets.a': 'Le Marché ouvert est le marché par défaut et n’exige rien. Les communautés et les marchés privés ont des règles d’entrée définies par l’administrateur. L’administrateur ne modifie jamais un trade déjà en escrow et ne prend pas de fonds.',
+      'faq.markets.a': 'Le Marché Sails est le marché par défaut et n’exige rien. Les marchés publics et privés ont des règles d’entrée définies par l’administrateur. L’administrateur ne modifie jamais un trade déjà en escrow et ne prend pas de fonds.',
       'faq.kyc.q': 'Dois-je m’inscrire ou faire un KYC ?',
       'faq.kyc.a': 'Sails Protocol n’exige pas de vérification d’identité pour utiliser son infrastructure ouverte. Toutefois, certains marchés, partenaires ou services intégrés peuvent demander une inscription ou un KYC, selon leurs propres règles. Si nécessaire, la vérification est menée par le partenaire ou le prestataire responsable, et les exigences doivent être indiquées avant que vous utilisiez le service.',
       'faq.merchantHow.q': 'Comment devenir Merchant ?',
@@ -608,7 +608,7 @@ export default defineArea(
       'faq.loseAll.a': 'Mit der portablen Identität und dem Backup, die beide in Vorbereitung sind: Ohne die Wiederherstellung der Identitäts-App und ohne das Backup verlierst du die Identität, die Märkte (außer du hast eine Vertrauensgruppe gewählt), die Kontakte und die Reputation. Die Reputation wird auf dem Knoten gespeichert, auf dem du handelst, verbunden mit deiner Identität; sie auf einen anderen Knoten mitzunehmen ist noch nicht verfügbar. Das Guthaben bleibt bei deiner Wallet und deren Backup. Escrows nur über einen Streitfall, ohne Garantie.',
 
       'faq.markets.q': 'Was sind Märkte und Communities? Muss ich einem beitreten?',
-      'faq.markets.a': 'Der Offene Markt ist der Standard und setzt nichts voraus. Bei Communities und privaten Märkten legt die Zugangsregeln fest, wer den Markt verwaltet. Wer den Markt verwaltet, ändert nie einen Trade, der schon im Escrow ist, und nimmt keine Mittel.',
+      'faq.markets.a': 'Der Sails-Markt ist der Standard und setzt nichts voraus. Bei öffentlichen und privaten Märkten legt die Zugangsregeln fest, wer den Markt verwaltet. Wer den Markt verwaltet, ändert nie einen Trade, der schon im Escrow ist, und nimmt keine Mittel.',
       'faq.kyc.q': 'Brauche ich eine Registrierung oder KYC?',
       'faq.kyc.a': 'Das Sails Protocol verlangt keine Identitätsprüfung, um seine offene Infrastruktur zu nutzen. Bestimmte Märkte, Partner oder integrierte Dienste können jedoch nach eigenen Regeln eine Registrierung oder KYC verlangen. Falls nötig, führt der verantwortliche Partner oder Anbieter die Prüfung durch, und die Anforderungen müssen genannt werden, bevor du den Dienst nutzt.',
       'faq.merchantHow.q': 'Wie werde ich Merchant?',
