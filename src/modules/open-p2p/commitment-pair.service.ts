@@ -57,6 +57,8 @@ async function databaseNow(tx: Prisma.TransactionClient): Promise<Date> {
 async function loadFeePolicy(id: string): Promise<FeePolicyV1> {
   const v = await prisma.feePolicyVersion.findUnique({ where: { id } })
   if (!v) throw new CommitmentPairRefused('E25_FEE_POLICY_DIGEST_MISMATCH', { field: 'feePolicyVersionId' })
+  // A trade commits only to a policy in force: never a draft, never a retired one.
+  if (v.status !== 'PUBLISHED') throw new CommitmentPairRefused('E25_FEE_POLICY_DIGEST_MISMATCH', { field: 'feePolicyVersionId.status' })
   const rate = v.protocolFeeRate.toFixed(8).replace(/\.?0+$/, '')
   return { protocolFeeRate: rate, payerModel: v.payerModel, economicBasis: v.economicBasis, requiredConfirmations: v.requiredConfirmations as number, smallTradeRule: v.smallTradeRule }
 }
