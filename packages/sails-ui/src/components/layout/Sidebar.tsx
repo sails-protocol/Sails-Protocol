@@ -80,8 +80,8 @@ function useIsXl(): boolean {
 }
 
 /**
- * Desktop sidebar (md+), collapsible. xl+: expanded by default and pushes the content; the viewer's
- * choice is remembered in localStorage (best effort). md–lg: a 64px icon rail; expanding opens the full
+ * Sidebar from 600 px (`medium`, PO 2026-11-27), collapsible. xl+: expanded by default and pushes the content; the viewer's
+ * choice is remembered in localStorage (best effort). 600–1279 px: a 64px icon rail; expanding opens the full
  * panel OVER the content (scrim; Esc or a click outside closes and returns focus to the toggle), so the
  * Market table is never squeezed. Collapsed items keep their label as tooltip and accessible name.
  */
@@ -141,7 +141,7 @@ export function Sidebar({ hideFromLg = false }: { hideFromLg?: boolean }) {
     // The outer box reserves the layout width (64px, or 224px when expanded at xl); below xl the panel
     // inside is wider than it when open, so it covers the content instead of pushing it.
     // hideFromLg: the viewer chose the top bar, which takes over from 1024 px (Layout.tsx).
-    <div className={cn('hidden md:block shrink-0', hideFromLg && 'lg:hidden', 'sticky top-0 h-screen z-50', motion, isXl && expanded ? 'w-56' : 'w-16')}>
+    <div className={cn('hidden medium:block shrink-0', hideFromLg && 'lg:hidden', 'sticky top-0 h-screen z-50', motion, isXl && expanded ? 'w-56' : 'w-16')}>
       {overlay && (
         <div
           aria-hidden="true"
@@ -163,7 +163,7 @@ export function Sidebar({ hideFromLg = false }: { hideFromLg?: boolean }) {
             {expanded ? <SailsLogo /> : <SailsMark size={28} />}
           </NavLink>
         </div>
-        <nav className="flex-1 py-3 flex flex-col gap-1 px-2">
+        <nav className="flex-1 min-h-0 overflow-y-auto py-3 flex flex-col gap-1 px-2">
           {items.map((item) => {
             const isActive = isNavActive(pathname, item)
             return (

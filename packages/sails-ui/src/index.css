@@ -15,6 +15,11 @@
    newer CSS-native `@theme` block, out of scope for a dependency bump. */
 @import "tailwindcss";
 @config "../tailwind.config.js";
+/* Material 3 medium window class (PO 2026-11-27): from 600 px the shell uses the navigation rail instead of
+   the bottom nav (`medium:`). Phone layouts below; `md` (768) still decides the page layouts. */
+@theme {
+  --breakpoint-medium: 37.5rem;
+}
 
 /**
  * Satsails brand identity — black + orange, light and dark. Orange

@@ -6,7 +6,7 @@ import { cn } from '../../lib/utils'
 import { t } from '../../i18n'
 
 /**
- * Mobile navigation (below md): the Sidebar's own destinations, icons and labels (NAV_ITEMS), so the
+ * Phone navigation (below 600 px, `medium`; the rail takes over from there): the Sidebar's own destinations, icons and labels (NAV_ITEMS), so the
  * product has one navigation at every width. Items size to their label (`flex-auto`) so the longest
  * one ("Configurações") fits at 320px without shrinking the 12px text floor.
  */
@@ -16,7 +16,7 @@ export function BottomNav() {
   const items = NAV_ITEMS.filter((item) => !item.requiresAuth || user)
 
   return (
-    <nav aria-label={t('shell.nav.main')} className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-brand-surface border-t border-brand-border-subtle flex pb-[env(safe-area-inset-bottom)]">
+    <nav aria-label={t('shell.nav.main')} className="medium:hidden fixed bottom-0 inset-x-0 z-40 bg-brand-surface border-t border-brand-border-subtle flex pb-[env(safe-area-inset-bottom)]">
       {items.map((item) => {
         const isActive = isNavActive(pathname, item)
         return (

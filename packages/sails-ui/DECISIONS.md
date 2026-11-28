@@ -54,6 +54,7 @@ O "como" (tokens, componentes, estados, contraste) está em `DESIGN_SYSTEM.md`. 
   - Abaixo de 1024 px vale o layout de hoje.
   - No celular a barra inferior continua igual, qualquer que seja a escolha.
   - Os dois layouts são testados em todas as larguras e nos dois temas.
+- **Trilho de navegação a partir de 600 px** (Product Owner, 2026-11-27; classe média do Material 3, 600 a 839 px): de 600 px para cima a navegação é o trilho lateral (64 px; expandir abre por cima do conteúdo abaixo de 1280 px), nunca a barra inferior; abaixo de 600 px fica a barra inferior. Vale para o iPad mini em pé (744 px) e para o celular deitado (667×375, 832×384); o trilho rola quando não cabe na altura. A posição do menu continua valendo: "Superior" só a partir de 1024 px. Breakpoint `medium` (600 px) no tema do Tailwind (`index.css`), usado pelo Layout, pela barra inferior, pelo trilho e pelo `scroll-padding-bottom`. As páginas com duas colunas a partir de `md` continuam em `md`: a 600 px, com o trilho, sobram 488 px de conteúdo, e nenhuma delas cabe.
 - **Nó não é mercado** (2026-11-20; ADR-001 e issues #147 e #361):
   - O nó Sails mantém a rede: é infraestrutura e serviço. O mercado público é da rede inteira, e trocar de nó nunca troca as ofertas.
   - Mercado privado (grupo, empresa, família, OTC) é um conceito separado. Pode rodar num nó compartilhado ou num nó próprio, porque "quem hospeda o nó não define quem pertence ao mercado".
