@@ -32,7 +32,7 @@ export function RatingSummaryLine({ text, srText, meta, description, explanation
           {meta && <span className="basis-full sm:basis-auto text-brand-text-secondary sm:whitespace-nowrap"><span aria-hidden="true" className="hidden sm:inline">· </span><span className="sr-only sm:hidden">, </span>{meta}</span>}
           {explanation && <ExplanationPopover explanation={explanation} label={explanationLabel ?? explanation.title} />}
         </div>
-        {description && <p className="mt-0.5 text-xs text-brand-text-muted">{description}</p>}
+        {description && <p className="mt-0.5 max-w-[68ch] text-xs text-brand-text-muted">{description}</p>}
       </div>
     </div>
   )

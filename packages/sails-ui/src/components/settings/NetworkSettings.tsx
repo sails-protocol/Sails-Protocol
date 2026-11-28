@@ -130,7 +130,7 @@ export function NetworkSettingsRows({ advanced }: { advanced?: ReactNode }) {
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-caption text-brand-text-secondary">{t('settings.network.economy')}</p>
+        <p className="mt-2 max-w-[68ch] text-caption text-brand-text-secondary">{t('settings.network.economy')}</p>
         <RoleLinks here="node" className="mt-2" />
       </li>
       <li className="px-4 py-3">

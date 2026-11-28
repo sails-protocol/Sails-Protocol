@@ -215,8 +215,8 @@ export function MerchantProgramSection({ user, className }: { user: User | null;
       <p className="mt-1 max-w-[68ch] text-body-sm text-brand-text-secondary">{t('profile.merchant.lead')}</p>
       {/* Always visible, never dismissible (CTO 38 UI conditions). */}
       <Alert tone="info" className="mt-3">
-        <p>{t('profile.merchant.honesty')}</p>
-        <p className="mt-1">{t('profile.merchant.noTopTier')} {t('profile.merchant.noAdvantage')}</p>
+        <p className="max-w-[68ch]">{t('profile.merchant.honesty')}</p>
+        <p className="mt-1 max-w-[68ch]">{t('profile.merchant.noTopTier')} {t('profile.merchant.noAdvantage')}</p>
       </Alert>
 
       <Card className="mt-4 p-4 md:p-5">
@@ -241,7 +241,7 @@ export function MerchantProgramSection({ user, className }: { user: User | null;
         ))}
       </dl>
       <p className="mt-1 text-caption text-brand-text-muted">{t('profile.merchant.incentives.note')}</p>
-      <p className="mt-3 text-caption text-brand-text-secondary">{t('profile.merchant.globalPolicy')}</p>
+      <p className="mt-3 max-w-[68ch] text-caption text-brand-text-secondary">{t('profile.merchant.globalPolicy')}</p>
       <p className="mt-1 text-caption text-brand-text-muted">{t('profile.merchant.referenceFee')}</p>
       <PlannedItem
         className="mt-4"

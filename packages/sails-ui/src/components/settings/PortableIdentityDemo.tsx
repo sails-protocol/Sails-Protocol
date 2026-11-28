@@ -475,9 +475,9 @@ export function PortableIdentityRows() {
         <div className="min-w-0 flex-1 space-y-0.5">
           <h3 className="text-sm font-medium text-brand-text">{t('identity.social.title')}</h3>
           <p className="text-body-sm text-brand-text-secondary">{t('identity.social.included')}</p>
-          <p className="text-body-sm text-brand-text-secondary">{t('identity.social.excluded')}</p>
-          <p className="text-body-sm text-brand-text-secondary">{t('identity.social.today')}</p>
-          <p className="text-body-sm text-brand-text-secondary">{t('identity.limits.messages')}</p>
+          <p className="max-w-[68ch] text-body-sm text-brand-text-secondary">{t('identity.social.excluded')}</p>
+          <p className="max-w-[68ch] text-body-sm text-brand-text-secondary">{t('identity.social.today')}</p>
+          <p className="max-w-[68ch] text-body-sm text-brand-text-secondary">{t('identity.limits.messages')}</p>
         </div>
       </li>
       {demo ? (
