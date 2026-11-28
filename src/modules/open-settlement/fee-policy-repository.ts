@@ -56,7 +56,7 @@ export interface CreateDraftFeePolicyVersionData {
   arbitratorReservePct?: Prisma.Decimal | string
   smallTradeRule?: Prisma.InputJsonValue
   triggerSemantics?: Prisma.InputJsonValue
-  /** G3: the signed policy document; a DRAFT may be created without it, but publish() refuses a policy without one. */
+  /** G3: the signed policy document, frozen with the row once it leaves DRAFT. Requiring it to publish comes with D-E1. */
   signedDocument?: Prisma.InputJsonValue
   createdBy: string
 }
