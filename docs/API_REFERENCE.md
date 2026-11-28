@@ -502,7 +502,7 @@ during code review — the old names are dead, do not reintroduce them.
   "message": "Human-readable description",
   "details": [],
   "requestId": "req-1",
-  "docsUrl": "https://github.com/alan-schramm/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape"
+  "docsUrl": "https://github.com/sails-protocol/Sails-Protocol/blob/main/docs/API_REFERENCE.md#9-error-response-shape"
 }
 ```
 
