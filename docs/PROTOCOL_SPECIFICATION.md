@@ -11,8 +11,7 @@
 
 ## 0. Normative Language
 
-*(Added 2026-07-19, relaying a CTO-role architectural review — "a
-documentação deve evoluir para uma linguagem normativa consistente."
+*(Added 2026-07-19, relaying a CTO-role architectural review — "documentation should evolve toward consistent normative language."
 Scoped to this document only: the rest of the 20-document Engineering
 Handoff series is written for engineers understanding the system, not
 implementers conforming to it, and stays in its existing narrative
@@ -187,6 +186,16 @@ positioning material, "Portable Identity Layer" is the technology-neutral
 term to use; "DID" is only correct when the discussion is genuinely about
 that one specific format choice.
 
+**Current implementation boundary (Day 0):** This portability requirement
+is not evidence of cross-device recovery, operator-independent identity
+migration, or a cryptographic binding between economic participant keys and
+Pears transport keys. The reference `PearNode` generates a separate,
+server-runtime transport keypair; `User.peerId` association and handshake
+checks are server-mediated (see `TRUST_BOUNDARY.md` boundary 1b and
+`NODE_ARCHITECTURE.md`). Portability and recovery remain open Day-0
+integration/evidence gates under ADR-001 / #105. Do not present the
+technology-neutral identity contract as a shipped portability guarantee.
+
 **Operational Profiles (RFC-007, `rfcs/RFC-007-real-world-p2p-requirements.md`).**
 A further additive, OpenIdentity-module-level attribute, orthogonal to the
 Keys/DID/Credentials/Trust Graph growth path above and to `Identity`'s core
@@ -313,7 +322,23 @@ interface NegotiationChannel {
 }
 ```
 
-**Two valid implementations of the same primitive, today and later —
+**Current reference implementation boundary (E21 slice 1):** Trade
+admission persists the Trade, its trade Intent, and the `trade.created`
+(`openp2p.trade.created`), `negotiation.opened` and
+`openp2p.trade.status_changed` events within the admission transaction.
+Post-commit dispatch and `NegotiationService.markOpened()` are separate
+from that durable admission. The service's status Map is process-local
+and non-authoritative; `getStatus()` defaults to `CREATED` when no entry
+exists. `markAgreed()` updates that Map and emits
+`negotiation.terms_agreed` with a trade ID, not a signed bilateral terms
+commitment. The interface above describes the protocol abstraction, not
+proof of a fully durable negotiation state machine or an implemented
+end-to-end `AgreedTerms` authorization pipeline. Neither a chat event
+nor this status change alone authorizes settlement. Exact accepted-offer
+and economic-commitment semantics require their own authority checks
+and Day-0 evidence (ADR-001 / Issue #105).
+
+**Two illustrative implementations of the same primitive, today and later —
 neither requires a Core change:**
 
 ```
@@ -705,18 +730,18 @@ right key. The shipped `core/timeline.ts` implements RFC-017's
 correction; this section had not been updated to match until this
 consolidation pass.
 
-**Hash-chained (RFC-008, decision D2).** A flat, unlinked Timeline is
-tamper-*visible* to no one — an entry can be inserted, reordered, or
-deleted with nothing to detect it. RFC-008 gives each `TimelineEntry` an
-`entryHash`/`prevHash` pair, computed and persisted once at the moment the
-underlying event is first written (not derivable at read-time, or it
-proves nothing), and adds `Timeline.verifyChain()`. This is a hash chain,
-not a blockchain — no consensus, same technique Certificate Transparency
-and Secure Scuttlebutt use. Correction to RFC-007 D5's original framing:
-this does add a small write-path change — `EscrowEvent` and
-`ReputationEvent` (`DATABASE.md`) each gain two nullable columns — RFC-007
-D5's "no new write path" held for the read-projection itself, not for
-this later chaining requirement.
+**Hash-chained Timeline (RFC-008, decision D2).** The implemented
+`Timeline` projects persisted `DurableEvent` records per `correlationId`,
+exposes `entryHash`/`prevHash`, and provides `verifyChain()` to check
+links from `GENESIS_HASH` and recompute hashes from stored event fields.
+The RFC-008 D2 amendment (2026-08-15) establishes `PostgresEventStore`
+as the default; the original proposal to chain `EscrowEvent` and
+`ReputationEvent` for the general Timeline was superseded by chaining
+`DurableEvent` itself. Separate Intent and Escrow event chains have their
+own integrity boundaries. This is a hash chain, not a blockchain or
+consensus mechanism. Verification does not establish business-operation
+idempotency, cross-operator ordering, completeness against truncation,
+external timestamp anchoring, or production homologation.
 
 ### 1.10 Capability and Policy — Why They Are Coordination Components, Not Protocol Primitives
 
@@ -1231,7 +1256,7 @@ Bob:   BuyIntent(BTC, maxBRL: 17,000, method: PIX)
 
 1. HyperDHT discovers Alice's offer → OpenLiquidity ranks by price + reputation
 2. Secretstream chat opens E2E → Alice shares her PIX key
-3. Escrow locks Alice's 0.05 BTC (Sails never holds the BTC itself)
+3. Escrow locks Alice's 0.05 BTC in a 2-of-3 script (Sails does not hold the BTC; on the Gen-1 rail the node derives the arbiter key)
 4. Bob sends R$17,000 via PIX directly to Alice — outside the protocol
 5. Alice confirms receipt via chat → signs the escrow release
 6. 0.05 BTC arrives in Bob's WDK wallet

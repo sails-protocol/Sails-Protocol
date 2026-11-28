@@ -759,7 +759,7 @@ Vocabulary for classifying a document's authority:
   explicitly marked otherwise inside the file.
 - **SUPERSEDED** — was canonical, replaced by a later decision; the file
   usually says so inline (e.g. `docs/PROTOCOL_INVARIANTS.md`'s own
-  "Corrigido/Implementado" annotations, `docs/BACKLOG.md`'s "Superseded"
+  "Corrected/Implemented" annotations, `docs/BACKLOG.md`'s "Superseded"
   markings on the old Protocol Fee row).
 - **HISTORICAL** — a true record of a past state or decision, not a
   current instruction (e.g. mission reports, `rfcs/` entries for a
