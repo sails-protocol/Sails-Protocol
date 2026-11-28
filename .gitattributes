@@ -1,0 +1,4 @@
+# Prisma migration SQL must stay LF: the checksum Prisma records is over the exact bytes, and a CRLF rewrite on
+# Windows changes it. Prisma 7's migrate deploy does not report the mismatch, so it would go unnoticed.
+# tests/migrationLineEndings.test.ts enforces LF.
+prisma/migrations/**/*.sql text eol=lf
