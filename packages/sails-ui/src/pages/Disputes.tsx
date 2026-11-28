@@ -602,7 +602,7 @@ function CaseFile({
         </SheetClose>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div role="region" aria-label={t('disputes.case.title', { id: shortId(d.tradeId) })} tabIndex={0} className="flex-1 overflow-y-auto focus-visible:-outline-offset-2">
         <Section id="case-summary" title={t('disputes.case.summary')}>
           <dl>
             <Field label={t('disputes.col.trade')}><span className="font-mono">#{shortId(d.tradeId)}</span></Field>
