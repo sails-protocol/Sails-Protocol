@@ -279,7 +279,7 @@ remains binding; no merge bypass is implied."
   verdict on the exact head, the CTO gate, and the owner's written,
   SHA-specific authorization. Green CI is not permission.
 
-**Amended 2026-11-21 (Despachos 058 and 059; owner approval recorded in PR #751):** from the date the CTO declares `docs/governance/MERGE_AUTONOMY_POLICY.md` in force, the merge authorization above is delegated to the EPM for Tier 1 and Tier 2 changes only, under that policy's gates. Tier 3 and 4 keep the owner/CTO authorization. Until that declaration, the text above applies unchanged.
+**Amended 2026-11-21 (Despachos 058 and 059; owner approval recorded in PR #751):** from the date the CTO declares `docs/governance/MERGE_AUTONOMY_POLICY.md` in force, the merge authorization above is delegated to the EPM for Tier 1 and Tier 2 changes only, under that policy's gates. Tier 3 and 4 keep the owner/CTO authorization. Until that declaration, the text above applies unchanged. **In force since 2026-11-21** (CTO Despacho 064); formalized on GitHub on 2026-11-28 (CTO Despacho 065, [PR #751 comment 7231746187](https://github.com/sails-protocol/Sails-Protocol/pull/751#issuecomment-7231746187)).
 
 ---
 
