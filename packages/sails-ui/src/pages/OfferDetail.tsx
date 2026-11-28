@@ -238,11 +238,11 @@ export function OfferDetail() {
 
       {/* Below lg one column in reading order: terms, then the action card, then the seller. lg+: terms and
           seller on the left (8), the sticky action card on the right (4). */}
-      <div className="grid gap-x-6 gap-y-4 lg:grid-cols-12 lg:items-start">
+      <div className="grid grid-cols-1 gap-x-6 gap-y-4 lg:grid-cols-12 lg:items-start">
         {/* One card for the terms: price on the left, the facts on the right; each fact appears once. */}
         <Card className="p-5 lg:col-span-8">
           <h2 className="text-section-title">{t('offer.terms')}</h2>
-          <div className="mt-4 grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+          <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
             <div>
               <div className="text-xs text-brand-text-muted">{t('market.table.price')}</div>
               <div className="mt-1 money-hero text-brand-text">{formatPrice(offer.priceFiat, offer.fiatCurrency)}</div>
@@ -325,7 +325,7 @@ export function OfferDetail() {
                   className="mt-4"
                   legend={<span className="inline-flex flex-wrap items-center gap-2">{t('offer.ticket.pickMethod')}<SimulatedBadge label={t('spaces.simulated')} /></span>}
                   description={t('offer.ticket.pickMethodHelp')}
-                  listClassName="grid gap-2"
+                  listClassName="grid grid-cols-1 gap-2"
                 >
                   {tradeMethods.map((m) => (
                     <RadioCard key={m} name="trade-method" value={m} checked={chosenMethod === m} onChange={() => setMethod(m)}>

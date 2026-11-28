@@ -1290,7 +1290,7 @@ export function Trade() {
               onClick={() => setChatOpen((o) => !o)}
               aria-expanded={chatOpen}
               aria-controls="trade-chat"
-              className="mt-1 w-full lg:hidden"
+              className="mt-1 w-full h-auto min-h-10 whitespace-normal lg:hidden"
             >
               <MessageSquare className="size-icon-sm" aria-hidden="true" />
               {chatOpen ? t('trade.chat.toggleHide') : t('trade.chat.toggleOpen', { count: messages.length })}

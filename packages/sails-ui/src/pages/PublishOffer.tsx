@@ -299,7 +299,7 @@ export function PublishOffer() {
             </div>
 
             {/* In a form, the pickers look like the other fields (bordered, field background), not like toolbar chips. */}
-            <div className="grid gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 [&_.toolbar-chip]:w-full [&_.toolbar-chip]:bg-background [&_.toolbar-chip]:border-input">
               <div>
                 <label className="text-xs text-brand-text-muted mb-1.5 block">{t('trades.offers.col.asset')}</label>
                 <AssetPicker

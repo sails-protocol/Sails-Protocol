@@ -23,7 +23,7 @@ export function ExplanationPopover({
     <Popover>
       <PopoverTrigger asChild>
         {variant === 'icon' ? (
-          <button type="button" aria-label={label} className={cn('group p-3.5 -m-3.5 inline-flex items-center justify-center rounded-full', className)}>
+          <button type="button" aria-label={label} className={cn('group p-[14px] -m-[14px] inline-flex items-center justify-center rounded-full', className)}>
             <span aria-hidden="true" className="w-4 h-4 rounded-full border border-brand-border text-brand-text-muted text-xs leading-none font-normal normal-case flex items-center justify-center transition-colors group-hover:border-brand-orange-accent group-hover:text-brand-orange-accent group-data-[state=open]:border-brand-orange-accent group-data-[state=open]:text-brand-orange-accent">
               i
             </span>

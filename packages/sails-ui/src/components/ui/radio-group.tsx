@@ -19,7 +19,7 @@ export function RadioGroup({ legend, legendHidden = false, description, children
   listClassName?: string
 }) {
   return (
-    <fieldset className={className}>
+    <fieldset className={cn("min-w-0", className)}>
       <legend className={legendHidden ? 'sr-only' : 'text-sm font-medium text-brand-text'}>{legend}</legend>
       {description && <p className="mt-0.5 text-xs text-brand-text-muted">{description}</p>}
       <div className={cn(!legendHidden || description ? 'mt-3' : '', listClassName)}>{children}</div>

@@ -285,8 +285,8 @@ export function Marketplace() {
           border), separating "controls" from "content" instead of every
           control floating loose at equal weight against the page bg. */}
       {/* Mobile: one side segment + one Filtros button; everything else lives in the bottom sheet. */}
-      <div className="md:hidden mt-4 flex gap-2">
-        {sideSegment('flex-1 min-w-0', 'flex-1 h-8 touch:h-11 px-2')}
+      <div className="md:hidden mt-4 flex flex-wrap gap-2">
+        {sideSegment('flex-auto min-w-0 flex-wrap', 'flex-1 h-8 touch:h-11 px-2')}
         <Button
           variant="outline"
           onClick={openMobileFilters}

@@ -782,7 +782,8 @@ body {
   }
   .money-hero {
     @apply font-semibold tabular-nums;
-    font-size: var(--t-money-hero);
+    /* Never wider than a phone at 200% text: the price shrinks before it overflows (11vw = 41px at 375). */
+    font-size: min(var(--t-money-hero), 11vw);
     line-height: 1.15;
     letter-spacing: -0.01em;
   }
