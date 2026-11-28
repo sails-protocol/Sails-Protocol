@@ -94,3 +94,21 @@ Amendment (dated 2026-11-21, owner approval recorded in this PR and acknowledged
 
 Other relations:
 - `docs/ENGINEERING_GOVERNANCE.md` §4 (consequence classes) says *how* to build by consequence; this policy says *who may merge*. Financial-authority work is Tier 3 or 4.
+
+## 12. Amendment (dated 2026-11-28): Tier 1 merge by the Documentary Auditor
+
+Dated amendment, appended without rewriting any earlier section. This amendment records the operational practice since 2026-11-28; this change is merged only with express CTO authorization by SHA.
+
+**Rule.** The Documentary Auditor may merge only the PRs the Auditor authored classified Tier 1, and only when all of the following hold:
+- the GK independently confirms the Tier 1 classification;
+- the GK's GO is published on the PR itself, naming the exact head SHA;
+- the full CI is green on that same SHA;
+- no material review remains pending, and every other condition of this policy still holds (Sections 2, 3 and 7);
+- the merge uses HEAD protection (`match-head-commit` on the SHA the GK authorized), with no bypass of branch protection;
+- any change of the head SHA requires a new GK confirmation.
+
+**Independent control.** The GitHub account is shared, so the account identity does not prove an independent review. After each such merge the EPM checks, and records: the SHA the GK authorized, the independent record of the GK's opinion, the SHA actually integrated, the CI result, and that the scope was preserved. Any divergence between these is a governance incident and goes to the CTO.
+
+**No self-approval.** Self-approval is forbidden: the Auditor never classifies, confirms or authorizes a PR the Auditor authored.
+
+**Preserved authorities.** Tier 1: the EPM, plus the Auditor within the limit above. Tier 2: the EPM, as in Section 1. Tier 3 and 4: the CTO. The independent GK review stays mandatory. The EPM keeps coordination, traceability and verification.
