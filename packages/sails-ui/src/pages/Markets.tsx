@@ -137,6 +137,7 @@ function createCopy(): CreateMarketCopy {
       ],
       threshold: t('spaces.create.threshold'), thresholdHelp: t('spaces.create.thresholdHelp', { amount: formatAmount(10000, 0) }), thresholdError: t('spaces.create.thresholdError'),
       provider: t('spaces.create.provider'), providerHelp: t('spaces.create.providerHelp'), providerError: t('spaces.create.providerError'),
+      providerName: t('spaces.create.providerName'), providerNameHelp: t('spaces.create.providerNameHelp'),
       socialLegend: t('spaces.create.socialLegend'), socialHelp: t('spaces.create.socialHelp'), social: SOCIAL_OPTIONS,
       responsibility: t('spaces.create.responsibility'),
       limits: t('spaces.create.limits'),
@@ -390,7 +391,7 @@ function CreateView() {
       preset: paying.preset, category: paying.category, profile: paying.profile, participants: 1,
       // The person's own local previews (kept alive by retainUrl below), never uploaded.
       brandImage: paying.iconUrl ?? undefined, bannerImage: paying.bannerUrl ?? undefined,
-      entryPolicy: { kyc: paying.entry.kyc, thresholdUsd: paying.entry.thresholdUsd ?? undefined, providerUrl: paying.entry.providerUrl ?? undefined, social: paying.entry.social },
+      entryPolicy: { kyc: paying.entry.kyc, thresholdUsd: paying.entry.thresholdUsd ?? undefined, providerUrl: paying.entry.providerUrl ?? undefined, providerName: paying.entry.providerName ?? undefined, social: paying.entry.social },
     })
     if (id) setCreated({ id, name: paying.name })
   }, [paying])

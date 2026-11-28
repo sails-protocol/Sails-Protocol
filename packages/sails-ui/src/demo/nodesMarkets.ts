@@ -41,12 +41,12 @@ export const DEMO_MARKET_FIXTURES: readonly DemoMarketFixture[] = [
     preset: 'comunidade', stats: { trades: 410, volumeUsd: 480_000, activeDays: 78, calculatedAt: '2026-11-22T06:00:00Z' }, entry: 'open', activity30d: 212,
   },
   {
-    market: { id: 'demo-market-loja', name: 'Loja Exemplo', description: 'Vitrine de uma loja fictícia que vende e compra BTC e USDT', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 128, adminIdentity: key('9a0b7c61'), createdAt: '2026-06-10T12:00:00Z', entryPolicy: { kyc: 'above_threshold', thresholdUsd: 10_000, providerUrl: 'https://kyc.example/loja-exemplo', social: [] }, listed: true, state: 'PUBLISHED' },
+    market: { id: 'demo-market-loja', name: 'Loja Exemplo', description: 'Vitrine de uma loja fictícia que vende e compra BTC e USDT', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 128, adminIdentity: key('9a0b7c61'), createdAt: '2026-06-10T12:00:00Z', entryPolicy: { kyc: 'above_threshold', thresholdUsd: 10_000, providerUrl: 'https://kyc.example/loja-exemplo', providerName: 'Verifica Exemplo', social: [] }, listed: true, state: 'PUBLISHED' },
     preset: 'vitrine', stats: { trades: 88, volumeUsd: 61_000, activeDays: 40, calculatedAt: '2026-11-22T06:00:00Z' }, entry: 'approval', activity30d: 18,
   },
   {
     // The only fixture with an admin-supplied media link: shows the click-to-load rule (GK, 2026-11-22).
-    market: { id: 'demo-market-boreal', name: 'Boreal OTC', description: 'Mesa OTC fictícia para volumes maiores, atendida pela própria empresa', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 86, adminIdentity: key('7e2f40d9b1'), createdAt: '2025-08-01T12:00:00Z', bannerRef: { url: 'https://media.example/boreal-otc/banner.png', sha256: key('0f') }, entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/boreal-otc', social: ['LINKEDIN'] }, listed: true, state: 'PUBLISHED' },
+    market: { id: 'demo-market-boreal', name: 'Boreal OTC', description: 'Mesa OTC fictícia para volumes maiores, atendida pela própria empresa', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PUBLIC', participantsCount: 86, adminIdentity: key('7e2f40d9b1'), createdAt: '2025-08-01T12:00:00Z', bannerRef: { url: 'https://media.example/boreal-otc/banner.png', sha256: key('0f') }, entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/boreal-otc', providerName: 'Identidade Exemplo', social: ['LINKEDIN'] }, listed: true, state: 'PUBLISHED' },
     preset: 'vitrine', stats: { trades: 402, volumeUsd: 2_350_000, activeDays: 61, calculatedAt: '2026-11-22T06:00:00Z' }, entry: 'approval', activity30d: 41,
   },
   {
@@ -58,7 +58,7 @@ export const DEMO_MARKET_FIXTURES: readonly DemoMarketFixture[] = [
     preset: 'comunidade',
   },
   {
-    market: { id: 'demo-market-abc', name: 'Clientes Empresa ABC', description: 'Mercado exclusivo para parceiros', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PRIVATE', participantsCount: 41, adminIdentity: key('e83c05'), createdAt: '2026-04-04T12:00:00Z', entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/empresa-abc', social: [] }, listed: false, state: 'PUBLISHED' },
+    market: { id: 'demo-market-abc', name: 'Clientes Empresa ABC', description: 'Mercado exclusivo para parceiros', category: 'COMMERCE', profile: 'EMPRESA_OTC', visibility: 'PRIVATE', participantsCount: 41, adminIdentity: key('e83c05'), createdAt: '2026-04-04T12:00:00Z', entryPolicy: { kyc: 'all', providerUrl: 'https://kyc.example/empresa-abc', providerName: 'Verifica Exemplo', social: [] }, listed: false, state: 'PUBLISHED' },
     preset: 'vitrine', infrastructure: 'own',
   },
   {

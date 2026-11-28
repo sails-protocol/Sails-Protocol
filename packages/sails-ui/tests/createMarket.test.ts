@@ -51,7 +51,7 @@ describe('Prévia do mercado criado', () => {
     expect(marketPreview(pub)).toEqual({
       name: 'Loja Boreal', description: null, visibility: 'public', preset: 'vitrine', infrastructure: 'network',
       category: 'GENERAL', profile: 'P2P', iconUrl: null, bannerUrl: null,
-      entry: { kyc: 'none', thresholdUsd: null, providerUrl: null, social: [] },
+      entry: { kyc: 'none', thresholdUsd: null, providerUrl: null, providerName: null, social: [] },
       marketId: null, offers: [], invites: null, dependsOn: ['createMarket', 'marketBranding', 'marketMembership'],
     })
   })
@@ -90,15 +90,17 @@ describe('Criar mercado: entry policy (declarative, evaluated by the admin)', ()
     expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: '' }))).toBe(false)
     expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'javascript:alert(1)' }))).toBe(false)
     expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'http://kyc.example' }))).toBe(false)
-    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form' }))).toBe(true)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form' }))).toBe(false)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form', kycProviderName: '  ' }))).toBe(false)
+    expect(entryPolicyValid(draft({ kyc: 'all', kycProviderUrl: 'https://kyc.example/form', kycProviderName: 'Parceiro' }))).toBe(true)
     expect(entryPolicyValid(draft({ kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: 'abc' }))).toBe(false)
-    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: '10.000' }))).toBe(true)
+    expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'above_threshold', kycProviderUrl: 'https://kyc.example', kycThreshold: '10.000', kycProviderName: 'Parceiro' }))).toBe(true)
     expect(canAdvance('participation', draft({ preset: 'vitrine', kyc: 'all', kycProviderUrl: '' }))).toBe(false)
   })
 
   it('the preview carries the policy and its dependency', () => {
-    const p = marketPreview(draft({ name: 'Loja', visibility: 'public', preset: 'vitrine', kyc: 'above_threshold', kycThreshold: '10.000', kycProviderUrl: 'https://kyc.example/f', social: ['X'] }))
-    expect(p?.entry).toEqual({ kyc: 'above_threshold', thresholdUsd: 10000, providerUrl: 'https://kyc.example/f', social: ['X'] })
+    const p = marketPreview(draft({ name: 'Loja', visibility: 'public', preset: 'vitrine', kyc: 'above_threshold', kycThreshold: '10.000', kycProviderUrl: 'https://kyc.example/f', kycProviderName: ' Parceiro ', social: ['X'] }))
+    expect(p?.entry).toEqual({ kyc: 'above_threshold', thresholdUsd: 10000, providerUrl: 'https://kyc.example/f', providerName: 'Parceiro', social: ['X'] })
     expect(p?.dependsOn).toContain('marketEntryPolicy')
   })
 })

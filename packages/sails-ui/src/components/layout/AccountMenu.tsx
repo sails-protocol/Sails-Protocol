@@ -1,11 +1,12 @@
 import { Link, useNavigate } from 'react-router'
 import { toast } from '../ui/toast'
-import { ChevronDown, Copy, LogOut, Settings, User as UserIcon } from 'lucide-react'
+import { ChevronDown, Copy, ExternalLink, LogOut, Settings, ShieldCheck, User as UserIcon } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import type { User } from '../../types'
 import { UserAvatar } from '../ui/UserAvatar'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '../ui/menu'
 import { t } from '../../i18n'
+import { SAFETY_CENTER_LINK_PROPS, SafetyCenterNewTab, safetyCenterHref } from '../safety/SafetyCenterLink'
 
 export const shortKey = (key: string) => (key.length > 12 ? `${key.slice(0, 6)}…${key.slice(-4)}` : key)
 
@@ -66,6 +67,13 @@ export function AccountMenu({ user, compact = false }: { user: User; compact?: b
         </MenuItem>
         <MenuItem asChild>
           <Link to="/settings"><Settings aria-hidden="true" /> {t('shell.nav.settings')}</Link>
+        </MenuItem>
+        <MenuItem asChild>
+          <a href={safetyCenterHref()} {...SAFETY_CENTER_LINK_PROPS}>
+            <ShieldCheck aria-hidden="true" /> {t('shell.safetyCenter.label')}
+            <ExternalLink aria-hidden="true" className="ml-auto text-brand-text-muted" />
+            <SafetyCenterNewTab />
+          </a>
         </MenuItem>
         {/* Session exit kept apart from the navigation items. */}
         <MenuSeparator />

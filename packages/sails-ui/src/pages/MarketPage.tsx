@@ -41,7 +41,7 @@ import { formatPrice } from '../lib/currency'
 import type { Offer } from '../types'
 import { formatMonthYear } from '../lib/format'
 import { cn } from '../lib/utils'
-import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
+import { adminImageCopy, categoryLabel, DemoVerifiedSeal, kycDetails, kycText, marketListCopy, profileLabel, simulatedToast, socialNames, WireNote } from './markets/shared'
 import { t } from '../i18n'
 
 const SECTION = 'rounded-lg bg-brand-surface p-3 sm:p-4'
@@ -288,6 +288,7 @@ export function MarketPage() {
               <Fact k={t('markets.preview.trades')}>{presetRules.trades}</Fact>
               <Fact k={t('spaces.page.kyc')}>
                 {kycText(kyc)}
+                {kycDetails(m.entryPolicy).map((line) => <span key={line} className="block text-caption text-brand-text-secondary">{line}</span>)}
                 {kyc.kind !== 'none' && kyc.formUrl && <div><ExternalAdminLink href={kyc.formUrl} label={t('spaces.page.kycForm')} /></div>}
               </Fact>
               <Fact k={t('spaces.page.social')}>{social.length > 0 ? socialNames(social) : t('spaces.page.socialNone')}</Fact>
@@ -362,6 +363,7 @@ export function MarketPage() {
           <ul className="space-y-1.5 text-body-sm text-brand-text">
             <li>{presetRules.publishes}</li>
             <li>{kycText(kyc)}</li>
+            {kycDetails(m.entryPolicy, { dataHandling: true }).map((line) => <li key={line}>{line}</li>)}
             {RULES.map((r) => <li key={r}>{t(r)}</li>)}
           </ul>
           <p className="text-caption text-brand-text-secondary">{t('spaces.page.policyNote')}</p>

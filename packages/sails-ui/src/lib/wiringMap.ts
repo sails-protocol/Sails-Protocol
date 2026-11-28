@@ -59,6 +59,7 @@ export const WIRE_META: Readonly<Record<LooseWireId, WireMeta>> = {
   nodeCatalog: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   nodeStateSync: sim('Rede e nós', 'Configurações → Rede e nós → Avançado'),
   managedNode: sim('Serviços Satsails', 'Rede e nós (Onde um mercado pode rodar); Criar mercado (Onde o mercado roda) · Day 0 (CTO 33), modelo CTO 36', SATSAILS),
+  merchantBadge: out('Market e ofertas', 'Perfil → Programa Merchant (Em breve); futuro selo nas ofertas · política global + elegibilidade comprovada'),
   merchantProgram: out('Market e ofertas', 'Perfil → Programa Merchant (proposta); Criar mercado (nota) · proposta CTO 36'),
   spacePurchase: out('Serviços Satsails', 'Criar mercado: escolha do tipo e "Revisar e pagar" (checkout simulado); /markets/space redireciona', SATSAILS),
   // Wallet e chaves: never simulated (real secrets or funds outside the app).

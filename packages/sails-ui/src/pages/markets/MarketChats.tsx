@@ -18,6 +18,7 @@ import { Input } from '../../components/ui/input'
 import { Button, buttonVariants } from '../../components/ui/button'
 import { IconButton } from '../../components/ui/icon-button'
 import { Alert } from '../../components/ui/alert'
+import { SafetyCenterLink } from '../../components/safety/SafetyCenterLink'
 import { IdentityAvatar } from '../../components/ui/IdentityAvatar'
 import { SimulatedBadge } from '../../components/ui/SimulatedBadge'
 import { RadioCard, RadioGroup } from '../../components/ui/radio-group'
@@ -274,7 +275,9 @@ export function MarketChats({ membersSlot, openWith, backTo, canPin = false }: {
               <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(null)} className="touch:min-h-11"><ArrowLeft aria-hidden="true" />{t('spaces.chat.privateBack')}</Button>
               <p className="text-body-sm font-medium text-brand-text">{t('spaces.chat.privateWith', { name: thread.peer.author })}</p>
               {/* Fixed at the top of every private conversation (PO). */}
-              <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')} />
+              <Alert tone="warning" icon={ShieldAlert} title={t('spaces.chat.safety')}>
+                <SafetyCenterLink page="escrowLimits">{t('shell.safetyCenter.howToStaySafe')}</SafetyCenterLink>
+              </Alert>
               {thread.intent && <IntentCard intent={thread.intent} author={thread.peer.author} />}
               {thread.context && <p className="rounded-md bg-brand-elevated px-3 py-2 text-body-sm text-brand-text">{thread.context}</p>}
               <ul className="space-y-2" aria-label={t('spaces.chat.privateWith', { name: thread.peer.author })}>

@@ -101,6 +101,20 @@ export const SOCIAL_OPTIONS = (Object.keys(SOCIAL_NAME) as SocialLogin[]).map((v
 export function kycText(k: KycSummary): string {
   return k.kind === 'none' ? t('spaces.kyc.none') : k.kind === 'all' ? t('spaces.kyc.all') : t('spaces.kyc.above', { amount: formatUsd(k.thresholdUsd) })
 }
+/**
+ * Who runs a required identity verification (CTO/PO 2026-11-23): the partner, never Sails Protocol. "Responsável" only
+ * when the policy names the partner (demo fixtures do, marked "Exemplo ilustrativo"; no backend field exists yet).
+ * Connecting a wallet, verifying identity and being allowed into a market stay three separate things.
+ */
+export function kycDetails(p: EntryPolicy | undefined, { dataHandling = false } = {}): string[] {
+  if (kycSummary(p).kind === 'none') return []
+  const name = p?.providerName?.trim()
+  return [
+    t('spaces.kyc.conductedBy'),
+    ...(name ? [t('spaces.kyc.responsible', { name }) + (isDemoMode() ? ` (${t('spaces.kyc.illustrative')})` : '')] : []),
+    ...(dataHandling ? [t('spaces.kyc.dataHandling')] : []),
+  ]
+}
 export const entryText = (p: EntryPolicy | undefined) => {
   const kyc = kycText(kycSummary(p))
   return p && p.social.length > 0 ? t('spaces.create.summarySocial', { kyc, list: socialNames(p.social) }) : kyc
@@ -120,7 +134,8 @@ export function marketCardCopy(): MarketCardCopy {
       if (m.activity30d !== undefined) parts.push(t('spaces.explore.activity', { count: m.activity30d }))
       return parts.join(' · ')
     },
-    entry: (m) => (m.entryType ? t(`spaces.entry.${m.entryType}`) : null),
+    // Identity verification is its own line, never implied by the entry type (a private market is not KYC).
+    entry: (m) => [m.entryType && t(`spaces.entry.${m.entryType}`), kycSummary(m.entryPolicy).kind !== 'none' && t('spaces.kyc.required')].filter(Boolean).join(' · ') || null,
   }
 }
 

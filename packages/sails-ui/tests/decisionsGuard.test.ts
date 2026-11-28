@@ -75,3 +75,12 @@ describe('decisions guard: structure', () => {
     expect(bad).toEqual([])
   })
 })
+
+describe('decisions guard: Merchant journey (CTO 38, PO 2026-11-23)', () => {
+  const merchant = ALL.filter((e) => /^(?:profile\.merchant\.|faq\.merchant)/.test(e.key))
+  it('no number except the one reference fee, and no progress, goal or unlock wording', () => {
+    expect(merchant.filter((e) => e.key !== 'profile.merchant.referenceFee' && /\d/.test(e.text)).map((e) => `${e.l} ${e.key}`)).toEqual([])
+    expect(hits(merchant, /\{(?:done|goal)\}|faltam|desbloquead|unlocked|débloqué|freigeschaltet|ranking|sequência|streak/i)).toEqual([])
+  })
+  it('the card has no progress bar', () => expect(code('pages/markets/MerchantProgram.tsx')).not.toMatch(/Progress\b/))
+})
