@@ -9,6 +9,15 @@ ALTER TABLE "fee_policy_versions" ADD COLUMN "signedDocument" JSONB;
 CREATE OR REPLACE FUNCTION fee_policy_versions_enforce_immutability()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- A published policy only ever moves forward (historical rows stay read-only, Despacho 069): PUBLISHED -> RETIRED is
+  -- the one transition out of PUBLISHED, and a RETIRED row never changes status again. Without this, PUBLISHED -> DRAFT
+  -- would reopen every field below for editing.
+  IF OLD.status = 'PUBLISHED' AND NEW.status NOT IN ('PUBLISHED', 'RETIRED') THEN
+    RAISE EXCEPTION 'fee_policy_versions: a PUBLISHED policy can only be retired (id=%, % -> %)', OLD.id, OLD.status, NEW.status;
+  END IF;
+  IF OLD.status = 'RETIRED' AND NEW.status <> 'RETIRED' THEN
+    RAISE EXCEPTION 'fee_policy_versions: a RETIRED policy never changes status (id=%, % -> %)', OLD.id, OLD.status, NEW.status;
+  END IF;
   IF OLD.status <> 'DRAFT' THEN
     IF NEW."protocolFeeRate" IS DISTINCT FROM OLD."protocolFeeRate"
       OR NEW."payerModel" IS DISTINCT FROM OLD."payerModel"
@@ -48,3 +57,19 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER fee_policy_versions_require_signed_document
 BEFORE INSERT OR UPDATE ON "fee_policy_versions"
 FOR EACH ROW EXECUTE FUNCTION fee_policy_versions_require_signed_document();
+
+-- Only a DRAFT row can be deleted. A published or retired policy is history even when nothing references it yet (the
+-- foreign keys protect only referenced rows).
+CREATE OR REPLACE FUNCTION fee_policy_versions_refuse_delete()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF OLD.status <> 'DRAFT' THEN
+    RAISE EXCEPTION 'fee_policy_versions: a % policy is never deleted (id=%)', OLD.status, OLD.id;
+  END IF;
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER fee_policy_versions_refuse_delete
+BEFORE DELETE ON "fee_policy_versions"
+FOR EACH ROW EXECUTE FUNCTION fee_policy_versions_refuse_delete();
