@@ -591,6 +591,12 @@ body {
   :root.dark { color-scheme: dark; }
   /* The 56px sticky top bar (both menu layouts) must never cover a focused or anchored element. */
   html { scroll-padding-top: 3.5rem; }
+  /* WCAG 2.4.11: below 600 px (`medium`) the fixed bottom nav (3.5rem + its 1px border + the safe area, plus
+     1.25rem of margin) must not
+     cover a focused or anchored element either. */
+  @media (max-width: 37.49rem) {
+    html { scroll-padding-bottom: calc(4.75rem + 1px + env(safe-area-inset-bottom)); }
+  }
   /* No double-tap zoom delay on controls. */
   a, button, [role="button"], label, input, select, textarea { touch-action: manipulation; }
   :focus-visible {
